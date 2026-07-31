@@ -78,7 +78,7 @@ flowchart LR
 }
 ```
 
-存储位置是扩展的 `globalState`，没有调用 `setKeysForSync`，因此 FishStock 不主动把自选列表加入 Settings Sync。导入时会校验版本、分组、ID、代码格式和全局重复股票；确认后才整体替换。
+存储位置是扩展的 `globalState`，没有调用 `setKeysForSync`，因此 FishStock 不主动把自选列表加入 Settings Sync。卸载或升级扩展通常保留该数据。导入时会校验版本、分组、ID、代码格式和全局重复股票；确认后才整体替换。“清空全部自选数据”经过模态确认后持久化一个空的“默认”分组；“恢复默认自选数据”经过独立确认后写回首次运行的默认分组和两只示例股。
 
 ## 行情状态
 
@@ -121,5 +121,6 @@ flowchart LR
 - 股票搜索响应解析及非股票结果过滤
 - 顺序调整及边界
 - 本地存储持久化、跨组移动、去重和导入校验
+- 清空、恢复默认以及重新加载后的持久化结果
 
 Tree View 和 Extension Host 的端到端交互留到后续增加自动化测试；当前通过本地 Extension Development Host 手工冒烟。

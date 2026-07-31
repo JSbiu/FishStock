@@ -2,7 +2,7 @@
   "name": "fish-stock",
   "displayName": "FishStock",
   "description": "轻量、安静、本地优先的 VS Code 自选股行情插件",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "publisher": "fishstock-local",
   "private": true,
   "repository": {
@@ -25,7 +25,9 @@
     "onStartupFinished",
     "onView:fishStock.stock",
     "onCommand:fishStock.addStock",
-    "onCommand:fishStock.refresh"
+    "onCommand:fishStock.refresh",
+    "onCommand:fishStock.clearWatchlist",
+    "onCommand:fishStock.restoreDefaultWatchlist"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -103,6 +105,14 @@
       {
         "command": "fishStock.openWatchlist",
         "title": "FishStock: 打开自选列表"
+      },
+      {
+        "command": "fishStock.clearWatchlist",
+        "title": "FishStock: 清空全部自选数据"
+      },
+      {
+        "command": "fishStock.restoreDefaultWatchlist",
+        "title": "FishStock: 恢复默认自选数据"
       }
     ],
     "menus": {
@@ -131,6 +141,16 @@
           "command": "fishStock.exportJson",
           "when": "view == fishStock.stock",
           "group": "3_transfer@2"
+        },
+        {
+          "command": "fishStock.clearWatchlist",
+          "when": "view == fishStock.stock",
+          "group": "9_reset@1"
+        },
+        {
+          "command": "fishStock.restoreDefaultWatchlist",
+          "when": "view == fishStock.stock",
+          "group": "9_reset@2"
         }
       ],
       "view/item/context": [

@@ -310,6 +310,63 @@ export function registerCommands(options: CommandOptions): Disposable[] {
       });
     }),
 
+    commands.registerCommand('fishStock.clearWatchlist', async () => {
+      const state = repository.getSnapshot();
+      const stockCount = state.groups.reduce(
+        (total, group) => total + group.stocks.length,
+        0,
+      );
+      const alreadyEmpty =
+        state.groups.length === 1 &&
+        state.groups[0].name === '默认' &&
+        stockCount === 0;
+      if (alreadyEmpty) {
+        await window.showInformationMessage('FishStock: 自选数据已经是空的');
+        return;
+      }
+
+      const answer = await window.showWarningMessage(
+        '清空全部自选数据？',
+        {
+          modal: true,
+          detail: `将删除 ${state.groups.length} 个分组和 ${stockCount} 只股票，并保留一个空的“默认”分组。此操作无法撤销。`,
+        },
+        '清空全部数据',
+      );
+      if (answer !== '清空全部数据') {
+        return;
+      }
+      await handle(async () => {
+        await repository.clear();
+        await afterChange();
+        window.setStatusBarMessage('FishStock: 自选数据已清空', 2_500);
+      });
+    }),
+
+    commands.registerCommand('fishStock.restoreDefaultWatchlist', async () => {
+      const state = repository.getSnapshot();
+      const stockCount = state.groups.reduce(
+        (total, group) => total + group.stocks.length,
+        0,
+      );
+      const answer = await window.showWarningMessage(
+        '恢复默认自选数据？',
+        {
+          modal: true,
+          detail: `将用默认分组、贵州茅台和腾讯控股替换当前 ${state.groups.length} 个分组及 ${stockCount} 只股票。此操作无法撤销。`,
+        },
+        '恢复默认数据',
+      );
+      if (answer !== '恢复默认数据') {
+        return;
+      }
+      await handle(async () => {
+        await repository.restoreDefault();
+        await afterChange();
+        window.setStatusBarMessage('FishStock: 已恢复默认自选数据', 2_500);
+      });
+    }),
+
     commands.registerCommand('fishStock.moveStockUp', async (node?: StockNode) => {
       const picked = await chooseStock(repository, node);
       if (!picked) {

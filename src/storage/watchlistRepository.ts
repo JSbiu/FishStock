@@ -42,6 +42,20 @@ export function createDefaultWatchlist(): WatchlistState {
   };
 }
 
+function createEmptyWatchlist(): WatchlistState {
+  return {
+    version: 1,
+    groups: [
+      {
+        id: 'default',
+        name: '默认',
+        collapsed: false,
+        stocks: [],
+      },
+    ],
+  };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -140,6 +154,14 @@ export class WatchlistRepository {
   public async replace(value: unknown): Promise<void> {
     this.state = parseWatchlistState(value);
     await this.persist();
+  }
+
+  public async clear(): Promise<void> {
+    await this.save(createEmptyWatchlist());
+  }
+
+  public async restoreDefault(): Promise<void> {
+    await this.save(createDefaultWatchlist());
   }
 
   public async addGroup(id: string, name: string): Promise<void> {

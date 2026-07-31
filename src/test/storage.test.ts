@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  createDefaultWatchlist,
   parseWatchlistState,
   WatchlistRepository,
   WatchlistValidationError,
@@ -48,6 +49,42 @@ test('prevents duplicate stock symbols across groups', async () => {
     }),
     WatchlistValidationError,
   );
+});
+
+test('clears persisted data to one empty default group', async () => {
+  const store = new MemoryStateStore();
+  const repository = new WatchlistRepository(store);
+  await repository.load();
+  await repository.addGroup('group-2', '观察');
+  await repository.clear();
+
+  assert.deepEqual(repository.getSnapshot(), {
+    version: 1,
+    groups: [
+      {
+        id: 'default',
+        name: '默认',
+        collapsed: false,
+        stocks: [],
+      },
+    ],
+  });
+
+  const reloaded = new WatchlistRepository(store);
+  assert.deepEqual(await reloaded.load(), repository.getSnapshot());
+});
+
+test('restores the persisted first-run default watchlist', async () => {
+  const store = new MemoryStateStore();
+  const repository = new WatchlistRepository(store);
+  await repository.load();
+  await repository.addGroup('group-2', '观察');
+  await repository.removeStock('sample-cn');
+  await repository.restoreDefault();
+
+  assert.deepEqual(repository.getSnapshot(), createDefaultWatchlist());
+  const reloaded = new WatchlistRepository(store);
+  assert.deepEqual(await reloaded.load(), createDefaultWatchlist());
 });
 
 test('rejects invalid import payloads', () => {
