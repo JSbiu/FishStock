@@ -7,6 +7,7 @@ test('normalizes common A-share formats', () => {
   assert.deepEqual(normalizeSymbol('sz000001'), { symbol: '000001.SZ', market: 'CN' });
   assert.deepEqual(normalizeSymbol('000001.SZ'), { symbol: '000001.SZ', market: 'CN' });
   assert.deepEqual(normalizeSymbol('430047'), { symbol: '430047.BJ', market: 'CN' });
+  assert.deepEqual(normalizeSymbol('920189'), { symbol: '920189.BJ', market: 'CN' });
 });
 test('normalizes Hong Kong symbols to five digits', () => {
   assert.deepEqual(normalizeSymbol('700.hk'), { symbol: '00700.HK', market: 'HK' });

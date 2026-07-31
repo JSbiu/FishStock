@@ -5,6 +5,7 @@ import {
   parseTencentPayload,
   parseTencentSearchPayload,
   parseTencentTimestamp,
+  TencentDataProvider,
   toTencentSymbol,
 } from '../data/tencentDataProvider';
 
@@ -28,13 +29,19 @@ test('maps normalized A-share and Hong Kong symbols to Tencent codes', () => {
 });
 
 test('parses Tencent name and abbreviation search results for A-shares and Hong Kong stocks', () => {
-  const payload = String.raw`v_hint="sz~000333~\u7f8e\u7684\u96c6\u56e2~mdjt~GP-A^hk~00300~\u7f8e\u7684\u96c6\u56e2~mdjt~GP^jj~000333~\u957f\u57ce\u7a33\u56fa\u6536\u76ca\u503a\u5238A~ccwgsyzqa~KJ"`;
+  const payload = String.raw`v_hint="sz~000333~\u7f8e\u7684\u96c6\u56e2~mdjt~GP-A^sh~688981~\u4e2d\u82af\u56fd\u9645~zxgj~GP-A-KCB^hk~00300~\u7f8e\u7684\u96c6\u56e2~mdjt~GP^jj~000333~\u957f\u57ce\u7a33\u56fa\u6536\u76ca\u503a\u5238A~ccwgsyzqa~KJ"`;
   assert.deepEqual(parseTencentSearchPayload(payload), [
     {
       symbol: '000333.SZ',
       market: 'CN',
       name: '美的集团',
       abbreviation: 'mdjt',
+    },
+    {
+      symbol: '688981.SH',
+      market: 'CN',
+      name: '中芯国际',
+      abbreviation: 'zxgj',
     },
     {
       symbol: '00300.HK',
@@ -47,6 +54,32 @@ test('parses Tencent name and abbreviation search results for A-shares and Hong 
 
 test('returns no stock matches for an empty Tencent search response', () => {
   assert.deepEqual(parseTencentSearchPayload('v_hint=""'), []);
+});
+
+test('falls back to a direct quote lookup for a BSE code missing from Tencent search', async () => {
+  const quoteRow = row('康美特', '21.24', '20.85', '20260731153759');
+  const payload = [...JSON.stringify({ bj920189: quoteRow })]
+    .map((character) =>
+      character.charCodeAt(0) > 127
+        ? `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`
+        : character,
+    )
+    .join('');
+  const requested: string[] = [];
+  const provider = new TencentDataProvider({
+    fetcher: async (input) => {
+      const url = String(input);
+      requested.push(url);
+      return url.includes('smartbox.gtimg.cn')
+        ? new Response('v_hint="N";')
+        : new Response(payload);
+    },
+  });
+
+  assert.deepEqual(await provider.searchStocks('920189'), [
+    { symbol: '920189.BJ', market: 'CN', name: '康美特' },
+  ]);
+  assert.equal(requested.some((url) => url.includes('q=bj920189')), true);
 });
 
 test('parses Tencent A-share and Hong Kong timestamps as China Standard Time', () => {

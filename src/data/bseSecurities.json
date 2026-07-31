@@ -1,0 +1,1247 @@
+{
+  "version": 1,
+  "source": "https://www.bse.cn/service/code_mapping.html",
+  "retrievedAt": "2026-07-31T12:39:14Z",
+  "entries": [
+    {
+      "symbol": "920931",
+      "name": "无锡鼎邦",
+      "legacySymbol": "872931"
+    },
+    {
+      "symbol": "920123",
+      "name": "芭薇股份",
+      "legacySymbol": "837023"
+    },
+    {
+      "symbol": "920438",
+      "name": "戈碧迦",
+      "legacySymbol": "835438"
+    },
+    {
+      "symbol": "920706",
+      "name": "铁拓机械",
+      "legacySymbol": "873706"
+    },
+    {
+      "symbol": "920656",
+      "name": "海昇药业",
+      "legacySymbol": "870656"
+    },
+    {
+      "symbol": "920496",
+      "name": "许昌智能",
+      "legacySymbol": "831396"
+    },
+    {
+      "symbol": "920403",
+      "name": "康农种业",
+      "legacySymbol": "837403"
+    },
+    {
+      "symbol": "920806",
+      "name": "云星宇",
+      "legacySymbol": "873806"
+    },
+    {
+      "symbol": "920690",
+      "name": "捷众科技",
+      "legacySymbol": "873690"
+    },
+    {
+      "symbol": "920363",
+      "name": "莱赛激光",
+      "legacySymbol": "871263"
+    },
+    {
+      "symbol": "920061",
+      "name": "西磁科技",
+      "legacySymbol": "836961"
+    },
+    {
+      "symbol": "920284",
+      "name": "灵鸽科技",
+      "legacySymbol": "833284"
+    },
+    {
+      "symbol": "920375",
+      "name": "派诺科技",
+      "legacySymbol": "831175"
+    },
+    {
+      "symbol": "920547",
+      "name": "无锡晶海",
+      "legacySymbol": "836547"
+    },
+    {
+      "symbol": "920703",
+      "name": "广厦环能",
+      "legacySymbol": "873703"
+    },
+    {
+      "symbol": "920579",
+      "name": "机科股份",
+      "legacySymbol": "835579"
+    },
+    {
+      "symbol": "920570",
+      "name": "坤博精工",
+      "legacySymbol": "873570"
+    },
+    {
+      "symbol": "920522",
+      "name": "纳科诺尔",
+      "legacySymbol": "832522"
+    },
+    {
+      "symbol": "920132",
+      "name": "泰鹏智能",
+      "legacySymbol": "873132"
+    },
+    {
+      "symbol": "920679",
+      "name": "前进科技",
+      "legacySymbol": "873679"
+    },
+    {
+      "symbol": "920833",
+      "name": "美心翼申",
+      "legacySymbol": "873833"
+    },
+    {
+      "symbol": "920130",
+      "name": "立方控股",
+      "legacySymbol": "833030"
+    },
+    {
+      "symbol": "920493",
+      "name": "并行科技",
+      "legacySymbol": "839493"
+    },
+    {
+      "symbol": "920693",
+      "name": "阿为特",
+      "legacySymbol": "873693"
+    },
+    {
+      "symbol": "920026",
+      "name": "卓兆点胶",
+      "legacySymbol": "873726"
+    },
+    {
+      "symbol": "920786",
+      "name": "骑士乳业",
+      "legacySymbol": "832786"
+    },
+    {
+      "symbol": "920978",
+      "name": "开特股份",
+      "legacySymbol": "832978"
+    },
+    {
+      "symbol": "920665",
+      "name": "科强股份",
+      "legacySymbol": "873665"
+    },
+    {
+      "symbol": "920469",
+      "name": "富恒新材",
+      "legacySymbol": "832469"
+    },
+    {
+      "symbol": "920519",
+      "name": "万德股份",
+      "legacySymbol": "836419"
+    },
+    {
+      "symbol": "920627",
+      "name": "力王股份",
+      "legacySymbol": "831627"
+    },
+    {
+      "symbol": "920976",
+      "name": "视声智能",
+      "legacySymbol": "870976"
+    },
+    {
+      "symbol": "920953",
+      "name": "国子软件",
+      "legacySymbol": "872953"
+    },
+    {
+      "symbol": "920274",
+      "name": "宏裕包材",
+      "legacySymbol": "837174"
+    },
+    {
+      "symbol": "920504",
+      "name": "博迅生物",
+      "legacySymbol": "836504"
+    },
+    {
+      "symbol": "920748",
+      "name": "路桥信息",
+      "legacySymbol": "837748"
+    },
+    {
+      "symbol": "920058",
+      "name": "华洋赛车",
+      "legacySymbol": "834058"
+    },
+    {
+      "symbol": "920926",
+      "name": "鸿智科技",
+      "legacySymbol": "870726"
+    },
+    {
+      "symbol": "920982",
+      "name": "锦波生物",
+      "legacySymbol": "832982"
+    },
+    {
+      "symbol": "920701",
+      "name": "豪声电子",
+      "legacySymbol": "838701"
+    },
+    {
+      "symbol": "920751",
+      "name": "惠同新材",
+      "legacySymbol": "833751"
+    },
+    {
+      "symbol": "920576",
+      "name": "天力复合",
+      "legacySymbol": "873576"
+    },
+    {
+      "symbol": "920592",
+      "name": "华信永道",
+      "legacySymbol": "837592"
+    },
+    {
+      "symbol": "920717",
+      "name": "瑞星股份",
+      "legacySymbol": "836717"
+    },
+    {
+      "symbol": "920175",
+      "name": "东方碳素",
+      "legacySymbol": "832175"
+    },
+    {
+      "symbol": "920208",
+      "name": "青矩技术",
+      "legacySymbol": "836208"
+    },
+    {
+      "symbol": "920651",
+      "name": "天罡股份",
+      "legacySymbol": "832651"
+    },
+    {
+      "symbol": "920455",
+      "name": "汇隆活塞",
+      "legacySymbol": "833455"
+    },
+    {
+      "symbol": "920221",
+      "name": "易实精密",
+      "legacySymbol": "836221"
+    },
+    {
+      "symbol": "920779",
+      "name": "武汉蓝电",
+      "legacySymbol": "830779"
+    },
+    {
+      "symbol": "920017",
+      "name": "星昊医药",
+      "legacySymbol": "430017"
+    },
+    {
+      "symbol": "920719",
+      "name": "宁新新材",
+      "legacySymbol": "839719"
+    },
+    {
+      "symbol": "920471",
+      "name": "美邦科技",
+      "legacySymbol": "832471"
+    },
+    {
+      "symbol": "920006",
+      "name": "晟楠科技",
+      "legacySymbol": "837006"
+    },
+    {
+      "symbol": "920837",
+      "name": "华原股份",
+      "legacySymbol": "838837"
+    },
+    {
+      "symbol": "920578",
+      "name": "巨能股份",
+      "legacySymbol": "871478"
+    },
+    {
+      "symbol": "920699",
+      "name": "海达尔",
+      "legacySymbol": "836699"
+    },
+    {
+      "symbol": "920394",
+      "name": "民士达",
+      "legacySymbol": "833394"
+    },
+    {
+      "symbol": "920694",
+      "name": "中裕科技",
+      "legacySymbol": "871694"
+    },
+    {
+      "symbol": "920896",
+      "name": "旺成科技",
+      "legacySymbol": "830896"
+    },
+    {
+      "symbol": "920304",
+      "name": "迪尔化工",
+      "legacySymbol": "831304"
+    },
+    {
+      "symbol": "920593",
+      "name": "鼎智科技",
+      "legacySymbol": "873593"
+    },
+    {
+      "symbol": "920895",
+      "name": "花溪科技",
+      "legacySymbol": "872895"
+    },
+    {
+      "symbol": "920261",
+      "name": "一诺威",
+      "legacySymbol": "834261"
+    },
+    {
+      "symbol": "920792",
+      "name": "东和新材",
+      "legacySymbol": "839792"
+    },
+    {
+      "symbol": "920809",
+      "name": "安达科技",
+      "legacySymbol": "830809"
+    },
+    {
+      "symbol": "920556",
+      "name": "雅达股份",
+      "legacySymbol": "430556"
+    },
+    {
+      "symbol": "920663",
+      "name": "明阳科技",
+      "legacySymbol": "837663"
+    },
+    {
+      "symbol": "920575",
+      "name": "康乐卫士",
+      "legacySymbol": "833575"
+    },
+    {
+      "symbol": "920057",
+      "name": "百甲科技",
+      "legacySymbol": "835857"
+    },
+    {
+      "symbol": "920541",
+      "name": "铁大科技",
+      "legacySymbol": "872541"
+    },
+    {
+      "symbol": "920974",
+      "name": "凯大催化",
+      "legacySymbol": "830974"
+    },
+    {
+      "symbol": "920422",
+      "name": "润普食品",
+      "legacySymbol": "836422"
+    },
+    {
+      "symbol": "920770",
+      "name": "艾能聚",
+      "legacySymbol": "834770"
+    },
+    {
+      "symbol": "920478",
+      "name": "峆一药业",
+      "legacySymbol": "430478"
+    },
+    {
+      "symbol": "920906",
+      "name": "舜宇精工",
+      "legacySymbol": "831906"
+    },
+    {
+      "symbol": "920273",
+      "name": "一致魔芋",
+      "legacySymbol": "839273"
+    },
+    {
+      "symbol": "920249",
+      "name": "利尔达",
+      "legacySymbol": "832149"
+    },
+    {
+      "symbol": "920407",
+      "name": "驰诚股份",
+      "legacySymbol": "834407"
+    },
+    {
+      "symbol": "920367",
+      "name": "新赣江",
+      "legacySymbol": "873167"
+    },
+    {
+      "symbol": "920802",
+      "name": "保丽洁",
+      "legacySymbol": "832802"
+    },
+    {
+      "symbol": "920023",
+      "name": "田野股份",
+      "legacySymbol": "832023"
+    },
+    {
+      "symbol": "920425",
+      "name": "乐创技术",
+      "legacySymbol": "430425"
+    },
+    {
+      "symbol": "920252",
+      "name": "天宏锂电",
+      "legacySymbol": "873152"
+    },
+    {
+      "symbol": "920371",
+      "name": "欧福蛋业",
+      "legacySymbol": "839371"
+    },
+    {
+      "symbol": "920950",
+      "name": "迅安科技",
+      "legacySymbol": "834950"
+    },
+    {
+      "symbol": "920392",
+      "name": "佳合科技",
+      "legacySymbol": "872392"
+    },
+    {
+      "symbol": "920262",
+      "name": "太湖雪",
+      "legacySymbol": "838262"
+    },
+    {
+      "symbol": "920195",
+      "name": "三祥科技",
+      "legacySymbol": "831195"
+    },
+    {
+      "symbol": "920855",
+      "name": "浙江大农",
+      "legacySymbol": "831855"
+    },
+    {
+      "symbol": "920351",
+      "name": "华光源海",
+      "legacySymbol": "872351"
+    },
+    {
+      "symbol": "920227",
+      "name": "美登科技",
+      "legacySymbol": "838227"
+    },
+    {
+      "symbol": "920001",
+      "name": "纬达光电",
+      "legacySymbol": "873001"
+    },
+    {
+      "symbol": "920781",
+      "name": "瑞奇智造",
+      "legacySymbol": "833781"
+    },
+    {
+      "symbol": "920247",
+      "name": "华密新材",
+      "legacySymbol": "836247"
+    },
+    {
+      "symbol": "920190",
+      "name": "雷神科技",
+      "legacySymbol": "872190"
+    },
+    {
+      "symbol": "920718",
+      "name": "合肥高科",
+      "legacySymbol": "430718"
+    },
+    {
+      "symbol": "920526",
+      "name": "凯华材料",
+      "legacySymbol": "831526"
+    },
+    {
+      "symbol": "920505",
+      "name": "九菱科技",
+      "legacySymbol": "873305"
+    },
+    {
+      "symbol": "920033",
+      "name": "康普化学",
+      "legacySymbol": "834033"
+    },
+    {
+      "symbol": "920879",
+      "name": "基康技术",
+      "legacySymbol": "830879"
+    },
+    {
+      "symbol": "920807",
+      "name": "奔朗新材",
+      "legacySymbol": "836807"
+    },
+    {
+      "symbol": "920810",
+      "name": "春光智能",
+      "legacySymbol": "838810"
+    },
+    {
+      "symbol": "920608",
+      "name": "丰安股份",
+      "legacySymbol": "870508"
+    },
+    {
+      "symbol": "920429",
+      "name": "康比特",
+      "legacySymbol": "833429"
+    },
+    {
+      "symbol": "920571",
+      "name": "国航远洋",
+      "legacySymbol": "833171"
+    },
+    {
+      "symbol": "920957",
+      "name": "汉维科技",
+      "legacySymbol": "836957"
+    },
+    {
+      "symbol": "920075",
+      "name": "柏星龙",
+      "legacySymbol": "833075"
+    },
+    {
+      "symbol": "920014",
+      "name": "特瑞斯",
+      "legacySymbol": "834014"
+    },
+    {
+      "symbol": "920414",
+      "name": "欧普泰",
+      "legacySymbol": "836414"
+    },
+    {
+      "symbol": "920866",
+      "name": "绿亨科技",
+      "legacySymbol": "870866"
+    },
+    {
+      "symbol": "920230",
+      "name": "欧康医药",
+      "legacySymbol": "833230"
+    },
+    {
+      "symbol": "920942",
+      "name": "恒立钻具",
+      "legacySymbol": "836942"
+    },
+    {
+      "symbol": "920300",
+      "name": "辰光医疗",
+      "legacySymbol": "430300"
+    },
+    {
+      "symbol": "920087",
+      "name": "秋乐种业",
+      "legacySymbol": "831087"
+    },
+    {
+      "symbol": "920110",
+      "name": "雷特科技",
+      "legacySymbol": "832110"
+    },
+    {
+      "symbol": "920641",
+      "name": "格利尔",
+      "legacySymbol": "831641"
+    },
+    {
+      "symbol": "920199",
+      "name": "倍益康",
+      "legacySymbol": "870199"
+    },
+    {
+      "symbol": "920374",
+      "name": "云里物里",
+      "legacySymbol": "872374"
+    },
+    {
+      "symbol": "920662",
+      "name": "方盛股份",
+      "legacySymbol": "832662"
+    },
+    {
+      "symbol": "920237",
+      "name": "力佳科技",
+      "legacySymbol": "835237"
+    },
+    {
+      "symbol": "920634",
+      "name": "新威凌",
+      "legacySymbol": "871634"
+    },
+    {
+      "symbol": "920808",
+      "name": "曙光数创",
+      "legacySymbol": "872808"
+    },
+    {
+      "symbol": "920357",
+      "name": "雅葆轩",
+      "legacySymbol": "870357"
+    },
+    {
+      "symbol": "920339",
+      "name": "恒太照明",
+      "legacySymbol": "873339"
+    },
+    {
+      "symbol": "920914",
+      "name": "远航精密",
+      "legacySymbol": "833914"
+    },
+    {
+      "symbol": "920876",
+      "name": "慧为智能",
+      "legacySymbol": "832876"
+    },
+    {
+      "symbol": "920753",
+      "name": "天纺标",
+      "legacySymbol": "871753"
+    },
+    {
+      "symbol": "920139",
+      "name": "华岭股份",
+      "legacySymbol": "430139"
+    },
+    {
+      "symbol": "920527",
+      "name": "夜光明",
+      "legacySymbol": "873527"
+    },
+    {
+      "symbol": "920992",
+      "name": "中科美菱",
+      "legacySymbol": "835892"
+    },
+    {
+      "symbol": "920476",
+      "name": "海能技术",
+      "legacySymbol": "430476"
+    },
+    {
+      "symbol": "920046",
+      "name": "亿能电力",
+      "legacySymbol": "837046"
+    },
+    {
+      "symbol": "920685",
+      "name": "新芝生物",
+      "legacySymbol": "430685"
+    },
+    {
+      "symbol": "920402",
+      "name": "硅烷科技",
+      "legacySymbol": "838402"
+    },
+    {
+      "symbol": "920971",
+      "name": "天马新材",
+      "legacySymbol": "838971"
+    },
+    {
+      "symbol": "920122",
+      "name": "中纺标",
+      "legacySymbol": "873122"
+    },
+    {
+      "symbol": "920207",
+      "name": "众诚科技",
+      "legacySymbol": "835207"
+    },
+    {
+      "symbol": "920790",
+      "name": "联迪信息",
+      "legacySymbol": "839790"
+    },
+    {
+      "symbol": "920270",
+      "name": "天铭科技",
+      "legacySymbol": "836270"
+    },
+    {
+      "symbol": "920395",
+      "name": "朗鸿科技",
+      "legacySymbol": "836395"
+    },
+    {
+      "symbol": "920152",
+      "name": "昆工科技",
+      "legacySymbol": "831152"
+    },
+    {
+      "symbol": "920834",
+      "name": "三维装备",
+      "legacySymbol": "831834"
+    },
+    {
+      "symbol": "920985",
+      "name": "海泰新能",
+      "legacySymbol": "835985"
+    },
+    {
+      "symbol": "920871",
+      "name": "派特尔",
+      "legacySymbol": "836871"
+    },
+    {
+      "symbol": "920725",
+      "name": "惠丰钻石",
+      "legacySymbol": "839725"
+    },
+    {
+      "symbol": "920062",
+      "name": "科润智控",
+      "legacySymbol": "834062"
+    },
+    {
+      "symbol": "920639",
+      "name": "晨光电缆",
+      "legacySymbol": "834639"
+    },
+    {
+      "symbol": "920821",
+      "name": "则成电子",
+      "legacySymbol": "837821"
+    },
+    {
+      "symbol": "920870",
+      "name": "恒进感应",
+      "legacySymbol": "838670"
+    },
+    {
+      "symbol": "920943",
+      "name": "优机股份",
+      "legacySymbol": "833943"
+    },
+    {
+      "symbol": "920378",
+      "name": "泰德股份",
+      "legacySymbol": "831278"
+    },
+    {
+      "symbol": "920564",
+      "name": "天润科技",
+      "legacySymbol": "430564"
+    },
+    {
+      "symbol": "920491",
+      "name": "奥迪威",
+      "legacySymbol": "832491"
+    },
+    {
+      "symbol": "920299",
+      "name": "灿能电力",
+      "legacySymbol": "870299"
+    },
+    {
+      "symbol": "920223",
+      "name": "荣亿精密",
+      "legacySymbol": "873223"
+    },
+    {
+      "symbol": "920271",
+      "name": "邦德股份",
+      "legacySymbol": "838171"
+    },
+    {
+      "symbol": "920267",
+      "name": "鑫汇科",
+      "legacySymbol": "831167"
+    },
+    {
+      "symbol": "920533",
+      "name": "骏创科技",
+      "legacySymbol": "833533"
+    },
+    {
+      "symbol": "920970",
+      "name": "大禹生物",
+      "legacySymbol": "871970"
+    },
+    {
+      "symbol": "920580",
+      "name": "科创新材",
+      "legacySymbol": "833580"
+    },
+    {
+      "symbol": "920169",
+      "name": "七丰精工",
+      "legacySymbol": "873169"
+    },
+    {
+      "symbol": "920689",
+      "name": "克莱特",
+      "legacySymbol": "831689"
+    },
+    {
+      "symbol": "920419",
+      "name": "路斯股份",
+      "legacySymbol": "832419"
+    },
+    {
+      "symbol": "920179",
+      "name": "凯德石英",
+      "legacySymbol": "835179"
+    },
+    {
+      "symbol": "920857",
+      "name": "泓禧科技",
+      "legacySymbol": "871857"
+    },
+    {
+      "symbol": "920346",
+      "name": "威贸电子",
+      "legacySymbol": "833346"
+    },
+    {
+      "symbol": "920204",
+      "name": "沪江材料",
+      "legacySymbol": "870204"
+    },
+    {
+      "symbol": "920245",
+      "name": "威博液压",
+      "legacySymbol": "871245"
+    },
+    {
+      "symbol": "920720",
+      "name": "吉冈精密",
+      "legacySymbol": "836720"
+    },
+    {
+      "symbol": "920981",
+      "name": "晶赛科技",
+      "legacySymbol": "871981"
+    },
+    {
+      "symbol": "920873",
+      "name": "中设咨询",
+      "legacySymbol": "833873"
+    },
+    {
+      "symbol": "920932",
+      "name": "科达自控",
+      "legacySymbol": "831832"
+    },
+    {
+      "symbol": "920680",
+      "name": "*ST广道",
+      "legacySymbol": "839680"
+    },
+    {
+      "symbol": "920454",
+      "name": "同心传动",
+      "legacySymbol": "833454"
+    },
+    {
+      "symbol": "920436",
+      "name": "大地电气",
+      "legacySymbol": "870436"
+    },
+    {
+      "symbol": "920260",
+      "name": "中寰股份",
+      "legacySymbol": "836260"
+    },
+    {
+      "symbol": "920171",
+      "name": "志晟信息",
+      "legacySymbol": "832171"
+    },
+    {
+      "symbol": "920145",
+      "name": "恒合股份",
+      "legacySymbol": "832145"
+    },
+    {
+      "symbol": "920092",
+      "name": "汉鑫科技",
+      "legacySymbol": "837092"
+    },
+    {
+      "symbol": "920089",
+      "name": "禾昌聚合",
+      "legacySymbol": "832089"
+    },
+    {
+      "symbol": "920405",
+      "name": "海希通讯",
+      "legacySymbol": "831305"
+    },
+    {
+      "symbol": "920924",
+      "name": "广脉科技",
+      "legacySymbol": "838924"
+    },
+    {
+      "symbol": "920892",
+      "name": "广咨国际",
+      "legacySymbol": "836892"
+    },
+    {
+      "symbol": "920925",
+      "name": "锦好医疗",
+      "legacySymbol": "872925"
+    },
+    {
+      "symbol": "920077",
+      "name": "吉林碳谷",
+      "legacySymbol": "836077"
+    },
+    {
+      "symbol": "920305",
+      "name": "*ST云创",
+      "legacySymbol": "835305"
+    },
+    {
+      "symbol": "920174",
+      "name": "五新隧装",
+      "legacySymbol": "835174"
+    },
+    {
+      "symbol": "920039",
+      "name": "国义招标",
+      "legacySymbol": "831039"
+    },
+    {
+      "symbol": "920642",
+      "name": "通易航天",
+      "legacySymbol": "871642"
+    },
+    {
+      "symbol": "920566",
+      "name": "梓橦宫",
+      "legacySymbol": "832566"
+    },
+    {
+      "symbol": "920090",
+      "name": "同辉信息",
+      "legacySymbol": "430090"
+    },
+    {
+      "symbol": "920553",
+      "name": "凯腾精工",
+      "legacySymbol": "871553"
+    },
+    {
+      "symbol": "920146",
+      "name": "华阳变速",
+      "legacySymbol": "839946"
+    },
+    {
+      "symbol": "920885",
+      "name": "星辰科技",
+      "legacySymbol": "832885"
+    },
+    {
+      "symbol": "920765",
+      "name": "美之高",
+      "legacySymbol": "834765"
+    },
+    {
+      "symbol": "920768",
+      "name": "拾比佰",
+      "legacySymbol": "831768"
+    },
+    {
+      "symbol": "920212",
+      "name": "智新电子",
+      "legacySymbol": "837212"
+    },
+    {
+      "symbol": "920523",
+      "name": "德瑞锂电",
+      "legacySymbol": "833523"
+    },
+    {
+      "symbol": "920726",
+      "name": "朱老六",
+      "legacySymbol": "831726"
+    },
+    {
+      "symbol": "920225",
+      "name": "利通科技",
+      "legacySymbol": "832225"
+    },
+    {
+      "symbol": "920832",
+      "name": "齐鲁华信",
+      "legacySymbol": "830832"
+    },
+    {
+      "symbol": "920599",
+      "name": "同力股份",
+      "legacySymbol": "834599"
+    },
+    {
+      "symbol": "920735",
+      "name": "德源药业",
+      "legacySymbol": "832735"
+    },
+    {
+      "symbol": "920239",
+      "name": "长虹能源",
+      "legacySymbol": "836239"
+    },
+    {
+      "symbol": "920427",
+      "name": "华维设计",
+      "legacySymbol": "833427"
+    },
+    {
+      "symbol": "920275",
+      "name": "驱动力",
+      "legacySymbol": "838275"
+    },
+    {
+      "symbol": "920826",
+      "name": "盖世食品",
+      "legacySymbol": "836826"
+    },
+    {
+      "symbol": "920509",
+      "name": "同惠电子",
+      "legacySymbol": "833509"
+    },
+    {
+      "symbol": "920344",
+      "name": "三元基因",
+      "legacySymbol": "837344"
+    },
+    {
+      "symbol": "920675",
+      "name": "秉扬科技",
+      "legacySymbol": "836675"
+    },
+    {
+      "symbol": "920510",
+      "name": "丰光精密",
+      "legacySymbol": "430510"
+    },
+    {
+      "symbol": "920856",
+      "name": "浩淼科技",
+      "legacySymbol": "831856"
+    },
+    {
+      "symbol": "920000",
+      "name": "安徽凤凰",
+      "legacySymbol": "832000"
+    },
+    {
+      "symbol": "920670",
+      "name": "数字人",
+      "legacySymbol": "835670"
+    },
+    {
+      "symbol": "920030",
+      "name": "德众汽车",
+      "legacySymbol": "838030"
+    },
+    {
+      "symbol": "920047",
+      "name": "诺思兰德",
+      "legacySymbol": "430047"
+    },
+    {
+      "symbol": "920396",
+      "name": "常辅股份",
+      "legacySymbol": "871396"
+    },
+    {
+      "symbol": "920839",
+      "name": "万通液压",
+      "legacySymbol": "830839"
+    },
+    {
+      "symbol": "920964",
+      "name": "润农节水",
+      "legacySymbol": "830964"
+    },
+    {
+      "symbol": "920961",
+      "name": "创远信科",
+      "legacySymbol": "831961"
+    },
+    {
+      "symbol": "920946",
+      "name": "森萱医药",
+      "legacySymbol": "830946"
+    },
+    {
+      "symbol": "920819",
+      "name": "颖泰生物",
+      "legacySymbol": "833819"
+    },
+    {
+      "symbol": "920799",
+      "name": "艾融软件",
+      "legacySymbol": "830799"
+    },
+    {
+      "symbol": "920729",
+      "name": "永顺生物",
+      "legacySymbol": "839729"
+    },
+    {
+      "symbol": "920682",
+      "name": "球冠电缆",
+      "legacySymbol": "834682"
+    },
+    {
+      "symbol": "920640",
+      "name": "富士达",
+      "legacySymbol": "835640"
+    },
+    {
+      "symbol": "920508",
+      "name": "殷图网联",
+      "legacySymbol": "835508"
+    },
+    {
+      "symbol": "920489",
+      "name": "佳先股份",
+      "legacySymbol": "430489"
+    },
+    {
+      "symbol": "920475",
+      "name": "三友科技",
+      "legacySymbol": "834475"
+    },
+    {
+      "symbol": "920445",
+      "name": "龙竹科技",
+      "legacySymbol": "831445"
+    },
+    {
+      "symbol": "920433",
+      "name": "大唐药业",
+      "legacySymbol": "836433"
+    },
+    {
+      "symbol": "920418",
+      "name": "苏轴股份",
+      "legacySymbol": "430418"
+    },
+    {
+      "symbol": "920415",
+      "name": "恒拓开源",
+      "legacySymbol": "834415"
+    },
+    {
+      "symbol": "920370",
+      "name": "新安洁",
+      "legacySymbol": "831370"
+    },
+    {
+      "symbol": "920368",
+      "name": "连城数控",
+      "legacySymbol": "835368"
+    },
+    {
+      "symbol": "920278",
+      "name": "鹿得医疗",
+      "legacySymbol": "832278"
+    },
+    {
+      "symbol": "920266",
+      "name": "生物谷",
+      "legacySymbol": "833266"
+    },
+    {
+      "symbol": "920263",
+      "name": "中航泰达",
+      "legacySymbol": "836263"
+    },
+    {
+      "symbol": "920242",
+      "name": "建邦科技",
+      "legacySymbol": "837242"
+    },
+    {
+      "symbol": "920198",
+      "name": "微创光电",
+      "legacySymbol": "430198"
+    },
+    {
+      "symbol": "920185",
+      "name": "贝特瑞",
+      "legacySymbol": "835185"
+    },
+    {
+      "symbol": "920184",
+      "name": "国源科技",
+      "legacySymbol": "835184"
+    },
+    {
+      "symbol": "920167",
+      "name": "同享科技",
+      "legacySymbol": "839167"
+    },
+    {
+      "symbol": "920163",
+      "name": "方大新材",
+      "legacySymbol": "838163"
+    },
+    {
+      "symbol": "920149",
+      "name": "旭杰科技",
+      "legacySymbol": "836149"
+    },
+    {
+      "symbol": "920021",
+      "name": "流金科技",
+      "legacySymbol": "834021"
+    },
+    {
+      "symbol": "920010",
+      "name": "凯添燃气",
+      "legacySymbol": "831010"
+    }
+  ]
+}

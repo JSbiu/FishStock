@@ -5,6 +5,7 @@ import type {
   StockSearchResult,
 } from '../domain/models';
 import { normalizeSymbol } from '../domain/symbol';
+import type { BseSecurityDirectory } from './bseSecurityDirectory';
 import type { MarketDataProvider } from './marketDataProvider';
 
 const TENCENT_QUOTE_URL = 'https://qt.gtimg.cn/q=';
@@ -128,7 +129,8 @@ export function parseTencentSearchPayload(payload: string): StockSearchResult[] 
     const [rawExchange, code, name, abbreviation, assetType] = entry.split('~');
     const exchange = rawExchange?.toLowerCase();
     const suffix =
-      assetType === 'GP-A' && ['sh', 'sz', 'bj'].includes(exchange)
+      (assetType === 'GP-A' || assetType?.startsWith('GP-A-')) &&
+      ['sh', 'sz', 'bj'].includes(exchange)
         ? exchange.toUpperCase()
         : assetType === 'GP' && exchange === 'hk'
           ? 'HK'
@@ -156,6 +158,15 @@ export function parseTencentSearchPayload(payload: string): StockSearchResult[] 
     }
   }
   return results;
+}
+
+function normalizeCodeQuery(query: string): NormalizedSymbol | undefined {
+  try {
+    const normalized = normalizeSymbol(query);
+    return normalized.market === 'CN' || normalized.market === 'HK' ? normalized : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -218,6 +229,14 @@ export class TencentDataProvider implements MarketDataProvider {
   public readonly id = 'tencent';
   public readonly displayName = '腾讯行情';
 
+  private readonly fetcher: typeof fetch;
+  private readonly bseDirectory: BseSecurityDirectory | undefined;
+
+  public constructor(options: TencentDataProviderOptions = {}) {
+    this.fetcher = options.fetcher ?? fetch;
+    this.bseDirectory = options.bseDirectory;
+  }
+
   public supports(market: Market): boolean {
     return market === 'CN' || market === 'HK';
   }
@@ -231,30 +250,41 @@ export class TencentDataProvider implements MarketDataProvider {
       return [];
     }
 
-    const controller = new AbortController();
-    const abort = (): void => controller.abort();
-    signal?.addEventListener('abort', abort, { once: true });
-    const timeout = setTimeout(abort, REQUEST_TIMEOUT_MS);
+    const directoryRequest = this.bseDirectory
+      ? this.bseDirectory.search(keyword, signal).catch(() => [])
+      : Promise.resolve<StockSearchResult[]>([]);
+    let tencentResults: StockSearchResult[] = [];
+    let tencentError: unknown;
     try {
-      const response = await fetch(
-        `${TENCENT_SEARCH_URL}?q=${encodeURIComponent(keyword)}&t=all`,
-        {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) FishStock',
-          },
-          signal: controller.signal,
-        },
-      );
-      if (!response.ok) {
-        throw new Error(`腾讯股票搜索失败：HTTP ${response.status}`);
-      }
-      const bytes = await response.arrayBuffer();
-      const text = new TextDecoder('gbk').decode(bytes);
-      return parseTencentSearchPayload(text);
-    } finally {
-      clearTimeout(timeout);
-      signal?.removeEventListener('abort', abort);
+      tencentResults = await this.searchTencent(keyword, signal);
+    } catch (error: unknown) {
+      tencentError = error;
     }
+
+    if (tencentResults.length > 0) {
+      return tencentResults;
+    }
+
+    const directoryResults = await directoryRequest;
+    const codeQuery = normalizeCodeQuery(keyword);
+    if (codeQuery && directoryResults.length === 0) {
+      try {
+        const quote = (await this.fetchQuotes([codeQuery], signal))[0];
+        if (quote) {
+          return [{ symbol: quote.symbol, market: quote.market, name: quote.name }];
+        }
+      } catch (error: unknown) {
+        tencentError ??= error;
+      }
+    }
+
+    if (directoryResults.length > 0) {
+      return directoryResults;
+    }
+    if (tencentError) {
+      throw tencentError;
+    }
+    return [];
   }
 
   public async fetchQuotes(
@@ -283,7 +313,7 @@ export class TencentDataProvider implements MarketDataProvider {
     const timeout = setTimeout(abort, REQUEST_TIMEOUT_MS);
     try {
       const query = symbols.map(toTencentSymbol).join(',');
-      const response = await fetch(`${TENCENT_QUOTE_URL}${query}&fmt=json`, {
+      const response = await this.fetcher(`${TENCENT_QUOTE_URL}${query}&fmt=json`, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) FishStock',
         },
@@ -301,4 +331,39 @@ export class TencentDataProvider implements MarketDataProvider {
       signal?.removeEventListener('abort', abort);
     }
   }
+
+  private async searchTencent(
+    keyword: string,
+    signal?: AbortSignal,
+  ): Promise<StockSearchResult[]> {
+    const controller = new AbortController();
+    const abort = (): void => controller.abort();
+    signal?.addEventListener('abort', abort, { once: true });
+    const timeout = setTimeout(abort, REQUEST_TIMEOUT_MS);
+    try {
+      const response = await this.fetcher(
+        `${TENCENT_SEARCH_URL}?q=${encodeURIComponent(keyword)}&t=all`,
+        {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) FishStock',
+          },
+          signal: controller.signal,
+        },
+      );
+      if (!response.ok) {
+        throw new Error(`腾讯股票搜索失败：HTTP ${response.status}`);
+      }
+      const bytes = await response.arrayBuffer();
+      const text = new TextDecoder('gbk').decode(bytes);
+      return parseTencentSearchPayload(text);
+    } finally {
+      clearTimeout(timeout);
+      signal?.removeEventListener('abort', abort);
+    }
+  }
+}
+
+export interface TencentDataProviderOptions {
+  fetcher?: typeof fetch;
+  bseDirectory?: BseSecurityDirectory;
 }

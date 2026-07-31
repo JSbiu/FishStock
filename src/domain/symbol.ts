@@ -18,6 +18,9 @@ function normalizeAExchange(exchange: string): 'SH' | 'SZ' | 'BJ' {
 }
 
 function inferAExchange(code: string): 'SH' | 'SZ' | 'BJ' {
+  if (/^92/.test(code)) {
+    return 'BJ';
+  }
   if (/^[569]/.test(code)) {
     return 'SH';
   }

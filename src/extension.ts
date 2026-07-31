@@ -5,6 +5,7 @@ import {
 } from 'vscode';
 import { registerCommands } from './commands/registerCommands';
 import { readConfig } from './config';
+import { BseSecurityDirectory } from './data/bseSecurityDirectory';
 import { QuoteService } from './data/quoteService';
 import { TencentDataProvider } from './data/tencentDataProvider';
 import type { NormalizedSymbol } from './domain/models';
@@ -25,7 +26,9 @@ export async function activate(context: ExtensionContext): Promise<void> {
   await repository.load();
 
   let config = readConfig();
-  const provider = new TencentDataProvider();
+  const provider = new TencentDataProvider({
+    bseDirectory: new BseSecurityDirectory(context.globalState),
+  });
   const quotes = new QuoteService(
     provider,
     MIN_FETCH_INTERVAL_MS,
