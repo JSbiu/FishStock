@@ -71,6 +71,12 @@ export function parseMarketQuote(raw: RawMarketQuote): Quote {
       minimum: 0,
       zeroIsMissing: true,
     }),
+    settlementPrice: optionalNumber(raw.settlementPrice, {
+      minimum: 0,
+      zeroIsMissing: true,
+    }),
+    openInterest: optionalNumber(raw.openInterest, { minimum: 0 }),
+    ...(raw.venue?.trim() ? { venue: raw.venue.trim() } : {}),
     change,
     changePercent: (change / previousClose) * 100,
     asOf: requiredTimestamp(raw.asOf),

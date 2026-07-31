@@ -1,5 +1,5 @@
 import type { NormalizedSymbol, Quote, RefreshResult } from '../domain/models';
-import type { MarketDataProvider } from './marketDataProvider';
+import type { QuoteDataProvider } from './marketDataProvider';
 import { parseMarketQuote } from './quoteParser';
 
 const NO_DATA_TIMESTAMP = 0;
@@ -12,7 +12,7 @@ export class QuoteService {
   private readonly inFlight = new Map<string, Promise<RefreshResult>>();
 
   public constructor(
-    private readonly provider: MarketDataProvider,
+    private readonly provider: QuoteDataProvider,
     private readonly minFetchIntervalMs: number,
     private staleAfterMs: number,
     private readonly now: () => number = Date.now,
@@ -78,7 +78,7 @@ export class QuoteService {
         if (quote) {
           this.cache.set(requested.symbol, quote);
         } else {
-          this.cache.set(requested.symbol, this.unavailableQuote(requested, '数据源未返回该股票'));
+          this.cache.set(requested.symbol, this.unavailableQuote(requested, '数据源未返回该标的'));
         }
       }
       return this.resultFor(symbols);
@@ -133,6 +133,8 @@ export class QuoteService {
       turnoverRate: null,
       peTtm: null,
       totalMarketCap: null,
+      settlementPrice: null,
+      openInterest: null,
       change: null,
       changePercent: null,
       asOf: NO_DATA_TIMESTAMP,

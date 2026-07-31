@@ -37,10 +37,19 @@ export function isIndexSymbol(symbol: string): boolean {
   return /\.(?:SHI|SZI|HKI)$/i.test(symbol.trim());
 }
 
+export function isFuturesSymbol(symbol: string): boolean {
+  return /\.CNF$/i.test(symbol.trim());
+}
+
 export function normalizeSymbol(input: string): NormalizedSymbol {
   const compact = input.trim().toUpperCase().replace(/\s+/g, '');
   if (!compact) {
-    throw new SymbolFormatError('请输入股票代码');
+    throw new SymbolFormatError('请输入代码');
+  }
+
+  const futures = compact.match(/^(?:NF_?)?([A-Z]{1,3}(?:0|\d{3,4}))(?:[.:_-]?CNF)?$/);
+  if (futures) {
+    return { symbol: `${futures[1]}.CNF`, market: 'CNF' };
   }
 
   const aIndexSuffix = compact.match(/^(\d{6})[.:_-]?(SHI|SZI)$/);

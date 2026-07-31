@@ -30,6 +30,11 @@ export class StockNode {
 
 export type FishTreeNode = GroupNode | StockNode;
 
+export interface WatchlistTreeOptions {
+  groupContextValue?: string;
+  itemContextValue?: string;
+}
+
 function quoteDescription(stock: Stock, quote: Quote | undefined): string {
   if (!quote || quote.price === null || quote.changePercent === null) {
     return `${stock.symbol} · 暂不可用`;
@@ -82,6 +87,7 @@ export class WatchlistTreeProvider implements TreeDataProvider<FishTreeNode> {
     private readonly quotes: QuoteService,
     private colorConvention: ColorConvention,
     private readonly providerName: string,
+    private readonly options: WatchlistTreeOptions = {},
   ) {}
 
   public setColorConvention(value: ColorConvention): void {
@@ -102,7 +108,7 @@ export class WatchlistTreeProvider implements TreeDataProvider<FishTreeNode> {
           : TreeItemCollapsibleState.Expanded,
       );
       item.id = `group:${element.group.id}`;
-      item.contextValue = 'fishStock.group';
+      item.contextValue = this.options.groupContextValue ?? 'fishStock.group';
       item.description = `${element.group.stocks.length}`;
       item.iconPath = new ThemeIcon(element.group.collapsed ? 'folder' : 'folder-opened');
       return item;
@@ -110,7 +116,7 @@ export class WatchlistTreeProvider implements TreeDataProvider<FishTreeNode> {
 
     const item = new TreeItem(element.stock.name ?? element.quote?.name ?? element.stock.symbol);
     item.id = `stock:${element.stock.id}`;
-    item.contextValue = 'fishStock.stock';
+    item.contextValue = this.options.itemContextValue ?? 'fishStock.stock';
     item.description = quoteDescription(element.stock, element.quote);
     item.tooltip = createQuoteTooltip(element.stock, element.quote, this.providerName);
     item.iconPath = quoteIcon(element.quote, this.colorConvention);

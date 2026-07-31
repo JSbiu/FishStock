@@ -3,14 +3,19 @@ import {
   workspace,
   type ExtensionContext,
 } from 'vscode';
+import { registerFuturesCommands } from './commands/registerFuturesCommands';
 import { registerCommands } from './commands/registerCommands';
 import { readConfig } from './config';
 import { BseSecurityDirectory } from './data/bseSecurityDirectory';
 import { QuoteService } from './data/quoteService';
+import { SinaFuturesProvider } from './data/sinaFuturesProvider';
 import { TencentDataProvider } from './data/tencentDataProvider';
 import type { NormalizedSymbol } from './domain/models';
 import { RefreshScheduler } from './services/refreshScheduler';
-import { WatchlistRepository } from './storage/watchlistRepository';
+import {
+  createEmptyFuturesWatchlist,
+  WatchlistRepository,
+} from './storage/watchlistRepository';
 import { GroupNode, WatchlistTreeProvider } from './ui/watchlistTreeProvider';
 import { StatusBarController } from './ui/statusBarController';
 
@@ -22,57 +27,115 @@ function compactError(error: unknown): string {
 
 export async function activate(context: ExtensionContext): Promise<void> {
   const output = window.createOutputChannel('FishStock');
-  const repository = new WatchlistRepository(context.globalState);
-  await repository.load();
+  const stockRepository = new WatchlistRepository(context.globalState);
+  const futuresRepository = new WatchlistRepository(context.globalState, {
+    storageKey: 'fishStock.futures.v1',
+    createDefault: createEmptyFuturesWatchlist,
+  });
+  await Promise.all([stockRepository.load(), futuresRepository.load()]);
 
   let config = readConfig();
-  const provider = new TencentDataProvider({
+  const stockProvider = new TencentDataProvider({
     bseDirectory: new BseSecurityDirectory(context.globalState),
   });
-  const quotes = new QuoteService(
-    provider,
+  const futuresProvider = new SinaFuturesProvider();
+  const stockQuotes = new QuoteService(
+    stockProvider,
     MIN_FETCH_INTERVAL_MS,
     config.staleAfterMs,
   );
-  const treeProvider = new WatchlistTreeProvider(
-    repository,
-    quotes,
-    config.colorConvention,
-    provider.displayName,
+  const futuresQuotes = new QuoteService(
+    futuresProvider,
+    MIN_FETCH_INTERVAL_MS,
+    config.staleAfterMs,
   );
-  const treeView = window.createTreeView('fishStock.stock', {
-    treeDataProvider: treeProvider,
+  const stockTreeProvider = new WatchlistTreeProvider(
+    stockRepository,
+    stockQuotes,
+    config.colorConvention,
+    stockProvider.displayName,
+  );
+  const futuresTreeProvider = new WatchlistTreeProvider(
+    futuresRepository,
+    futuresQuotes,
+    config.colorConvention,
+    futuresProvider.displayName,
+    {
+      groupContextValue: 'fishStock.futuresGroup',
+      itemContextValue: 'fishStock.future',
+    },
+  );
+  const stockTreeView = window.createTreeView('fishStock.stock', {
+    treeDataProvider: stockTreeProvider,
+    showCollapseAll: true,
+  });
+  const futuresTreeView = window.createTreeView('fishStock.futures', {
+    treeDataProvider: futuresTreeProvider,
     showCollapseAll: true,
   });
 
-  const statusBar = new StatusBarController(
-    quotes,
-    config.rotationIntervalMs,
-    provider.displayName,
-  );
-  statusBar.setState(repository.getSnapshot());
+  const statusBar = new StatusBarController(config.rotationIntervalMs);
+  const updateStatusBar = (): void => {
+    statusBar.setSources([
+      {
+        state: stockRepository.getSnapshot(),
+        quotes: stockQuotes,
+        providerName: stockProvider.displayName,
+        openCommand: 'fishStock.openWatchlist',
+      },
+      {
+        state: futuresRepository.getSnapshot(),
+        quotes: futuresQuotes,
+        providerName: futuresProvider.displayName,
+        openCommand: 'fishStock.openFutures',
+      },
+    ]);
+  };
+  updateStatusBar();
 
-  const refresh = async (force: boolean, manual: boolean): Promise<void> => {
-    const state = repository.getSnapshot();
+  const refreshStocks = async (force: boolean, manual: boolean): Promise<void> => {
+    const state = stockRepository.getSnapshot();
     const symbols: NormalizedSymbol[] = state.groups.flatMap((group) =>
       group.stocks.map((stock) => ({ symbol: stock.symbol, market: stock.market })),
     );
-    const result = await quotes.refresh(symbols, force);
-    treeProvider.refresh();
-    statusBar.setState(state);
+    const result = await stockQuotes.refresh(symbols, force);
+    stockTreeProvider.refresh();
+    updateStatusBar();
     if (result.error) {
-      output.appendLine(`[${new Date().toISOString()}] 行情刷新失败：${result.error}`);
+      output.appendLine(`[${new Date().toISOString()}] 股票行情刷新失败：${result.error}`);
       if (manual) {
-        window.setStatusBarMessage('FishStock: 刷新失败，正在显示缓存', 4_000);
+        window.setStatusBarMessage('FishStock: 股票行情刷新失败，正在显示缓存', 4_000);
       }
     } else if (manual) {
-      window.setStatusBarMessage('FishStock: 已刷新', 2_500);
+      window.setStatusBarMessage('FishStock: 股票行情已刷新', 2_500);
     }
+  };
+
+  const refreshFutures = async (force: boolean, manual: boolean): Promise<void> => {
+    const state = futuresRepository.getSnapshot();
+    const symbols: NormalizedSymbol[] = state.groups.flatMap((group) =>
+      group.stocks.map((future) => ({ symbol: future.symbol, market: future.market })),
+    );
+    const result = await futuresQuotes.refresh(symbols, force);
+    futuresTreeProvider.refresh();
+    updateStatusBar();
+    if (result.error) {
+      output.appendLine(`[${new Date().toISOString()}] 期货行情刷新失败：${result.error}`);
+      if (manual) {
+        window.setStatusBarMessage('FishStock: 期货行情刷新失败，正在显示缓存', 4_000);
+      }
+    } else if (manual) {
+      window.setStatusBarMessage('FishStock: 期货行情已刷新', 2_500);
+    }
+  };
+
+  const refreshAll = async (): Promise<void> => {
+    await Promise.all([refreshStocks(false, false), refreshFutures(false, false)]);
   };
 
   const scheduler = new RefreshScheduler(config.refreshIntervalMs, async () => {
     try {
-      await refresh(false, false);
+      await refreshAll();
     } catch (error: unknown) {
       output.appendLine(`[${new Date().toISOString()}] 刷新任务异常：${compactError(error)}`);
     }
@@ -80,18 +143,38 @@ export async function activate(context: ExtensionContext): Promise<void> {
 
   context.subscriptions.push(
     output,
-    treeView,
+    stockTreeView,
+    futuresTreeView,
     statusBar,
     scheduler,
-    ...registerCommands({ repository, provider, refresh }),
-    treeView.onDidCollapseElement((event) => {
+    ...registerCommands({
+      repository: stockRepository,
+      provider: stockProvider,
+      refresh: refreshStocks,
+    }),
+    ...registerFuturesCommands({
+      repository: futuresRepository,
+      provider: futuresProvider,
+      refresh: refreshFutures,
+    }),
+    stockTreeView.onDidCollapseElement((event) => {
       if (event.element instanceof GroupNode) {
-        void repository.setGroupCollapsed(event.element.group.id, true);
+        void stockRepository.setGroupCollapsed(event.element.group.id, true);
       }
     }),
-    treeView.onDidExpandElement((event) => {
+    stockTreeView.onDidExpandElement((event) => {
       if (event.element instanceof GroupNode) {
-        void repository.setGroupCollapsed(event.element.group.id, false);
+        void stockRepository.setGroupCollapsed(event.element.group.id, false);
+      }
+    }),
+    futuresTreeView.onDidCollapseElement((event) => {
+      if (event.element instanceof GroupNode) {
+        void futuresRepository.setGroupCollapsed(event.element.group.id, true);
+      }
+    }),
+    futuresTreeView.onDidExpandElement((event) => {
+      if (event.element instanceof GroupNode) {
+        void futuresRepository.setGroupCollapsed(event.element.group.id, false);
       }
     }),
     workspace.onDidChangeConfiguration((event) => {
@@ -99,17 +182,19 @@ export async function activate(context: ExtensionContext): Promise<void> {
         return;
       }
       config = readConfig();
-      quotes.setStaleAfterMs(config.staleAfterMs);
-      treeProvider.setColorConvention(config.colorConvention);
+      stockQuotes.setStaleAfterMs(config.staleAfterMs);
+      futuresQuotes.setStaleAfterMs(config.staleAfterMs);
+      stockTreeProvider.setColorConvention(config.colorConvention);
+      futuresTreeProvider.setColorConvention(config.colorConvention);
       statusBar.configure(config.rotationIntervalMs);
       scheduler.configure(config.refreshIntervalMs);
-      void refresh(false, false);
+      void refreshAll();
     }),
   );
 
   scheduler.start();
-  await refresh(false, false);
-  output.appendLine('FishStock 已启动；当前使用腾讯 A 股与港股行情。');
+  await refreshAll();
+  output.appendLine('FishStock 已启动；股票使用腾讯行情，国内期货使用新浪行情。');
 }
 
 export function deactivate(): void {}

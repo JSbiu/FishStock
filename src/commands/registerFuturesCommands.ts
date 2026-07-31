@@ -5,7 +5,7 @@ import {
   type Disposable,
   type QuickPickItem,
 } from 'vscode';
-import type { MarketDataProvider } from '../data/marketDataProvider';
+import type { FuturesDataProvider } from '../data/marketDataProvider';
 import type { Stock, StockSearchResult, WatchGroup } from '../domain/models';
 import type { WatchlistRepository } from '../storage/watchlistRepository';
 import type { GroupNode, StockNode } from '../ui/watchlistTreeProvider';
@@ -14,18 +14,18 @@ interface GroupPick extends QuickPickItem {
   group: WatchGroup;
 }
 
-interface StockPick extends QuickPickItem {
-  stock: Stock;
+interface FuturePick extends QuickPickItem {
+  future: Stock;
   groupId: string;
 }
 
-interface StockSearchPick extends QuickPickItem {
+interface FutureSearchPick extends QuickPickItem {
   result?: StockSearchResult;
 }
 
-export interface CommandOptions {
+export interface FuturesCommandOptions {
   repository: WatchlistRepository;
-  provider: MarketDataProvider;
+  provider: FuturesDataProvider;
   refresh(force: boolean, manual: boolean): Promise<void>;
 }
 
@@ -47,58 +47,53 @@ async function chooseGroup(
   const picked = await window.showQuickPick<GroupPick>(
     groups.map((group) => ({
       label: group.name,
-      description: `${group.stocks.length} 只`,
+      description: `${group.stocks.length} 个`,
       group,
     })),
-    { placeHolder: '选择分组' },
+    { placeHolder: '选择期货分组' },
   );
   return picked?.group;
 }
 
-async function chooseStock(
+async function chooseFuture(
   repository: WatchlistRepository,
   provided?: StockNode,
-): Promise<StockPick | undefined> {
+): Promise<FuturePick | undefined> {
   if (provided) {
     return {
       label: provided.stock.name ?? provided.stock.symbol,
-      stock: provided.stock,
+      future: provided.stock,
       groupId: provided.groupId,
     };
   }
   const items = repository.getSnapshot().groups.flatMap((group) =>
-    group.stocks.map((stock) => ({
-      label: stock.name ?? stock.symbol,
-      description: `${stock.symbol} · ${group.name}`,
-      stock,
+    group.stocks.map((future) => ({
+      label: future.name ?? future.symbol,
+      description: `${future.symbol} · ${group.name}`,
+      future,
       groupId: group.id,
     })),
   );
-  return window.showQuickPick<StockPick>(items, { placeHolder: '选择股票' });
+  return window.showQuickPick<FuturePick>(items, { placeHolder: '选择期货合约' });
 }
 
-function searchPickItems(results: readonly StockSearchResult[]): StockSearchPick[] {
-  return results.map((result) => {
-    const type = result.kind === 'index' ? '指数' : result.market === 'CN' ? 'A 股' : '港股';
-    return {
-      label: result.name,
-      description: `${result.symbol} · ${type}`,
-      ...(result.abbreviation
-        ? { detail: `简称：${result.abbreviation.toUpperCase()}` }
-        : {}),
-      alwaysShow: true,
-      result,
-    };
-  });
+function searchPickItems(results: readonly StockSearchResult[]): FutureSearchPick[] {
+  return results.map((result) => ({
+    label: result.name,
+    description: `${result.symbol} · ${result.symbol.endsWith('0.CNF') ? '主连' : '月份合约'}`,
+    ...(result.venue ? { detail: result.venue } : {}),
+    alwaysShow: true,
+    result,
+  }));
 }
 
-function chooseStockSearchResult(
-  provider: MarketDataProvider,
+function chooseFutureSearchResult(
+  provider: FuturesDataProvider,
   group: WatchGroup,
 ): Promise<StockSearchResult | undefined> {
-  const picker = window.createQuickPick<StockSearchPick>();
+  const picker = window.createQuickPick<FutureSearchPick>();
   picker.title = `添加到“${group.name}”`;
-  picker.placeholder = '输入名称、简称或代码，如 美的集团、mdjt、000333';
+  picker.placeholder = '输入品种或合约代码，如 电解铝主连、沪金、AL2608';
   picker.matchOnDescription = true;
   picker.matchOnDetail = true;
 
@@ -140,7 +135,7 @@ function chooseStockSearchResult(
           const controller = new AbortController();
           request = controller;
           void provider
-            .searchStocks(query, controller.signal)
+            .searchFutures(query, controller.signal)
             .then((results) => {
               if (controller.signal.aborted || currentGeneration !== generation) {
                 return;
@@ -150,8 +145,8 @@ function chooseStockSearchResult(
                   ? searchPickItems(results)
                   : [
                       {
-                        label: '$(info) 未找到匹配的 A 股、港股或指数',
-                        description: '请尝试完整名称、拼音简称或证券代码',
+                        label: '$(info) 未找到匹配的国内期货',
+                        description: '请尝试品种名称、主连代码或月份合约代码',
                         alwaysShow: true,
                       },
                     ];
@@ -201,7 +196,7 @@ function chooseStockSearchResult(
   });
 }
 
-export function registerCommands(options: CommandOptions): Disposable[] {
+export function registerFuturesCommands(options: FuturesCommandOptions): Disposable[] {
   const { repository, provider, refresh } = options;
   const afterChange = async (): Promise<void> => refresh(false, false);
   const handle = async (action: () => Promise<void>): Promise<void> => {
@@ -213,12 +208,12 @@ export function registerCommands(options: CommandOptions): Disposable[] {
   };
 
   return [
-    commands.registerCommand('fishStock.addStock', async (node?: GroupNode) => {
+    commands.registerCommand('fishStock.addFuture', async (node?: GroupNode) => {
       const group = await chooseGroup(repository, node);
       if (!group) {
         return;
       }
-      const result = await chooseStockSearchResult(provider, group);
+      const result = await chooseFutureSearchResult(provider, group);
       if (!result) {
         return;
       }
@@ -233,13 +228,13 @@ export function registerCommands(options: CommandOptions): Disposable[] {
       });
     }),
 
-    commands.registerCommand('fishStock.removeStock', async (node?: StockNode) => {
-      const picked = await chooseStock(repository, node);
+    commands.registerCommand('fishStock.removeFuture', async (node?: StockNode) => {
+      const picked = await chooseFuture(repository, node);
       if (!picked) {
         return;
       }
       const answer = await window.showWarningMessage(
-        `从自选列表删除 ${picked.stock.name ?? picked.stock.symbol}？`,
+        `从期货自选删除 ${picked.future.name ?? picked.future.symbol}？`,
         { modal: true },
         '删除',
       );
@@ -247,18 +242,18 @@ export function registerCommands(options: CommandOptions): Disposable[] {
         return;
       }
       await handle(async () => {
-        await repository.removeStock(picked.stock.id);
+        await repository.removeStock(picked.future.id);
         await afterChange();
       });
     }),
 
-    commands.registerCommand('fishStock.refresh', async () => {
+    commands.registerCommand('fishStock.refreshFutures', async () => {
       await refresh(true, true);
     }),
 
-    commands.registerCommand('fishStock.addGroup', async () => {
+    commands.registerCommand('fishStock.addFuturesGroup', async () => {
       const name = await window.showInputBox({
-        title: '添加分组',
+        title: '添加期货分组',
         prompt: '分组名称',
         validateInput: (value) => (value.trim() ? undefined : '请输入分组名称'),
       });
@@ -271,13 +266,13 @@ export function registerCommands(options: CommandOptions): Disposable[] {
       });
     }),
 
-    commands.registerCommand('fishStock.renameGroup', async (node?: GroupNode) => {
+    commands.registerCommand('fishStock.renameFuturesGroup', async (node?: GroupNode) => {
       const group = await chooseGroup(repository, node);
       if (!group) {
         return;
       }
       const name = await window.showInputBox({
-        title: '重命名分组',
+        title: '重命名期货分组',
         value: group.name,
         validateInput: (value) => (value.trim() ? undefined : '请输入分组名称'),
       });
@@ -290,14 +285,14 @@ export function registerCommands(options: CommandOptions): Disposable[] {
       });
     }),
 
-    commands.registerCommand('fishStock.removeGroup', async (node?: GroupNode) => {
+    commands.registerCommand('fishStock.removeFuturesGroup', async (node?: GroupNode) => {
       const group = await chooseGroup(repository, node);
       if (!group) {
         return;
       }
       const detail =
         group.stocks.length > 0
-          ? `“${group.name}”中有 ${group.stocks.length} 只股票，删除分组会一并删除。`
+          ? `“${group.name}”中有 ${group.stocks.length} 个期货条目，删除分组会一并删除。`
           : `删除空分组“${group.name}”？`;
       const answer = await window.showWarningMessage(detail, { modal: true }, '删除分组');
       if (answer !== '删除分组') {
@@ -309,87 +304,30 @@ export function registerCommands(options: CommandOptions): Disposable[] {
       });
     }),
 
-    commands.registerCommand('fishStock.clearWatchlist', async () => {
-      const state = repository.getSnapshot();
-      const stockCount = state.groups.reduce(
-        (total, group) => total + group.stocks.length,
-        0,
-      );
-      const alreadyEmpty =
-        state.groups.length === 1 &&
-        state.groups[0].name === '默认' &&
-        stockCount === 0;
-      if (alreadyEmpty) {
-        await window.showInformationMessage('FishStock: 股票自选数据已经是空的');
-        return;
-      }
-
-      const answer = await window.showWarningMessage(
-        '清空全部股票自选数据？',
-        {
-          modal: true,
-          detail: `将删除 ${state.groups.length} 个分组和 ${stockCount} 只股票，并保留一个空的“默认”分组。此操作无法撤销。`,
-        },
-        '清空全部数据',
-      );
-      if (answer !== '清空全部数据') {
-        return;
-      }
-      await handle(async () => {
-        await repository.clear();
-        await afterChange();
-        window.setStatusBarMessage('FishStock: 股票自选数据已清空', 2_500);
-      });
-    }),
-
-    commands.registerCommand('fishStock.restoreDefaultWatchlist', async () => {
-      const state = repository.getSnapshot();
-      const stockCount = state.groups.reduce(
-        (total, group) => total + group.stocks.length,
-        0,
-      );
-      const answer = await window.showWarningMessage(
-        '恢复默认股票自选数据？',
-        {
-          modal: true,
-          detail: `将用“默认”“指数”“银行”分组及 11 个默认条目替换当前 ${state.groups.length} 个分组及 ${stockCount} 只股票。此操作无法撤销。`,
-        },
-        '恢复默认数据',
-      );
-      if (answer !== '恢复默认数据') {
-        return;
-      }
-      await handle(async () => {
-        await repository.restoreDefault();
-        await afterChange();
-        window.setStatusBarMessage('FishStock: 已恢复默认股票自选数据', 2_500);
-      });
-    }),
-
-    commands.registerCommand('fishStock.moveStockUp', async (node?: StockNode) => {
-      const picked = await chooseStock(repository, node);
+    commands.registerCommand('fishStock.moveFutureUp', async (node?: StockNode) => {
+      const picked = await chooseFuture(repository, node);
       if (!picked) {
         return;
       }
       await handle(async () => {
-        await repository.moveStock(picked.stock.id, -1);
+        await repository.moveStock(picked.future.id, -1);
         await afterChange();
       });
     }),
 
-    commands.registerCommand('fishStock.moveStockDown', async (node?: StockNode) => {
-      const picked = await chooseStock(repository, node);
+    commands.registerCommand('fishStock.moveFutureDown', async (node?: StockNode) => {
+      const picked = await chooseFuture(repository, node);
       if (!picked) {
         return;
       }
       await handle(async () => {
-        await repository.moveStock(picked.stock.id, 1);
+        await repository.moveStock(picked.future.id, 1);
         await afterChange();
       });
     }),
 
-    commands.registerCommand('fishStock.moveStockToGroup', async (node?: StockNode) => {
-      const picked = await chooseStock(repository, node);
+    commands.registerCommand('fishStock.moveFutureToGroup', async (node?: StockNode) => {
+      const picked = await chooseFuture(repository, node);
       if (!picked) {
         return;
       }
@@ -397,25 +335,53 @@ export function registerCommands(options: CommandOptions): Disposable[] {
         .getSnapshot()
         .groups.filter((group) => group.id !== picked.groupId);
       if (targets.length === 0) {
-        await window.showInformationMessage('FishStock: 请先创建另一个分组');
+        await window.showInformationMessage('FishStock: 请先创建另一个期货分组');
         return;
       }
       const target = await window.showQuickPick<GroupPick>(
         targets.map((group) => ({ label: group.name, group })),
-        { placeHolder: '移动到分组' },
+        { placeHolder: '移动到期货分组' },
       );
       if (!target) {
         return;
       }
       await handle(async () => {
-        await repository.moveStockToGroup(picked.stock.id, target.group.id);
+        await repository.moveStockToGroup(picked.future.id, target.group.id);
         await afterChange();
       });
     }),
 
-    commands.registerCommand('fishStock.openWatchlist', async () => {
+    commands.registerCommand('fishStock.clearFuturesWatchlist', async () => {
+      const state = repository.getSnapshot();
+      const futureCount = state.groups.reduce(
+        (total, group) => total + group.stocks.length,
+        0,
+      );
+      if (state.groups.length === 1 && state.groups[0].name === '默认' && futureCount === 0) {
+        await window.showInformationMessage('FishStock: 期货自选已经是空的');
+        return;
+      }
+      const answer = await window.showWarningMessage(
+        '清空全部期货自选？',
+        {
+          modal: true,
+          detail: `将删除 ${state.groups.length} 个分组和 ${futureCount} 个期货条目，并保留一个空的“默认”分组。此操作无法撤销。`,
+        },
+        '清空期货自选',
+      );
+      if (answer !== '清空期货自选') {
+        return;
+      }
+      await handle(async () => {
+        await repository.clear();
+        await afterChange();
+        window.setStatusBarMessage('FishStock: 期货自选已清空', 2_500);
+      });
+    }),
+
+    commands.registerCommand('fishStock.openFutures', async () => {
       await commands.executeCommand('workbench.view.extension.fishStock');
-      await commands.executeCommand('fishStock.stock.focus');
+      await commands.executeCommand('fishStock.futures.focus');
     }),
   ];
 }

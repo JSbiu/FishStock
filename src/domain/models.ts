@@ -1,6 +1,6 @@
-export type Market = 'CN' | 'HK' | 'US';
+export type Market = 'CN' | 'HK' | 'US' | 'CNF';
 
-export type InstrumentKind = 'stock' | 'index';
+export type InstrumentKind = 'stock' | 'index' | 'future';
 
 export type QuoteState = 'live' | 'closed' | 'stale' | 'error';
 
@@ -33,6 +33,7 @@ export interface StockSearchResult extends NormalizedSymbol {
   kind: InstrumentKind;
   name: string;
   abbreviation?: string;
+  venue?: string;
 }
 
 export interface RawMarketQuote {
@@ -51,6 +52,9 @@ export interface RawMarketQuote {
   turnoverRate?: unknown;
   peTtm?: unknown;
   totalMarketCap?: unknown;
+  settlementPrice?: unknown;
+  openInterest?: unknown;
+  venue?: string;
   asOf: unknown;
   marketState: 'open' | 'closed';
 }
@@ -71,6 +75,9 @@ export interface Quote {
   turnoverRate: number | null;
   peTtm: number | null;
   totalMarketCap: number | null;
+  settlementPrice: number | null;
+  openInterest: number | null;
+  venue?: string;
   change: number | null;
   changePercent: number | null;
   asOf: number;

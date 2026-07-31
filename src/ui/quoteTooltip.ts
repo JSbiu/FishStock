@@ -1,5 +1,6 @@
 import { MarkdownString } from 'vscode';
 import type { Quote, Stock } from '../domain/models';
+import { listingVenue } from '../domain/listingVenue';
 
 export function formatPrice(price: number): string {
   return price.toFixed(price < 10 ? 3 : 2);
@@ -62,6 +63,32 @@ function appendActionHint(tooltip: MarkdownString, actionHint: string | undefine
   tooltip.appendText(actionHint);
 }
 
+function quoteTable(stock: Stock, quote: Quote, state: string): string {
+  if (quote.market === 'CNF') {
+    return [
+      '| 指标 | 数值 | 指标 | 数值 |',
+      '| :--- | ---: | :--- | ---: |',
+      `| 今开 | ${formatOptionalPrice(quote.open)} | 最高 | ${formatOptionalPrice(quote.high)} |`,
+      `| 昨结 | ${formatOptionalPrice(quote.settlementPrice ?? quote.previousClose)} | 最低 | ${formatOptionalPrice(quote.low)} |`,
+      `| 成交量 | ${formatVolume(quote)} | 持仓量 | ${quote.openInterest === null ? '—' : `${formatCompactNumber(quote.openInterest)}手`} |`,
+      `| 交易所 | ${quote.venue ?? '—'} | 状态 | ${state} |`,
+    ].join('\n');
+  }
+
+  const venue = listingVenue(stock.symbol);
+  return [
+    '| 指标 | 数值 | 指标 | 数值 |',
+    '| :--- | ---: | :--- | ---: |',
+    `| 今开 | ${formatOptionalPrice(quote.open)} | 最高 | ${formatOptionalPrice(quote.high)} |`,
+    `| 昨收 | ${formatOptionalPrice(quote.previousClose)} | 最低 | ${formatOptionalPrice(quote.low)} |`,
+    `| 成交量 | ${formatVolume(quote)} | 成交额 | ${formatMoney(quote.turnoverAmount, quote.currency)} |`,
+    `| 换手率 | ${formatRatio(quote.turnoverRate, '%')} | 市盈率 TTM | ${formatRatio(quote.peTtm)} |`,
+    venue
+      ? `| 总市值 | ${formatMoney(quote.totalMarketCap, quote.currency)} | 上市板块 | ${venue} |`
+      : `| 总市值 | ${formatMoney(quote.totalMarketCap, quote.currency)} | 状态 | ${state} |`,
+  ].join('\n');
+}
+
 export function createQuoteTooltip(
   stock: Stock,
   quote: Quote | undefined,
@@ -95,17 +122,7 @@ export function createQuoteTooltip(
       : `${quote.change > 0 ? '▲ ' : quote.change < 0 ? '▼ ' : ''}${formatDelta(quote.change)} (${formatPercent(quote.changePercent)})`;
   tooltip.appendMarkdown(`**${priceSummary} · ${changeSummary}**`);
   tooltip.appendMarkdown('\n\n');
-  tooltip.appendMarkdown(
-    [
-      '| 指标 | 数值 | 指标 | 数值 |',
-      '| :--- | ---: | :--- | ---: |',
-      `| 今开 | ${formatOptionalPrice(quote.open)} | 最高 | ${formatOptionalPrice(quote.high)} |`,
-      `| 昨收 | ${formatOptionalPrice(quote.previousClose)} | 最低 | ${formatOptionalPrice(quote.low)} |`,
-      `| 成交量 | ${formatVolume(quote)} | 成交额 | ${formatMoney(quote.turnoverAmount, quote.currency)} |`,
-      `| 换手率 | ${formatRatio(quote.turnoverRate, '%')} | 市盈率 TTM | ${formatRatio(quote.peTtm)} |`,
-      `| 总市值 | ${formatMoney(quote.totalMarketCap, quote.currency)} | 状态 | ${stateText[quote.state]} |`,
-    ].join('\n'),
-  );
+  tooltip.appendMarkdown(quoteTable(stock, quote, stateText[quote.state]));
   tooltip.appendMarkdown('\n\n');
   tooltip.appendText(`更新时间：${timestamp} · 数据源：${providerName}`);
   if (quote.message) {

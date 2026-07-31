@@ -28,14 +28,12 @@ function displayText(stock: Stock, quote: Quote | undefined): string {
 
 export class StatusBarController implements Disposable {
   private readonly item: StatusBarItem;
-  private stocks: Stock[] = [];
+  private entries: StatusBarEntry[] = [];
   private index = 0;
   private timer: NodeJS.Timeout | undefined;
 
   public constructor(
-    private readonly quotes: QuoteService,
     private rotationIntervalMs: number,
-    private readonly providerName: string,
   ) {
     this.item = window.createStatusBarItem(StatusBarAlignment.Left, 10);
     this.item.name = 'FishStock 行情';
@@ -45,9 +43,18 @@ export class StatusBarController implements Disposable {
     this.render();
   }
 
-  public setState(state: WatchlistState): void {
-    this.stocks = state.groups.flatMap((group) => group.stocks);
-    if (this.index >= this.stocks.length) {
+  public setSources(sources: readonly StatusBarSource[]): void {
+    this.entries = sources.flatMap((source) =>
+      source.state.groups.flatMap((group) =>
+        group.stocks.map((stock) => ({
+          stock,
+          quotes: source.quotes,
+          providerName: source.providerName,
+          openCommand: source.openCommand,
+        })),
+      ),
+    );
+    if (this.index >= this.entries.length) {
       this.index = 0;
     }
     this.render();
@@ -71,27 +78,43 @@ export class StatusBarController implements Disposable {
       clearInterval(this.timer);
     }
     this.timer = setInterval(() => {
-      if (this.stocks.length > 0) {
-        this.index = (this.index + 1) % this.stocks.length;
+      if (this.entries.length > 0) {
+        this.index = (this.index + 1) % this.entries.length;
       }
       this.render();
     }, this.rotationIntervalMs);
   }
 
   private render(): void {
-    const stock = this.stocks[this.index];
-    if (!stock) {
+    const entry = this.entries[this.index];
+    if (!entry) {
       this.item.text = '$(pulse) FishStock';
-      this.item.tooltip = '暂无自选股。点击打开 FishStock。';
+      this.item.tooltip = '暂无自选行情。点击打开 FishStock。';
+      this.item.command = 'fishStock.openWatchlist';
       return;
     }
-    const quote = this.quotes.get(stock.symbol);
-    this.item.text = displayText(stock, quote);
+    const quote = entry.quotes.get(entry.stock.symbol);
+    this.item.text = displayText(entry.stock, quote);
     this.item.tooltip = createQuoteTooltip(
-      stock,
+      entry.stock,
       quote,
-      this.providerName,
+      entry.providerName,
       '点击打开自选列表',
     );
+    this.item.command = entry.openCommand;
   }
+}
+
+export interface StatusBarSource {
+  state: WatchlistState;
+  quotes: QuoteService;
+  providerName: string;
+  openCommand: string;
+}
+
+interface StatusBarEntry {
+  stock: Stock;
+  quotes: QuoteService;
+  providerName: string;
+  openCommand: string;
 }

@@ -21,6 +21,12 @@ test('normalizes A-share and Hong Kong index symbols without colliding with stoc
   assert.deepEqual(normalizeSymbol('hkihstech'), { symbol: 'HSTECH.HKI', market: 'HK' });
 });
 
+test('normalizes domestic futures main and month contracts', () => {
+  assert.deepEqual(normalizeSymbol('AL0'), { symbol: 'AL0.CNF', market: 'CNF' });
+  assert.deepEqual(normalizeSymbol('nf_AU2608'), { symbol: 'AU2608.CNF', market: 'CNF' });
+  assert.deepEqual(normalizeSymbol('SA609.CNF'), { symbol: 'SA609.CNF', market: 'CNF' });
+});
+
 test('keeps a future US extension point without enabling a provider', () => {
   assert.deepEqual(normalizeSymbol('AAPL.US'), { symbol: 'AAPL.US', market: 'US' });
 });

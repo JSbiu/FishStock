@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   createDefaultWatchlist,
+  createEmptyFuturesWatchlist,
   parseWatchlistState,
   WatchlistRepository,
   WatchlistValidationError,
@@ -149,7 +150,7 @@ test('restores the persisted first-run default watchlist', async () => {
   assert.deepEqual(await reloaded.load(), createDefaultWatchlist());
 });
 
-test('rejects invalid import payloads', () => {
+test('rejects invalid persisted watchlist states', () => {
   assert.throws(
     () =>
       parseWatchlistState({
@@ -171,4 +172,23 @@ test('rejects invalid import payloads', () => {
       }),
     /证券代码重复/,
   );
+});
+
+test('keeps futures data in an independent local namespace', async () => {
+  const store = new MemoryStateStore();
+  const stocks = new WatchlistRepository(store);
+  const futures = new WatchlistRepository(store, {
+    storageKey: 'fishStock.futures.v1',
+    createDefault: createEmptyFuturesWatchlist,
+  });
+  await Promise.all([stocks.load(), futures.load()]);
+  await futures.addStock('default', {
+    id: 'future-al-main',
+    symbol: 'AL0.CNF',
+    market: 'CNF',
+    name: '沪铝主连',
+  });
+
+  assert.equal(stocks.getSnapshot().groups.some((group) => group.stocks.some((item) => item.symbol === 'AL0.CNF')), false);
+  assert.equal(futures.getSnapshot().groups[0].stocks[0].symbol, 'AL0.CNF');
 });

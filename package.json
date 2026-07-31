@@ -1,8 +1,8 @@
 {
   "name": "fish-stock",
   "displayName": "FishStock",
-  "description": "轻量、安静、本地优先的 VS Code 自选股行情插件",
-  "version": "0.3.5",
+  "description": "轻量、安静、本地优先的 VS Code 自选行情插件",
+  "version": "0.3.6",
   "publisher": "fishstock-local",
   "private": true,
   "repository": {
@@ -19,13 +19,18 @@
     "stock",
     "watchlist",
     "A股",
-    "港股"
+    "港股",
+    "期货",
+    "大宗商品"
   ],
   "activationEvents": [
     "onStartupFinished",
     "onView:fishStock.stock",
+    "onView:fishStock.futures",
     "onCommand:fishStock.addStock",
+    "onCommand:fishStock.addFuture",
     "onCommand:fishStock.refresh",
+    "onCommand:fishStock.refreshFutures",
     "onCommand:fishStock.clearWatchlist",
     "onCommand:fishStock.restoreDefaultWatchlist"
   ],
@@ -45,6 +50,10 @@
         {
           "id": "fishStock.stock",
           "name": "Stock"
+        },
+        {
+          "id": "fishStock.futures",
+          "name": "Futures"
         }
       ]
     },
@@ -95,24 +104,69 @@
         "icon": "$(folder-opened)"
       },
       {
-        "command": "fishStock.importJson",
-        "title": "FishStock: 导入自选股 JSON"
-      },
-      {
-        "command": "fishStock.exportJson",
-        "title": "FishStock: 导出自选股 JSON"
-      },
-      {
         "command": "fishStock.openWatchlist",
         "title": "FishStock: 打开自选列表"
       },
       {
         "command": "fishStock.clearWatchlist",
-        "title": "FishStock: 清空全部自选数据"
+        "title": "FishStock: 清空全部股票自选数据"
       },
       {
         "command": "fishStock.restoreDefaultWatchlist",
-        "title": "FishStock: 恢复默认自选数据"
+        "title": "FishStock: 恢复默认股票自选数据"
+      },
+      {
+        "command": "fishStock.addFuture",
+        "title": "FishStock: 添加期货",
+        "icon": "$(add)"
+      },
+      {
+        "command": "fishStock.removeFuture",
+        "title": "FishStock: 删除期货条目",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "fishStock.refreshFutures",
+        "title": "FishStock: 刷新期货行情",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "fishStock.addFuturesGroup",
+        "title": "FishStock: 添加期货分组",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "fishStock.renameFuturesGroup",
+        "title": "FishStock: 重命名期货分组",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "fishStock.removeFuturesGroup",
+        "title": "FishStock: 删除期货分组",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "fishStock.moveFutureUp",
+        "title": "FishStock: 期货条目上移",
+        "icon": "$(arrow-up)"
+      },
+      {
+        "command": "fishStock.moveFutureDown",
+        "title": "FishStock: 期货条目下移",
+        "icon": "$(arrow-down)"
+      },
+      {
+        "command": "fishStock.moveFutureToGroup",
+        "title": "FishStock: 移动期货到其他分组",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "fishStock.clearFuturesWatchlist",
+        "title": "FishStock: 清空全部期货自选"
+      },
+      {
+        "command": "fishStock.openFutures",
+        "title": "FishStock: 打开期货自选"
       }
     ],
     "menus": {
@@ -133,16 +187,6 @@
           "group": "2_groups@1"
         },
         {
-          "command": "fishStock.importJson",
-          "when": "view == fishStock.stock",
-          "group": "3_transfer@1"
-        },
-        {
-          "command": "fishStock.exportJson",
-          "when": "view == fishStock.stock",
-          "group": "3_transfer@2"
-        },
-        {
           "command": "fishStock.clearWatchlist",
           "when": "view == fishStock.stock",
           "group": "9_reset@1"
@@ -151,6 +195,26 @@
           "command": "fishStock.restoreDefaultWatchlist",
           "when": "view == fishStock.stock",
           "group": "9_reset@2"
+        },
+        {
+          "command": "fishStock.refreshFutures",
+          "when": "view == fishStock.futures",
+          "group": "navigation@1"
+        },
+        {
+          "command": "fishStock.addFuture",
+          "when": "view == fishStock.futures",
+          "group": "navigation@2"
+        },
+        {
+          "command": "fishStock.addFuturesGroup",
+          "when": "view == fishStock.futures",
+          "group": "2_groups@1"
+        },
+        {
+          "command": "fishStock.clearFuturesWatchlist",
+          "when": "view == fishStock.futures",
+          "group": "9_reset@1"
         }
       ],
       "view/item/context": [
@@ -192,6 +256,46 @@
         {
           "command": "fishStock.removeGroup",
           "when": "view == fishStock.stock && viewItem == fishStock.group",
+          "group": "9_delete@1"
+        },
+        {
+          "command": "fishStock.addFuture",
+          "when": "view == fishStock.futures && viewItem == fishStock.futuresGroup",
+          "group": "inline@1"
+        },
+        {
+          "command": "fishStock.addFuture",
+          "when": "view == fishStock.futures && viewItem == fishStock.futuresGroup",
+          "group": "1_edit@1"
+        },
+        {
+          "command": "fishStock.moveFutureUp",
+          "when": "view == fishStock.futures && viewItem == fishStock.future",
+          "group": "1_order@1"
+        },
+        {
+          "command": "fishStock.moveFutureDown",
+          "when": "view == fishStock.futures && viewItem == fishStock.future",
+          "group": "1_order@2"
+        },
+        {
+          "command": "fishStock.moveFutureToGroup",
+          "when": "view == fishStock.futures && viewItem == fishStock.future",
+          "group": "2_group@1"
+        },
+        {
+          "command": "fishStock.removeFuture",
+          "when": "view == fishStock.futures && viewItem == fishStock.future",
+          "group": "9_delete@1"
+        },
+        {
+          "command": "fishStock.renameFuturesGroup",
+          "when": "view == fishStock.futures && viewItem == fishStock.futuresGroup",
+          "group": "1_edit@2"
+        },
+        {
+          "command": "fishStock.removeFuturesGroup",
+          "when": "view == fishStock.futures && viewItem == fishStock.futuresGroup",
           "group": "9_delete@1"
         }
       ]

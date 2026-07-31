@@ -4,6 +4,11 @@ import { normalizeSymbol } from '../domain/symbol';
 
 const STORAGE_KEY = 'fishStock.watchlist.v1';
 
+export interface WatchlistRepositoryOptions {
+  storageKey?: string;
+  createDefault?: () => WatchlistState;
+}
+
 export interface StateStore {
   get<T>(key: string): T | undefined;
   update(key: string, value: unknown): PromiseLike<void>;
@@ -124,6 +129,10 @@ function createEmptyWatchlist(): WatchlistState {
   };
 }
 
+export function createEmptyFuturesWatchlist(): WatchlistState {
+  return createEmptyWatchlist();
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -137,11 +146,11 @@ function readString(value: unknown, field: string): string {
 
 function parseStock(value: unknown, seenIds: Set<string>, seenSymbols: Set<string>): Stock {
   if (!isRecord(value)) {
-    throw new WatchlistValidationError('股票条目格式无效');
+    throw new WatchlistValidationError('自选条目格式无效');
   }
-  const id = readString(value.id, '股票 id');
+  const id = readString(value.id, '条目 id');
   if (seenIds.has(id)) {
-    throw new WatchlistValidationError(`股票 id 重复：${id}`);
+    throw new WatchlistValidationError(`条目 id 重复：${id}`);
   }
   seenIds.add(id);
 
@@ -151,7 +160,7 @@ function parseStock(value: unknown, seenIds: Set<string>, seenSymbols: Set<strin
   }
   seenSymbols.add(normalized.symbol);
 
-  const name = value.name === undefined ? undefined : readString(value.name, '股票名称');
+  const name = value.name === undefined ? undefined : readString(value.name, '条目名称');
   return { id, symbol: normalized.symbol, market: normalized.market, ...(name ? { name } : {}) };
 }
 
@@ -195,20 +204,28 @@ function cloneState(state: WatchlistState): WatchlistState {
 
 export class WatchlistRepository {
   private state: WatchlistState | undefined;
+  private readonly storageKey: string;
+  private readonly createDefault: () => WatchlistState;
 
-  public constructor(private readonly store: StateStore) {}
+  public constructor(
+    private readonly store: StateStore,
+    options: WatchlistRepositoryOptions = {},
+  ) {
+    this.storageKey = options.storageKey ?? STORAGE_KEY;
+    this.createDefault = options.createDefault ?? createDefaultWatchlist;
+  }
 
   public async load(): Promise<WatchlistState> {
     if (this.state) {
       return cloneState(this.state);
     }
-    const stored = this.store.get<unknown>(STORAGE_KEY);
+    const stored = this.store.get<unknown>(this.storageKey);
     try {
-      this.state = stored === undefined ? createDefaultWatchlist() : parseWatchlistState(stored);
+      this.state = stored === undefined ? this.createDefault() : parseWatchlistState(stored);
     } catch {
-      this.state = createDefaultWatchlist();
+      this.state = this.createDefault();
     }
-    await this.store.update(STORAGE_KEY, this.state);
+    await this.store.update(this.storageKey, this.state);
     return cloneState(this.state);
   }
 
@@ -219,17 +236,12 @@ export class WatchlistRepository {
     return cloneState(this.state);
   }
 
-  public async replace(value: unknown): Promise<void> {
-    this.state = parseWatchlistState(value);
-    await this.persist();
-  }
-
   public async clear(): Promise<void> {
     await this.save(createEmptyWatchlist());
   }
 
   public async restoreDefault(): Promise<void> {
-    await this.save(createDefaultWatchlist());
+    await this.save(this.createDefault());
   }
 
   public async addGroup(id: string, name: string): Promise<void> {
@@ -333,6 +345,6 @@ export class WatchlistRepository {
   }
 
   private async persist(): Promise<void> {
-    await this.store.update(STORAGE_KEY, this.state);
+    await this.store.update(this.storageKey, this.state);
   }
 }
