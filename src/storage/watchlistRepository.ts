@@ -77,9 +77,9 @@ function parseStock(value: unknown, seenIds: Set<string>, seenSymbols: Set<strin
   }
   seenIds.add(id);
 
-  const normalized = normalizeSymbol(readString(value.symbol, '股票代码'));
+  const normalized = normalizeSymbol(readString(value.symbol, '证券代码'));
   if (seenSymbols.has(normalized.symbol)) {
-    throw new WatchlistValidationError(`股票代码重复：${normalized.symbol}`);
+    throw new WatchlistValidationError(`证券代码重复：${normalized.symbol}`);
   }
   seenSymbols.add(normalized.symbol);
 

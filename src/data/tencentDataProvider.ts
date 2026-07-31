@@ -1,10 +1,11 @@
 import type {
+  InstrumentKind,
   Market,
   NormalizedSymbol,
   RawMarketQuote,
   StockSearchResult,
 } from '../domain/models';
-import { normalizeSymbol } from '../domain/symbol';
+import { isIndexSymbol, normalizeSymbol } from '../domain/symbol';
 import type { BseSecurityDirectory } from './bseSecurityDirectory';
 import type { MarketDataProvider } from './marketDataProvider';
 
@@ -86,6 +87,15 @@ function marketState(market: Market, asOf: number, now: Date): 'open' | 'closed'
 
 export function toTencentSymbol(symbol: NormalizedSymbol): string {
   const [code, exchange] = symbol.symbol.split('.');
+  if (symbol.market === 'CN' && exchange === 'SHI') {
+    return `sh${code}`;
+  }
+  if (symbol.market === 'CN' && exchange === 'SZI') {
+    return `sz${code}`;
+  }
+  if (symbol.market === 'HK' && exchange === 'HKI') {
+    return `r_hk${code}`;
+  }
   if (symbol.market === 'HK' && exchange === 'HK') {
     return `r_hk${code.padStart(5, '0')}`;
   }
@@ -125,29 +135,48 @@ export function parseTencentSearchPayload(payload: string): StockSearchResult[] 
 
   const results: StockSearchResult[] = [];
   const seen = new Set<string>();
+  const seenIndexNames = new Set<string>();
   for (const entry of value.split('^')) {
     const [rawExchange, code, name, abbreviation, assetType] = entry.split('~');
     const exchange = rawExchange?.toLowerCase();
-    const suffix =
+    const stockSuffix =
       (assetType === 'GP-A' || assetType?.startsWith('GP-A-')) &&
       ['sh', 'sz', 'bj'].includes(exchange)
         ? exchange.toUpperCase()
         : assetType === 'GP' && exchange === 'hk'
           ? 'HK'
           : undefined;
+    const indexSuffix =
+      assetType === 'ZS' && exchange === 'sh'
+        ? 'SHI'
+        : assetType === 'ZS' && exchange === 'sz'
+          ? 'SZI'
+          : assetType === 'ZS' && exchange === 'hk'
+            ? 'HKI'
+            : undefined;
+    const suffix = stockSuffix ?? indexSuffix;
     if (!suffix || !code || !name) {
       continue;
     }
 
     try {
       const normalized = normalizeSymbol(`${code}.${suffix}`);
+      const cleanName = name.trim();
+      const indexName = cleanName.toLocaleLowerCase('zh-CN');
       if (seen.has(normalized.symbol)) {
         continue;
       }
+      if (indexSuffix && seenIndexNames.has(indexName)) {
+        continue;
+      }
       seen.add(normalized.symbol);
+      if (indexSuffix) {
+        seenIndexNames.add(indexName);
+      }
       results.push({
         ...normalized,
-        name: name.trim(),
+        kind: indexSuffix ? 'index' : 'stock',
+        name: cleanName,
         ...(abbreviation?.trim() ? { abbreviation: abbreviation.trim() } : {}),
       });
       if (results.length >= SEARCH_RESULT_LIMIT) {
@@ -167,6 +196,10 @@ function normalizeCodeQuery(query: string): NormalizedSymbol | undefined {
   } catch {
     return undefined;
   }
+}
+
+function instrumentKind(symbol: string): InstrumentKind {
+  return isIndexSymbol(symbol) ? 'index' : 'stock';
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -271,7 +304,14 @@ export class TencentDataProvider implements MarketDataProvider {
       try {
         const quote = (await this.fetchQuotes([codeQuery], signal))[0];
         if (quote) {
-          return [{ symbol: quote.symbol, market: quote.market, name: quote.name }];
+          return [
+            {
+              symbol: quote.symbol,
+              market: quote.market,
+              kind: instrumentKind(quote.symbol),
+              name: quote.name,
+            },
+          ];
         }
       } catch (error: unknown) {
         tencentError ??= error;

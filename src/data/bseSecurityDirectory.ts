@@ -170,6 +170,7 @@ export class BseSecurityDirectory {
       .map(({ entry }) => ({
         symbol: `${entry.symbol}.BJ`,
         market: 'CN',
+        kind: 'stock',
         name: entry.name,
       }));
   }

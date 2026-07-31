@@ -33,10 +33,34 @@ function inferAExchange(code: string): 'SH' | 'SZ' | 'BJ' {
   throw new SymbolFormatError(`无法判断 A 股代码 ${code} 的交易所，请添加 .SH、.SZ 或 .BJ 后缀`);
 }
 
+export function isIndexSymbol(symbol: string): boolean {
+  return /\.(?:SHI|SZI|HKI)$/i.test(symbol.trim());
+}
+
 export function normalizeSymbol(input: string): NormalizedSymbol {
   const compact = input.trim().toUpperCase().replace(/\s+/g, '');
   if (!compact) {
     throw new SymbolFormatError('请输入股票代码');
+  }
+
+  const aIndexSuffix = compact.match(/^(\d{6})[.:_-]?(SHI|SZI)$/);
+  if (aIndexSuffix) {
+    return { symbol: `${aIndexSuffix[1]}.${aIndexSuffix[2]}`, market: 'CN' };
+  }
+
+  const aIndexPrefix = compact.match(/^(SHI|SZI)[.:_-]?(\d{6})$/);
+  if (aIndexPrefix) {
+    return { symbol: `${aIndexPrefix[2]}.${aIndexPrefix[1]}`, market: 'CN' };
+  }
+
+  const hkIndexSuffix = compact.match(/^([A-Z][A-Z0-9]{1,19})[.:_-]?HKI$/);
+  if (hkIndexSuffix) {
+    return { symbol: `${hkIndexSuffix[1]}.HKI`, market: 'HK' };
+  }
+
+  const hkIndexPrefix = compact.match(/^HKI[.:_-]?([A-Z][A-Z0-9]{1,19})$/);
+  if (hkIndexPrefix) {
+    return { symbol: `${hkIndexPrefix[1]}.HKI`, market: 'HK' };
   }
 
   const aSuffix = compact.match(/^(\d{6})[.:_-]?(SH|SS|SZ|BJ)$/);
@@ -80,5 +104,7 @@ export function normalizeSymbol(input: string): NormalizedSymbol {
     return { symbol: `${usPrefix[1]}.US`, market: 'US' };
   }
 
-  throw new SymbolFormatError('代码格式无效；示例：600519、000001.SZ、00700.HK');
+  throw new SymbolFormatError(
+    '代码格式无效；示例：600519、000001.SZ、00700.HK、000001.SHI、HSI.HKI',
+  );
 }

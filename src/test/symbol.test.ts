@@ -14,6 +14,13 @@ test('normalizes Hong Kong symbols to five digits', () => {
   assert.deepEqual(normalizeSymbol('hk:9988'), { symbol: '09988.HK', market: 'HK' });
 });
 
+test('normalizes A-share and Hong Kong index symbols without colliding with stocks', () => {
+  assert.deepEqual(normalizeSymbol('000001.shi'), { symbol: '000001.SHI', market: 'CN' });
+  assert.deepEqual(normalizeSymbol('szi399001'), { symbol: '399001.SZI', market: 'CN' });
+  assert.deepEqual(normalizeSymbol('hsi.hki'), { symbol: 'HSI.HKI', market: 'HK' });
+  assert.deepEqual(normalizeSymbol('hkihstech'), { symbol: 'HSTECH.HKI', market: 'HK' });
+});
+
 test('keeps a future US extension point without enabling a provider', () => {
   assert.deepEqual(normalizeSymbol('AAPL.US'), { symbol: 'AAPL.US', market: 'US' });
 });

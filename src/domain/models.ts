@@ -1,5 +1,7 @@
 export type Market = 'CN' | 'HK' | 'US';
 
+export type InstrumentKind = 'stock' | 'index';
+
 export type QuoteState = 'live' | 'closed' | 'stale' | 'error';
 
 export type VolumeUnit = 'lot' | 'share';
@@ -28,6 +30,7 @@ export interface NormalizedSymbol {
 }
 
 export interface StockSearchResult extends NormalizedSymbol {
+  kind: InstrumentKind;
   name: string;
   abbreviation?: string;
 }

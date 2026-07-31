@@ -82,15 +82,18 @@ async function chooseStock(
 }
 
 function searchPickItems(results: readonly StockSearchResult[]): StockSearchPick[] {
-  return results.map((result) => ({
-    label: result.name,
-    description: `${result.symbol} · ${result.market === 'CN' ? 'A 股' : '港股'}`,
-    ...(result.abbreviation
-      ? { detail: `简称：${result.abbreviation.toUpperCase()}` }
-      : {}),
-    alwaysShow: true,
-    result,
-  }));
+  return results.map((result) => {
+    const type = result.kind === 'index' ? '指数' : result.market === 'CN' ? 'A 股' : '港股';
+    return {
+      label: result.name,
+      description: `${result.symbol} · ${type}`,
+      ...(result.abbreviation
+        ? { detail: `简称：${result.abbreviation.toUpperCase()}` }
+        : {}),
+      alwaysShow: true,
+      result,
+    };
+  });
 }
 
 function chooseStockSearchResult(
@@ -99,7 +102,7 @@ function chooseStockSearchResult(
 ): Promise<StockSearchResult | undefined> {
   const picker = window.createQuickPick<StockSearchPick>();
   picker.title = `添加到“${group.name}”`;
-  picker.placeholder = '输入名称、简称或代码，如 美的集团、mdjt、000333';
+  picker.placeholder = '输入名称、简称或代码，如 美的集团、上证指数、HSI';
   picker.matchOnDescription = true;
   picker.matchOnDetail = true;
 
@@ -151,8 +154,8 @@ function chooseStockSearchResult(
                   ? searchPickItems(results)
                   : [
                       {
-                        label: '$(info) 未找到匹配的 A 股或港股',
-                        description: '请尝试完整名称、拼音简称或股票代码',
+                        label: '$(info) 未找到匹配的 A 股、港股或指数',
+                        description: '请尝试完整名称、拼音简称或证券代码',
                         alwaysShow: true,
                       },
                     ];

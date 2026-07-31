@@ -45,13 +45,13 @@ test('searches BSE securities by Chinese name, current code, and legacy code', a
   );
 
   assert.deepEqual(await directory.search('诺思兰德'), [
-    { symbol: '920047.BJ', market: 'CN', name: '诺思兰德' },
+    { symbol: '920047.BJ', market: 'CN', kind: 'stock', name: '诺思兰德' },
   ]);
   assert.deepEqual(await directory.search('920185'), [
-    { symbol: '920185.BJ', market: 'CN', name: '贝特瑞' },
+    { symbol: '920185.BJ', market: 'CN', kind: 'stock', name: '贝特瑞' },
   ]);
   assert.deepEqual(await directory.search('bj430047'), [
-    { symbol: '920047.BJ', market: 'CN', name: '诺思兰德' },
+    { symbol: '920047.BJ', market: 'CN', kind: 'stock', name: '诺思兰德' },
   ]);
   assert.equal(requests, 1);
 });
@@ -73,7 +73,7 @@ test('reuses the persisted BSE directory cache in a new provider instance', asyn
     () => 2_000,
   );
   assert.deepEqual(await second.search('835185'), [
-    { symbol: '920185.BJ', market: 'CN', name: '贝特瑞' },
+    { symbol: '920185.BJ', market: 'CN', kind: 'stock', name: '贝特瑞' },
   ]);
 });
 
@@ -87,7 +87,7 @@ test('uses the bundled BSE directory and backs off for 24 hours after an update 
   };
   const first = new BseSecurityDirectory(cache, failingFetch, () => 1_000_000_000, builtIn);
   assert.deepEqual(await first.search('诺思兰德'), [
-    { symbol: '920047.BJ', market: 'CN', name: '诺思兰德' },
+    { symbol: '920047.BJ', market: 'CN', kind: 'stock', name: '诺思兰德' },
   ]);
 
   const second = new BseSecurityDirectory(
@@ -97,7 +97,7 @@ test('uses the bundled BSE directory and backs off for 24 hours after an update 
     builtIn,
   );
   assert.deepEqual(await second.search('430047'), [
-    { symbol: '920047.BJ', market: 'CN', name: '诺思兰德' },
+    { symbol: '920047.BJ', market: 'CN', kind: 'stock', name: '诺思兰德' },
   ]);
   assert.equal(requests, 1);
 });

@@ -51,6 +51,29 @@ test('prevents duplicate stock symbols across groups', async () => {
   );
 });
 
+test('persists an index separately from a stock with the same numeric code', async () => {
+  const store = new MemoryStateStore();
+  const repository = new WatchlistRepository(store);
+  await repository.load();
+  await repository.addStock('default', {
+    id: 'sh-index',
+    symbol: '000001.SHI',
+    market: 'CN',
+    name: '上证指数',
+  });
+  await repository.addStock('default', {
+    id: 'sz-stock',
+    symbol: '000001.SZ',
+    market: 'CN',
+    name: '平安银行',
+  });
+
+  const reloaded = new WatchlistRepository(store);
+  const symbols = (await reloaded.load()).groups[0].stocks.map((stock) => stock.symbol);
+  assert.equal(symbols.includes('000001.SHI'), true);
+  assert.equal(symbols.includes('000001.SZ'), true);
+});
+
 test('clears persisted data to one empty default group', async () => {
   const store = new MemoryStateStore();
   const repository = new WatchlistRepository(store);
@@ -107,6 +130,6 @@ test('rejects invalid import payloads', () => {
           },
         ],
       }),
-    /股票代码重复/,
+    /证券代码重复/,
   );
 });

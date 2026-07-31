@@ -2,7 +2,7 @@
   "name": "fish-stock",
   "displayName": "FishStock",
   "description": "轻量、安静、本地优先的 VS Code 自选股行情插件",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "publisher": "fishstock-local",
   "private": true,
   "repository": {
@@ -51,12 +51,12 @@
     "commands": [
       {
         "command": "fishStock.addStock",
-        "title": "FishStock: 添加股票",
+        "title": "FishStock: 添加股票或指数",
         "icon": "$(add)"
       },
       {
         "command": "fishStock.removeStock",
-        "title": "FishStock: 删除股票",
+        "title": "FishStock: 删除自选条目",
         "icon": "$(trash)"
       },
       {
@@ -81,12 +81,12 @@
       },
       {
         "command": "fishStock.moveStockUp",
-        "title": "FishStock: 股票上移",
+        "title": "FishStock: 自选条目上移",
         "icon": "$(arrow-up)"
       },
       {
         "command": "fishStock.moveStockDown",
-        "title": "FishStock: 股票下移",
+        "title": "FishStock: 自选条目下移",
         "icon": "$(arrow-down)"
       },
       {
