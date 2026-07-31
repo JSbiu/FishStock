@@ -195,9 +195,9 @@ function parseStock(value: unknown, seenIds: Set<string>, seenSymbols: Set<strin
   }
   seenIds.add(id);
 
-  const normalized = normalizeSymbol(readString(value.symbol, '证券代码'));
+  const normalized = normalizeSymbol(readString(value.symbol, '自选代码'));
   if (seenSymbols.has(normalized.symbol)) {
-    throw new WatchlistValidationError(`证券代码重复：${normalized.symbol}`);
+    throw new WatchlistValidationError(`自选代码重复：${normalized.symbol}`);
   }
   seenSymbols.add(normalized.symbol);
 
@@ -207,7 +207,7 @@ function parseStock(value: unknown, seenIds: Set<string>, seenSymbols: Set<strin
 
 export function parseWatchlistState(value: unknown): WatchlistState {
   if (!isRecord(value) || value.version !== 1 || !Array.isArray(value.groups)) {
-    throw new WatchlistValidationError('不是 FishStock v1 自选股文件');
+    throw new WatchlistValidationError('不是有效的 FishStock v1 自选数据');
   }
 
   const seenGroupIds = new Set<string>();
@@ -377,7 +377,7 @@ export class WatchlistRepository {
         return { group, index };
       }
     }
-    throw new WatchlistValidationError('股票不存在');
+    throw new WatchlistValidationError('自选条目不存在');
   }
 
   private async save(state: WatchlistState): Promise<void> {

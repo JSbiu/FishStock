@@ -9,6 +9,7 @@ function errorMessage(error: unknown): string {
 }
 export class QuoteService {
   private readonly cache = new Map<string, Quote>();
+  private readonly fetchedAt = new Map<string, number>();
   private readonly inFlight = new Map<string, Promise<RefreshResult>>();
 
   public constructor(
@@ -54,8 +55,8 @@ export class QuoteService {
   private hasRecentCache(symbols: readonly NormalizedSymbol[]): boolean {
     const now = this.now();
     return symbols.every(({ symbol }) => {
-      const quote = this.cache.get(symbol);
-      return quote && now - quote.asOf < this.minFetchIntervalMs;
+      const timestamp = this.fetchedAt.get(symbol);
+      return timestamp !== undefined && now - timestamp < this.minFetchIntervalMs;
     });
   }
 
@@ -80,6 +81,7 @@ export class QuoteService {
         } else {
           this.cache.set(requested.symbol, this.unavailableQuote(requested, '数据源未返回该标的'));
         }
+        this.fetchedAt.set(requested.symbol, this.now());
       }
       return this.resultFor(symbols);
     } catch (error: unknown) {

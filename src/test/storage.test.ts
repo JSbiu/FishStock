@@ -193,7 +193,7 @@ test('rejects invalid persisted watchlist states', () => {
           },
         ],
       }),
-    /证券代码重复/,
+    /自选代码重复/,
   );
 });
 
