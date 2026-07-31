@@ -2,7 +2,7 @@
   "name": "fish-stock",
   "displayName": "FishStock",
   "description": "轻量、安静、本地优先的 VS Code 自选股行情插件",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "fishstock-local",
   "private": true,
   "repository": {
@@ -23,7 +23,7 @@
   ],
   "activationEvents": [
     "onStartupFinished",
-    "onView:fishStock.watchlist",
+    "onView:fishStock.stock",
     "onCommand:fishStock.addStock",
     "onCommand:fishStock.refresh"
   ],
@@ -41,8 +41,8 @@
     "views": {
       "fishStock": [
         {
-          "id": "fishStock.watchlist",
-          "name": "自选股"
+          "id": "fishStock.stock",
+          "name": "Stock"
         }
       ]
     },
@@ -109,59 +109,69 @@
       "view/title": [
         {
           "command": "fishStock.refresh",
-          "when": "view == fishStock.watchlist",
+          "when": "view == fishStock.stock",
           "group": "navigation@1"
         },
         {
           "command": "fishStock.addStock",
-          "when": "view == fishStock.watchlist",
+          "when": "view == fishStock.stock",
           "group": "navigation@2"
         },
         {
           "command": "fishStock.addGroup",
-          "when": "view == fishStock.watchlist",
+          "when": "view == fishStock.stock",
           "group": "2_groups@1"
         },
         {
           "command": "fishStock.importJson",
-          "when": "view == fishStock.watchlist",
+          "when": "view == fishStock.stock",
           "group": "3_transfer@1"
         },
         {
           "command": "fishStock.exportJson",
-          "when": "view == fishStock.watchlist",
+          "when": "view == fishStock.stock",
           "group": "3_transfer@2"
         }
       ],
       "view/item/context": [
         {
+          "command": "fishStock.addStock",
+          "when": "view == fishStock.stock && viewItem == fishStock.group",
+          "group": "inline@1"
+        },
+        {
+          "command": "fishStock.addStock",
+          "when": "view == fishStock.stock && viewItem == fishStock.group",
+          "group": "1_edit@1"
+        },
+        {
           "command": "fishStock.moveStockUp",
-          "when": "view == fishStock.watchlist && viewItem == fishStock.stock",
+          "when": "view == fishStock.stock && viewItem == fishStock.stock",
           "group": "1_order@1"
         },
         {
           "command": "fishStock.moveStockDown",
-          "when": "view == fishStock.watchlist && viewItem == fishStock.stock",
+          "when": "view == fishStock.stock && viewItem == fishStock.stock",
           "group": "1_order@2"
         },
         {
           "command": "fishStock.moveStockToGroup",
-          "when": "view == fishStock.watchlist && viewItem == fishStock.stock",
+          "when": "view == fishStock.stock && viewItem == fishStock.stock",
           "group": "2_group@1"
         },
         {
           "command": "fishStock.removeStock",
-          "when": "view == fishStock.watchlist && viewItem == fishStock.stock",
+          "when": "view == fishStock.stock && viewItem == fishStock.stock",
           "group": "9_delete@1"
         },
         {
           "command": "fishStock.renameGroup",
-          "when": "view == fishStock.watchlist && viewItem == fishStock.group",
-          "group": "1_edit@1"
+          "when": "view == fishStock.stock && viewItem == fishStock.group",
+          "group": "1_edit@2"
         },
         {
           "command": "fishStock.removeGroup",
-          "when": "view == fishStock.watchlist && viewItem == fishStock.group",
+          "when": "view == fishStock.stock && viewItem == fishStock.group",
           "group": "9_delete@1"
         }
       ]
@@ -212,7 +222,7 @@
     "lint": "eslint .",
     "test": "pnpm run compile && node --test out/test/*.test.js",
     "check": "pnpm run lint && pnpm run test",
-    "package:vsix": "pnpm run check && vsce package --no-dependencies --out fish-stock-0.1.0.vsix"
+    "package:vsix": "pnpm run check && vsce package --no-dependencies"
   },
   "devDependencies": {
     "@eslint/js": "^9.31.0",

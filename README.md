@@ -2,13 +2,15 @@
 
 FishStock 是一个轻量、安静、本地优先的 VS Code 自选股行情插件。
 
-v0.1 使用腾讯行情接口，优先支持 A 股和港股。
+当前版本使用腾讯行情接口，优先支持 A 股和港股。
 
 ## 当前功能
 
 - Activity Bar 中的 FishStock 入口
 - 原生 Tree View，两层结构为“分组 → 股票”
-- 添加、删除、跨组移动以及上移/下移股票
+- 按中文名称、拼音简称或代码搜索 A 股与港股，预览结果后添加
+- 从视图标题栏或目标分组直接添加股票
+- 删除、跨组移动以及上移/下移股票
 - 添加、重命名、删除和折叠分组
 - 手动刷新与自动刷新
 - 单个状态栏行情项目，按自选顺序轮播，点击可打开自选列表
@@ -40,7 +42,7 @@ pnpm run check
 1. 打开本项目。
 2. 按 `F5`，或从“运行和调试”选择“运行 FishStock 扩展”。
 3. 在新打开的 Extension Development Host 左侧 Activity Bar 点击 FishStock 图标。
-4. 用视图标题栏的添加和刷新按钮验证核心流程；右键分组或股票可查看管理操作。
+4. 用视图标题栏的添加和刷新按钮验证核心流程；将鼠标移到分组上或右键分组，可直接向该组添加股票。
 
 首次运行会创建“默认”分组，并放入 `600519.SH` 和 `00700.HK` 两只示例股，可随时删除。
 
@@ -50,7 +52,7 @@ pnpm run check
 pnpm run package:vsix
 ```
 
-命令会在项目根目录生成 `fish-stock-0.1.0.vsix`。可在 VS Code 的 Extensions 视图中选择“Install from VSIX...”进行本地安装。当前阶段不要发布到 Marketplace。
+命令会根据当前扩展版本在项目根目录生成 `fish-stock-<version>.vsix`。可在 VS Code 的 Extensions 视图中选择“Install from VSIX...”进行本地安装。当前阶段不要发布到 Marketplace。
 
 ## 配置
 

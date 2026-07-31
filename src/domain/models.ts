@@ -25,6 +25,11 @@ export interface NormalizedSymbol {
   market: Market;
 }
 
+export interface StockSearchResult extends NormalizedSymbol {
+  name: string;
+  abbreviation?: string;
+}
+
 export interface RawMarketQuote {
   symbol: string;
   market: Market;

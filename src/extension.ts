@@ -37,11 +37,10 @@ export async function activate(context: ExtensionContext): Promise<void> {
     config.colorConvention,
     provider.displayName,
   );
-  const treeView = window.createTreeView('fishStock.watchlist', {
+  const treeView = window.createTreeView('fishStock.stock', {
     treeDataProvider: treeProvider,
     showCollapseAll: true,
   });
-  treeView.message = '腾讯行情 · A 股与港股';
 
   const statusBar = new StatusBarController(
     quotes,
@@ -107,7 +106,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
 
   scheduler.start();
   await refresh(false, false);
-  output.appendLine('FishStock v0.1 已启动；当前使用腾讯 A 股与港股行情。');
+  output.appendLine('FishStock 已启动；当前使用腾讯 A 股与港股行情。');
 }
 
 export function deactivate(): void {}

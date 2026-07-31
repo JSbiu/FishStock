@@ -1,8 +1,16 @@
-import type { Market, NormalizedSymbol, RawMarketQuote } from '../domain/models';
+import type {
+  Market,
+  NormalizedSymbol,
+  RawMarketQuote,
+  StockSearchResult,
+} from '../domain/models';
+import { normalizeSymbol } from '../domain/symbol';
 import type { MarketDataProvider } from './marketDataProvider';
 
 const TENCENT_QUOTE_URL = 'https://qt.gtimg.cn/q=';
+const TENCENT_SEARCH_URL = 'https://smartbox.gtimg.cn/s3/';
 const BATCH_SIZE = 50;
+const SEARCH_RESULT_LIMIT = 20;
 const REQUEST_TIMEOUT_MS = 10_000;
 
 interface ShanghaiTimeParts {
@@ -92,6 +100,64 @@ export function toTencentSymbol(symbol: NormalizedSymbol): string {
   throw new Error(`腾讯行情暂不支持 ${symbol.symbol}`);
 }
 
+function decodeTencentSearchValue(payload: string): string {
+  const match = payload.match(/^\s*v_hint="((?:\\.|[^"\\])*)";?\s*$/);
+  if (!match) {
+    throw new Error('腾讯股票搜索响应格式无效');
+  }
+  try {
+    const decoded: unknown = JSON.parse(`"${match[1]}"`);
+    if (typeof decoded !== 'string') {
+      throw new Error('not a string');
+    }
+    return decoded;
+  } catch {
+    throw new Error('腾讯股票搜索内容无法解析');
+  }
+}
+
+export function parseTencentSearchPayload(payload: string): StockSearchResult[] {
+  const value = decodeTencentSearchValue(payload);
+  if (!value) {
+    return [];
+  }
+
+  const results: StockSearchResult[] = [];
+  const seen = new Set<string>();
+  for (const entry of value.split('^')) {
+    const [rawExchange, code, name, abbreviation, assetType] = entry.split('~');
+    const exchange = rawExchange?.toLowerCase();
+    const suffix =
+      assetType === 'GP-A' && ['sh', 'sz', 'bj'].includes(exchange)
+        ? exchange.toUpperCase()
+        : assetType === 'GP' && exchange === 'hk'
+          ? 'HK'
+          : undefined;
+    if (!suffix || !code || !name) {
+      continue;
+    }
+
+    try {
+      const normalized = normalizeSymbol(`${code}.${suffix}`);
+      if (seen.has(normalized.symbol)) {
+        continue;
+      }
+      seen.add(normalized.symbol);
+      results.push({
+        ...normalized,
+        name: name.trim(),
+        ...(abbreviation?.trim() ? { abbreviation: abbreviation.trim() } : {}),
+      });
+      if (results.length >= SEARCH_RESULT_LIMIT) {
+        break;
+      }
+    } catch {
+      // Ignore supplier entries that are not valid A-share or Hong Kong stock symbols.
+    }
+  }
+  return results;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -139,6 +205,41 @@ export class TencentDataProvider implements MarketDataProvider {
     return market === 'CN' || market === 'HK';
   }
 
+  public async searchStocks(
+    query: string,
+    signal?: AbortSignal,
+  ): Promise<StockSearchResult[]> {
+    const keyword = query.trim();
+    if (!keyword) {
+      return [];
+    }
+
+    const controller = new AbortController();
+    const abort = (): void => controller.abort();
+    signal?.addEventListener('abort', abort, { once: true });
+    const timeout = setTimeout(abort, REQUEST_TIMEOUT_MS);
+    try {
+      const response = await fetch(
+        `${TENCENT_SEARCH_URL}?q=${encodeURIComponent(keyword)}&t=all`,
+        {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) FishStock',
+          },
+          signal: controller.signal,
+        },
+      );
+      if (!response.ok) {
+        throw new Error(`腾讯股票搜索失败：HTTP ${response.status}`);
+      }
+      const bytes = await response.arrayBuffer();
+      const text = new TextDecoder('gbk').decode(bytes);
+      return parseTencentSearchPayload(text);
+    } finally {
+      clearTimeout(timeout);
+      signal?.removeEventListener('abort', abort);
+    }
+  }
+
   public async fetchQuotes(
     symbols: readonly NormalizedSymbol[],
     signal?: AbortSignal,
@@ -167,7 +268,7 @@ export class TencentDataProvider implements MarketDataProvider {
       const query = symbols.map(toTencentSymbol).join(',');
       const response = await fetch(`${TENCENT_QUOTE_URL}${query}&fmt=json`, {
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) FishStock/0.1',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) FishStock',
         },
         signal: controller.signal,
       });

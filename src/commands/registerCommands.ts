@@ -7,8 +7,7 @@ import {
   type QuickPickItem,
 } from 'vscode';
 import type { MarketDataProvider } from '../data/marketDataProvider';
-import type { Stock, WatchGroup } from '../domain/models';
-import { normalizeSymbol } from '../domain/symbol';
+import type { Stock, StockSearchResult, WatchGroup } from '../domain/models';
 import {
   parseWatchlistState,
   type WatchlistRepository,
@@ -24,6 +23,10 @@ interface StockPick extends QuickPickItem {
   groupId: string;
 }
 
+interface StockSearchPick extends QuickPickItem {
+  result?: StockSearchResult;
+}
+
 export interface CommandOptions {
   repository: WatchlistRepository;
   provider: MarketDataProvider;
@@ -32,12 +35,6 @@ export interface CommandOptions {
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : '操作失败';
-}
-
-function splitStockInput(value: string): { code: string; name?: string } {
-  const [code, ...nameParts] = value.trim().split(/\s+/);
-  const name = nameParts.join(' ').trim();
-  return { code, ...(name ? { name } : {}) };
 }
 
 async function chooseGroup(
@@ -84,6 +81,127 @@ async function chooseStock(
   return window.showQuickPick<StockPick>(items, { placeHolder: '选择股票' });
 }
 
+function searchPickItems(results: readonly StockSearchResult[]): StockSearchPick[] {
+  return results.map((result) => ({
+    label: result.name,
+    description: `${result.symbol} · ${result.market === 'CN' ? 'A 股' : '港股'}`,
+    ...(result.abbreviation
+      ? { detail: `简称：${result.abbreviation.toUpperCase()}` }
+      : {}),
+    alwaysShow: true,
+    result,
+  }));
+}
+
+function chooseStockSearchResult(
+  provider: MarketDataProvider,
+  group: WatchGroup,
+): Promise<StockSearchResult | undefined> {
+  const picker = window.createQuickPick<StockSearchPick>();
+  picker.title = `添加到“${group.name}”`;
+  picker.placeholder = '输入名称、简称或代码，如 美的集团、mdjt、000333';
+  picker.matchOnDescription = true;
+  picker.matchOnDetail = true;
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let request: AbortController | undefined;
+  let generation = 0;
+  let settled = false;
+
+  return new Promise((resolve) => {
+    const finish = (result: StockSearchResult | undefined): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolve(result);
+      picker.hide();
+    };
+
+    const subscriptions: Disposable[] = [];
+    subscriptions.push(
+      picker.onDidChangeValue((value) => {
+        generation += 1;
+        const currentGeneration = generation;
+        if (timer) {
+          clearTimeout(timer);
+        }
+        request?.abort();
+        request = undefined;
+
+        const query = value.trim();
+        if (!query) {
+          picker.busy = false;
+          picker.items = [];
+          return;
+        }
+
+        picker.busy = true;
+        timer = setTimeout(() => {
+          const controller = new AbortController();
+          request = controller;
+          void provider
+            .searchStocks(query, controller.signal)
+            .then((results) => {
+              if (controller.signal.aborted || currentGeneration !== generation) {
+                return;
+              }
+              picker.items =
+                results.length > 0
+                  ? searchPickItems(results)
+                  : [
+                      {
+                        label: '$(info) 未找到匹配的 A 股或港股',
+                        description: '请尝试完整名称、拼音简称或股票代码',
+                        alwaysShow: true,
+                      },
+                    ];
+            })
+            .catch((error: unknown) => {
+              if (controller.signal.aborted || currentGeneration !== generation) {
+                return;
+              }
+              picker.items = [
+                {
+                  label: '$(warning) 搜索失败，请稍后重试',
+                  description: messageOf(error),
+                  alwaysShow: true,
+                },
+              ];
+            })
+            .finally(() => {
+              if (currentGeneration === generation) {
+                picker.busy = false;
+              }
+            });
+        }, 250);
+      }),
+      picker.onDidAccept(() => {
+        const selected = picker.selectedItems[0] ?? picker.activeItems[0];
+        if (selected?.result) {
+          finish(selected.result);
+        }
+      }),
+      picker.onDidHide(() => {
+        if (timer) {
+          clearTimeout(timer);
+        }
+        request?.abort();
+        if (!settled) {
+          settled = true;
+          resolve(undefined);
+        }
+        for (const subscription of subscriptions) {
+          subscription.dispose();
+        }
+        picker.dispose();
+      }),
+    );
+
+    picker.show();
+  });
+}
+
 export function registerCommands(options: CommandOptions): Disposable[] {
   const { repository, provider, refresh } = options;
   const afterChange = async (): Promise<void> => refresh(false, false);
@@ -96,35 +214,21 @@ export function registerCommands(options: CommandOptions): Disposable[] {
   };
 
   return [
-    commands.registerCommand('fishStock.addStock', async () => {
-      const group = await chooseGroup(repository);
+    commands.registerCommand('fishStock.addStock', async (node?: GroupNode) => {
+      const group = await chooseGroup(repository, node);
       if (!group) {
         return;
       }
-      const input = await window.showInputBox({
-        title: `添加到“${group.name}”`,
-        prompt: '输入股票代码；可在代码后空格填写显示名称',
-        placeHolder: '600519 或 00700.HK 腾讯控股',
-        validateInput: (value) => {
-          try {
-            const normalized = normalizeSymbol(splitStockInput(value).code);
-            return provider.supports(normalized.market) ? undefined : 'v0.1 暂只支持 A 股和港股';
-          } catch (error: unknown) {
-            return messageOf(error);
-          }
-        },
-      });
-      if (!input) {
+      const result = await chooseStockSearchResult(provider, group);
+      if (!result) {
         return;
       }
       await handle(async () => {
-        const parsed = splitStockInput(input);
-        const normalized = normalizeSymbol(parsed.code);
         await repository.addStock(group.id, {
           id: randomUUID(),
-          symbol: normalized.symbol,
-          market: normalized.market,
-          ...(parsed.name ? { name: parsed.name } : {}),
+          symbol: result.symbol,
+          market: result.market,
+          name: result.name,
         });
         await afterChange();
       });
@@ -299,7 +403,7 @@ export function registerCommands(options: CommandOptions): Disposable[] {
 
     commands.registerCommand('fishStock.openWatchlist', async () => {
       await commands.executeCommand('workbench.view.extension.fishStock');
-      await commands.executeCommand('fishStock.watchlist.focus');
+      await commands.executeCommand('fishStock.stock.focus');
     }),
   ];
 }
