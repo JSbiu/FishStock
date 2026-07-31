@@ -129,8 +129,49 @@ function createEmptyWatchlist(): WatchlistState {
   };
 }
 
-export function createEmptyFuturesWatchlist(): WatchlistState {
-  return createEmptyWatchlist();
+export function createDefaultFuturesWatchlist(): WatchlistState {
+  return {
+    version: 1,
+    groups: [
+      {
+        id: 'default',
+        name: '默认',
+        collapsed: false,
+        stocks: [
+          {
+            id: 'sample-future-au-main',
+            symbol: 'AU0.CNF',
+            market: 'CNF',
+            name: '沪金主连',
+          },
+          {
+            id: 'sample-future-ag-main',
+            symbol: 'AG0.CNF',
+            market: 'CNF',
+            name: '白银主连',
+          },
+          {
+            id: 'sample-future-cu-main',
+            symbol: 'CU0.CNF',
+            market: 'CNF',
+            name: '铜主连',
+          },
+          {
+            id: 'sample-future-al-main',
+            symbol: 'AL0.CNF',
+            market: 'CNF',
+            name: '沪铝主连',
+          },
+          {
+            id: 'sample-future-sn-main',
+            symbol: 'SN0.CNF',
+            market: 'CNF',
+            name: '锡主连',
+          },
+        ],
+      },
+    ],
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

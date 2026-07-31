@@ -2,7 +2,7 @@
   "name": "fish-stock",
   "displayName": "FishStock",
   "description": "轻量、安静、本地优先的 VS Code 自选行情插件",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "publisher": "fishstock-local",
   "private": true,
   "repository": {
@@ -32,7 +32,8 @@
     "onCommand:fishStock.refresh",
     "onCommand:fishStock.refreshFutures",
     "onCommand:fishStock.clearWatchlist",
-    "onCommand:fishStock.restoreDefaultWatchlist"
+    "onCommand:fishStock.restoreDefaultWatchlist",
+    "onCommand:fishStock.restoreDefaultFuturesWatchlist"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -49,11 +50,13 @@
       "fishStock": [
         {
           "id": "fishStock.stock",
-          "name": "Stock"
+          "name": "Stock",
+          "visibility": "collapsed"
         },
         {
           "id": "fishStock.futures",
-          "name": "Futures"
+          "name": "Futures",
+          "visibility": "collapsed"
         }
       ]
     },
@@ -165,6 +168,10 @@
         "title": "FishStock: 清空全部期货自选"
       },
       {
+        "command": "fishStock.restoreDefaultFuturesWatchlist",
+        "title": "FishStock: 恢复默认期货自选数据"
+      },
+      {
         "command": "fishStock.openFutures",
         "title": "FishStock: 打开期货自选"
       }
@@ -215,6 +222,11 @@
           "command": "fishStock.clearFuturesWatchlist",
           "when": "view == fishStock.futures",
           "group": "9_reset@1"
+        },
+        {
+          "command": "fishStock.restoreDefaultFuturesWatchlist",
+          "when": "view == fishStock.futures",
+          "group": "9_reset@2"
         }
       ],
       "view/item/context": [

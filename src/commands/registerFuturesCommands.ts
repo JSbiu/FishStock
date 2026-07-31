@@ -379,6 +379,30 @@ export function registerFuturesCommands(options: FuturesCommandOptions): Disposa
       });
     }),
 
+    commands.registerCommand('fishStock.restoreDefaultFuturesWatchlist', async () => {
+      const state = repository.getSnapshot();
+      const futureCount = state.groups.reduce(
+        (total, group) => total + group.stocks.length,
+        0,
+      );
+      const answer = await window.showWarningMessage(
+        '恢复默认期货自选数据？',
+        {
+          modal: true,
+          detail: `将用“默认”分组及 5 个默认主连合约替换当前 ${state.groups.length} 个分组及 ${futureCount} 个期货条目。此操作无法撤销。`,
+        },
+        '恢复默认数据',
+      );
+      if (answer !== '恢复默认数据') {
+        return;
+      }
+      await handle(async () => {
+        await repository.restoreDefault();
+        await afterChange();
+        window.setStatusBarMessage('FishStock: 已恢复默认期货自选数据', 2_500);
+      });
+    }),
+
     commands.registerCommand('fishStock.openFutures', async () => {
       await commands.executeCommand('workbench.view.extension.fishStock');
       await commands.executeCommand('fishStock.futures.focus');

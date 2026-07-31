@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  createDefaultFuturesWatchlist,
   createDefaultWatchlist,
-  createEmptyFuturesWatchlist,
   parseWatchlistState,
   WatchlistRepository,
   WatchlistValidationError,
@@ -82,6 +82,29 @@ test('creates the expected grouped first-run watchlist', () => {
     ],
   );
 });
+
+test('creates the expected first-run futures watchlist', () => {
+  const state = createDefaultFuturesWatchlist();
+  assert.deepEqual(
+    state.groups.map((group) => [
+      group.name,
+      group.stocks.map((future) => [future.name, future.symbol]),
+    ]),
+    [
+      [
+        '默认',
+        [
+          ['沪金主连', 'AU0.CNF'],
+          ['白银主连', 'AG0.CNF'],
+          ['铜主连', 'CU0.CNF'],
+          ['沪铝主连', 'AL0.CNF'],
+          ['锡主连', 'SN0.CNF'],
+        ],
+      ],
+    ],
+  );
+});
+
 test('prevents duplicate stock symbols across groups', async () => {
   const repository = new WatchlistRepository(new MemoryStateStore());
   await repository.load();
@@ -179,16 +202,30 @@ test('keeps futures data in an independent local namespace', async () => {
   const stocks = new WatchlistRepository(store);
   const futures = new WatchlistRepository(store, {
     storageKey: 'fishStock.futures.v1',
-    createDefault: createEmptyFuturesWatchlist,
+    createDefault: createDefaultFuturesWatchlist,
   });
   await Promise.all([stocks.load(), futures.load()]);
   await futures.addStock('default', {
-    id: 'future-al-main',
-    symbol: 'AL0.CNF',
+    id: 'future-rb-main',
+    symbol: 'RB0.CNF',
     market: 'CNF',
-    name: '沪铝主连',
+    name: '螺纹钢主连',
   });
 
-  assert.equal(stocks.getSnapshot().groups.some((group) => group.stocks.some((item) => item.symbol === 'AL0.CNF')), false);
-  assert.equal(futures.getSnapshot().groups[0].stocks[0].symbol, 'AL0.CNF');
+  assert.equal(stocks.getSnapshot().groups.some((group) => group.stocks.some((item) => item.symbol === 'RB0.CNF')), false);
+  assert.equal(futures.getSnapshot().groups[0].stocks.at(-1)?.symbol, 'RB0.CNF');
+});
+
+test('clears and restores futures defaults independently', async () => {
+  const store = new MemoryStateStore();
+  const futures = new WatchlistRepository(store, {
+    storageKey: 'fishStock.futures.v1',
+    createDefault: createDefaultFuturesWatchlist,
+  });
+  await futures.load();
+  await futures.clear();
+  assert.deepEqual(futures.getSnapshot().groups[0].stocks, []);
+
+  await futures.restoreDefault();
+  assert.deepEqual(futures.getSnapshot(), createDefaultFuturesWatchlist());
 });

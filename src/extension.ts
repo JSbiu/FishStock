@@ -13,7 +13,7 @@ import { TencentDataProvider } from './data/tencentDataProvider';
 import type { NormalizedSymbol } from './domain/models';
 import { RefreshScheduler } from './services/refreshScheduler';
 import {
-  createEmptyFuturesWatchlist,
+  createDefaultFuturesWatchlist,
   WatchlistRepository,
 } from './storage/watchlistRepository';
 import { GroupNode, WatchlistTreeProvider } from './ui/watchlistTreeProvider';
@@ -30,7 +30,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
   const stockRepository = new WatchlistRepository(context.globalState);
   const futuresRepository = new WatchlistRepository(context.globalState, {
     storageKey: 'fishStock.futures.v1',
-    createDefault: createEmptyFuturesWatchlist,
+    createDefault: createDefaultFuturesWatchlist,
   });
   await Promise.all([stockRepository.load(), futuresRepository.load()]);
 
