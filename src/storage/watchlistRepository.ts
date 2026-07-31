@@ -38,6 +38,74 @@ export function createDefaultWatchlist(): WatchlistState {
           },
         ],
       },
+      {
+        id: 'indices',
+        name: '指数',
+        collapsed: false,
+        stocks: [
+          {
+            id: 'sample-shanghai-index',
+            symbol: '000001.SHI',
+            market: 'CN',
+            name: '上证指数',
+          },
+          {
+            id: 'sample-csi-300',
+            symbol: '000300.SHI',
+            market: 'CN',
+            name: '沪深300',
+          },
+          {
+            id: 'sample-chinext-index',
+            symbol: '399006.SZI',
+            market: 'CN',
+            name: '创业板指',
+          },
+        ],
+      },
+      {
+        id: 'banks',
+        name: '银行',
+        collapsed: false,
+        stocks: [
+          {
+            id: 'sample-icbc',
+            symbol: '601398.SH',
+            market: 'CN',
+            name: '工商银行',
+          },
+          {
+            id: 'sample-abc',
+            symbol: '601288.SH',
+            market: 'CN',
+            name: '农业银行',
+          },
+          {
+            id: 'sample-boc',
+            symbol: '601988.SH',
+            market: 'CN',
+            name: '中国银行',
+          },
+          {
+            id: 'sample-ccb',
+            symbol: '601939.SH',
+            market: 'CN',
+            name: '建设银行',
+          },
+          {
+            id: 'sample-bocom',
+            symbol: '601328.SH',
+            market: 'CN',
+            name: '交通银行',
+          },
+          {
+            id: 'sample-psbc',
+            symbol: '601658.SH',
+            market: 'CN',
+            name: '邮储银行',
+          },
+        ],
+      },
     ],
   };
 }

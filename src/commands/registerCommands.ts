@@ -102,7 +102,7 @@ function chooseStockSearchResult(
 ): Promise<StockSearchResult | undefined> {
   const picker = window.createQuickPick<StockSearchPick>();
   picker.title = `添加到“${group.name}”`;
-  picker.placeholder = '输入名称、简称或代码，如 美的集团、上证指数、HSI';
+  picker.placeholder = '输入名称、简称或代码，如 美的集团、mdjt、000333';
   picker.matchOnDescription = true;
   picker.matchOnDetail = true;
 
@@ -356,7 +356,7 @@ export function registerCommands(options: CommandOptions): Disposable[] {
         '恢复默认自选数据？',
         {
           modal: true,
-          detail: `将用默认分组、贵州茅台和腾讯控股替换当前 ${state.groups.length} 个分组及 ${stockCount} 只股票。此操作无法撤销。`,
+          detail: `将用“默认”“指数”“银行”分组及 11 个默认条目替换当前 ${state.groups.length} 个分组及 ${stockCount} 只股票。此操作无法撤销。`,
         },
         '恢复默认数据',
       );

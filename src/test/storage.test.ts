@@ -34,7 +34,50 @@ test('persists groups, stock order and stock moves between repository instances'
     state.groups.map((group) => [group.name, group.stocks.map((stock) => stock.symbol)]),
     [
       ['默认', ['00700.HK']],
+      ['指数', ['000001.SHI', '000300.SHI', '399006.SZI']],
+      [
+        '银行',
+        ['601398.SH', '601288.SH', '601988.SH', '601939.SH', '601328.SH', '601658.SH'],
+      ],
       ['观察', ['600519.SH']],
+    ],
+  );
+});
+
+test('creates the expected grouped first-run watchlist', () => {
+  const state = createDefaultWatchlist();
+  assert.deepEqual(
+    state.groups.map((group) => [
+      group.name,
+      group.stocks.map((stock) => [stock.name, stock.symbol]),
+    ]),
+    [
+      [
+        '默认',
+        [
+          ['贵州茅台', '600519.SH'],
+          ['腾讯控股', '00700.HK'],
+        ],
+      ],
+      [
+        '指数',
+        [
+          ['上证指数', '000001.SHI'],
+          ['沪深300', '000300.SHI'],
+          ['创业板指', '399006.SZI'],
+        ],
+      ],
+      [
+        '银行',
+        [
+          ['工商银行', '601398.SH'],
+          ['农业银行', '601288.SH'],
+          ['中国银行', '601988.SH'],
+          ['建设银行', '601939.SH'],
+          ['交通银行', '601328.SH'],
+          ['邮储银行', '601658.SH'],
+        ],
+      ],
     ],
   );
 });
@@ -56,12 +99,6 @@ test('persists an index separately from a stock with the same numeric code', asy
   const repository = new WatchlistRepository(store);
   await repository.load();
   await repository.addStock('default', {
-    id: 'sh-index',
-    symbol: '000001.SHI',
-    market: 'CN',
-    name: '上证指数',
-  });
-  await repository.addStock('default', {
     id: 'sz-stock',
     symbol: '000001.SZ',
     market: 'CN',
@@ -69,7 +106,9 @@ test('persists an index separately from a stock with the same numeric code', asy
   });
 
   const reloaded = new WatchlistRepository(store);
-  const symbols = (await reloaded.load()).groups[0].stocks.map((stock) => stock.symbol);
+  const symbols = (await reloaded.load()).groups.flatMap((group) =>
+    group.stocks.map((stock) => stock.symbol),
+  );
   assert.equal(symbols.includes('000001.SHI'), true);
   assert.equal(symbols.includes('000001.SZ'), true);
 });
