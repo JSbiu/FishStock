@@ -6,26 +6,24 @@ import {
 } from 'vscode';
 import type { Quote, Stock, WatchlistState } from '../domain/models';
 import type { QuoteService } from '../data/quoteService';
-
-function formatPrice(price: number): string {
-  return price.toFixed(price < 10 ? 3 : 2);
-}
+import { createQuoteTooltip, formatPrice } from './quoteTooltip';
 
 function displayText(stock: Stock, quote: Quote | undefined): string {
+  const name = stock.name ?? quote?.name ?? stock.symbol;
   if (!quote || quote.price === null || quote.changePercent === null) {
-    return `$(warning) ${stock.symbol} --`;
+    return `$(warning) ${name} --`;
   }
   const change = `${quote.changePercent >= 0 ? '+' : ''}${quote.changePercent.toFixed(2)}%`;
   if (quote.state === 'closed') {
-    return `$(clock) ${stock.symbol} ${formatPrice(quote.price)} 休`;
+    return `$(clock) ${name} ${formatPrice(quote.price)} ${change}`;
   }
   if (quote.state === 'stale') {
-    return `$(history) ${stock.symbol} ${formatPrice(quote.price)} ${change}`;
+    return `$(history) ${name} ${formatPrice(quote.price)} ${change}`;
   }
   if (quote.state === 'error') {
-    return `$(warning) ${stock.symbol} --`;
+    return `$(warning) ${name} --`;
   }
-  return `$(pulse) ${stock.symbol} ${formatPrice(quote.price)} ${change}`;
+  return `$(pulse) ${name} ${formatPrice(quote.price)} ${change}`;
 }
 
 export class StatusBarController implements Disposable {
@@ -89,10 +87,11 @@ export class StatusBarController implements Disposable {
     }
     const quote = this.quotes.get(stock.symbol);
     this.item.text = displayText(stock, quote);
-    this.item.tooltip = [
-      `${stock.name ?? quote?.name ?? stock.symbol} (${stock.symbol})`,
-      quote?.message ?? `数据源：${this.providerName}`,
+    this.item.tooltip = createQuoteTooltip(
+      stock,
+      quote,
+      this.providerName,
       '点击打开自选列表',
-    ].join('\n');
+    );
   }
 }
