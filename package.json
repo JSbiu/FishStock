@@ -1,0 +1,227 @@
+{
+  "name": "fish-stock",
+  "displayName": "FishStock",
+  "description": "轻量、安静、本地优先的 VS Code 自选股行情插件",
+  "version": "0.1.0",
+  "publisher": "fishstock-local",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JSbiu/FishStock.git"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "stock",
+    "watchlist",
+    "A股",
+    "港股"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onView:fishStock.watchlist",
+    "onCommand:fishStock.addStock",
+    "onCommand:fishStock.refresh"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "fishStock",
+          "title": "FishStock",
+          "icon": "resources/fishstock.svg"
+        }
+      ]
+    },
+    "views": {
+      "fishStock": [
+        {
+          "id": "fishStock.watchlist",
+          "name": "自选股"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "fishStock.addStock",
+        "title": "FishStock: 添加股票",
+        "icon": "$(add)"
+      },
+      {
+        "command": "fishStock.removeStock",
+        "title": "FishStock: 删除股票",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "fishStock.refresh",
+        "title": "FishStock: 刷新行情",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "fishStock.addGroup",
+        "title": "FishStock: 添加分组",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "fishStock.renameGroup",
+        "title": "FishStock: 重命名分组",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "fishStock.removeGroup",
+        "title": "FishStock: 删除分组",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "fishStock.moveStockUp",
+        "title": "FishStock: 股票上移",
+        "icon": "$(arrow-up)"
+      },
+      {
+        "command": "fishStock.moveStockDown",
+        "title": "FishStock: 股票下移",
+        "icon": "$(arrow-down)"
+      },
+      {
+        "command": "fishStock.moveStockToGroup",
+        "title": "FishStock: 移动到其他分组",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "fishStock.importJson",
+        "title": "FishStock: 导入自选股 JSON"
+      },
+      {
+        "command": "fishStock.exportJson",
+        "title": "FishStock: 导出自选股 JSON"
+      },
+      {
+        "command": "fishStock.openWatchlist",
+        "title": "FishStock: 打开自选列表"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "fishStock.refresh",
+          "when": "view == fishStock.watchlist",
+          "group": "navigation@1"
+        },
+        {
+          "command": "fishStock.addStock",
+          "when": "view == fishStock.watchlist",
+          "group": "navigation@2"
+        },
+        {
+          "command": "fishStock.addGroup",
+          "when": "view == fishStock.watchlist",
+          "group": "2_groups@1"
+        },
+        {
+          "command": "fishStock.importJson",
+          "when": "view == fishStock.watchlist",
+          "group": "3_transfer@1"
+        },
+        {
+          "command": "fishStock.exportJson",
+          "when": "view == fishStock.watchlist",
+          "group": "3_transfer@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "fishStock.moveStockUp",
+          "when": "view == fishStock.watchlist && viewItem == fishStock.stock",
+          "group": "1_order@1"
+        },
+        {
+          "command": "fishStock.moveStockDown",
+          "when": "view == fishStock.watchlist && viewItem == fishStock.stock",
+          "group": "1_order@2"
+        },
+        {
+          "command": "fishStock.moveStockToGroup",
+          "when": "view == fishStock.watchlist && viewItem == fishStock.stock",
+          "group": "2_group@1"
+        },
+        {
+          "command": "fishStock.removeStock",
+          "when": "view == fishStock.watchlist && viewItem == fishStock.stock",
+          "group": "9_delete@1"
+        },
+        {
+          "command": "fishStock.renameGroup",
+          "when": "view == fishStock.watchlist && viewItem == fishStock.group",
+          "group": "1_edit@1"
+        },
+        {
+          "command": "fishStock.removeGroup",
+          "when": "view == fishStock.watchlist && viewItem == fishStock.group",
+          "group": "9_delete@1"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "FishStock",
+      "properties": {
+        "fishStock.refreshIntervalSeconds": {
+          "type": "number",
+          "default": 60,
+          "minimum": 15,
+          "maximum": 3600,
+          "description": "自动刷新间隔（秒）。低于 15 秒的值会按 15 秒处理。"
+        },
+        "fishStock.staleAfterSeconds": {
+          "type": "number",
+          "default": 120,
+          "minimum": 30,
+          "maximum": 86400,
+          "description": "开市行情超过此时间未更新时标记为数据过期（秒）。"
+        },
+        "fishStock.statusBar.rotationSeconds": {
+          "type": "number",
+          "default": 5,
+          "minimum": 3,
+          "maximum": 60,
+          "description": "状态栏轮播间隔（秒）。"
+        },
+        "fishStock.colorConvention": {
+          "type": "string",
+          "enum": [
+            "china",
+            "international"
+          ],
+          "enumDescriptions": [
+            "涨红跌绿",
+            "涨绿跌红"
+          ],
+          "default": "china",
+          "description": "自选列表中的涨跌颜色习惯。状态栏不使用醒目背景色。"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p tsconfig.json",
+    "watch": "tsc -watch -p tsconfig.json",
+    "lint": "eslint .",
+    "test": "pnpm run compile && node --test out/test/*.test.js",
+    "check": "pnpm run lint && pnpm run test",
+    "package:vsix": "pnpm run check && vsce package --no-dependencies --out fish-stock-0.1.0.vsix"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.31.0",
+    "@types/node": "^22.17.0",
+    "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^3.6.0",
+    "eslint": "^9.31.0",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.38.0"
+  },
+  "packageManager": "pnpm@11.9.0"
+}

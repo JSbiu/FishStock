@@ -1,0 +1,8 @@
+node_modules/
+.pnpm-store/
+out/
+dist/
+*.vsix
+.vscode-test/
+coverage/
+docs/decisions.md

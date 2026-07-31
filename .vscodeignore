@@ -1,0 +1,12 @@
+.agents/**
+.pnpm-store/**
+.gitignore
+.vscode/**
+docs/**
+src/**
+out/test/**
+out/**/*.map
+eslint.config.mjs
+tsconfig.json
+pnpm-lock.yaml
+pnpm-workspace.yaml
