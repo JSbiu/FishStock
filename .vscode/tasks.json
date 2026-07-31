@@ -3,8 +3,8 @@
   "tasks": [
     {
       "label": "编译 FishStock",
-      "type": "shell",
-      "command": "pnpm run compile",
+      "type": "typescript",
+      "tsconfig": "tsconfig.json",
       "group": "build",
       "problemMatcher": "$tsc"
     }
