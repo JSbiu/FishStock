@@ -23,6 +23,24 @@ function requiredTimestamp(value: unknown): number {
   return parsed;
 }
 
+function optionalNumber(
+  value: unknown,
+  options: { minimum?: number; zeroIsMissing?: boolean } = {},
+): number | null {
+  if (value === undefined || value === null || String(value).trim() === '') {
+    return null;
+  }
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (
+    !Number.isFinite(parsed) ||
+    (options.minimum !== undefined && parsed < options.minimum) ||
+    (options.zeroIsMissing && parsed === 0)
+  ) {
+    return null;
+  }
+  return parsed;
+}
+
 export function parseMarketQuote(raw: RawMarketQuote): Quote {
   const normalized = normalizeSymbol(raw.symbol);
   if (normalized.market !== raw.market) {
@@ -40,6 +58,19 @@ export function parseMarketQuote(raw: RawMarketQuote): Quote {
     currency: raw.currency.trim(),
     price,
     previousClose,
+    open: optionalNumber(raw.open, { minimum: 0, zeroIsMissing: true }),
+    high: optionalNumber(raw.high, { minimum: 0, zeroIsMissing: true }),
+    low: optionalNumber(raw.low, { minimum: 0, zeroIsMissing: true }),
+    volume: optionalNumber(raw.volume, { minimum: 0 }),
+    volumeUnit:
+      raw.volumeUnit === 'lot' || raw.volumeUnit === 'share' ? raw.volumeUnit : null,
+    turnoverAmount: optionalNumber(raw.turnoverAmount, { minimum: 0 }),
+    turnoverRate: optionalNumber(raw.turnoverRate, { minimum: 0 }),
+    peTtm: optionalNumber(raw.peTtm, { zeroIsMissing: true }),
+    totalMarketCap: optionalNumber(raw.totalMarketCap, {
+      minimum: 0,
+      zeroIsMissing: true,
+    }),
     change,
     changePercent: (change / previousClose) * 100,
     asOf: requiredTimestamp(raw.asOf),

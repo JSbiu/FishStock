@@ -2,6 +2,8 @@ export type Market = 'CN' | 'HK' | 'US';
 
 export type QuoteState = 'live' | 'closed' | 'stale' | 'error';
 
+export type VolumeUnit = 'lot' | 'share';
+
 export interface Stock {
   id: string;
   symbol: string;
@@ -37,6 +39,15 @@ export interface RawMarketQuote {
   currency: string;
   price: unknown;
   previousClose: unknown;
+  open?: unknown;
+  high?: unknown;
+  low?: unknown;
+  volume?: unknown;
+  volumeUnit?: VolumeUnit;
+  turnoverAmount?: unknown;
+  turnoverRate?: unknown;
+  peTtm?: unknown;
+  totalMarketCap?: unknown;
   asOf: unknown;
   marketState: 'open' | 'closed';
 }
@@ -48,6 +59,15 @@ export interface Quote {
   currency: string;
   price: number | null;
   previousClose: number | null;
+  open: number | null;
+  high: number | null;
+  low: number | null;
+  volume: number | null;
+  volumeUnit: VolumeUnit | null;
+  turnoverAmount: number | null;
+  turnoverRate: number | null;
+  peTtm: number | null;
+  totalMarketCap: number | null;
   change: number | null;
   changePercent: number | null;
   asOf: number;

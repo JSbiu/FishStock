@@ -162,6 +162,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function scaledTencentNumber(value: unknown, scale: number): number | undefined {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed * scale : undefined;
+}
+
 export function parseTencentPayload(
   payload: unknown,
   requested: readonly NormalizedSymbol[],
@@ -190,6 +195,18 @@ export function parseTencentPayload(
       currency: symbol.market === 'HK' ? 'HKD' : 'CNY',
       price,
       previousClose,
+      open: row[5],
+      high: row[33],
+      low: row[34],
+      volume: row[36],
+      volumeUnit: symbol.market === 'CN' ? 'lot' : 'share',
+      turnoverAmount:
+        symbol.market === 'CN'
+          ? scaledTencentNumber(row[37], 10_000)
+          : row[37],
+      turnoverRate: symbol.market === 'CN' ? row[38] : row[59],
+      peTtm: row[39],
+      totalMarketCap: scaledTencentNumber(row[45], 100_000_000),
       asOf,
       marketState: marketState(symbol.market, asOf, now),
     });
