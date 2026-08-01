@@ -4,7 +4,7 @@ import {
   type ExtensionContext,
 } from 'vscode';
 import { registerFuturesCommands } from './commands/registerFuturesCommands';
-import { registerCommands } from './commands/registerCommands';
+import { registerCommands, registerOpenQuoteCommand } from './commands/registerCommands';
 import { readConfig } from './config';
 import { BseSecurityDirectory } from './data/bseSecurityDirectory';
 import { QuoteService } from './data/quoteService';
@@ -170,6 +170,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
       provider: futuresProvider,
       refresh: refreshFutures,
     }),
+    registerOpenQuoteCommand(),
     stockTreeView.onDidCollapseElement((event) => {
       if (event.element instanceof GroupNode) {
         void stockRepository.setGroupCollapsed(event.element.group.id, true);

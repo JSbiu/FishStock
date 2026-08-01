@@ -113,6 +113,10 @@
         "title": "FishStock: 打开自选列表"
       },
       {
+        "command": "fishStock.openQuote",
+        "title": "FishStock: 打开行情页面"
+      },
+      {
         "command": "fishStock.clearWatchlist",
         "title": "FishStock: 清空全部股票自选数据"
       },

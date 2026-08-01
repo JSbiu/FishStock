@@ -120,6 +120,11 @@ export class WatchlistTreeProvider implements TreeDataProvider<FishTreeNode> {
     item.description = quoteDescription(element.stock, element.quote);
     item.tooltip = createQuoteTooltip(element.stock, element.quote, this.providerName);
     item.iconPath = quoteIcon(element.quote, this.colorConvention);
+    item.command = {
+      command: 'fishStock.openQuote',
+      title: '打开行情',
+      arguments: [element],
+    };
     return item;
   }
 

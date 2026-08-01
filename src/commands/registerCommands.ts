@@ -1,12 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import {
   commands,
+  env,
+  Uri,
   window,
   type Disposable,
   type QuickPickItem,
 } from 'vscode';
 import type { MarketDataProvider } from '../data/marketDataProvider';
 import type { Stock, StockSearchResult, WatchGroup } from '../domain/models';
+import { buildQuoteUrl } from '../domain/quoteUrl';
 import type { WatchlistRepository } from '../storage/watchlistRepository';
 import type { GroupNode, StockNode } from '../ui/watchlistTreeProvider';
 
@@ -418,4 +421,19 @@ export function registerCommands(options: CommandOptions): Disposable[] {
       await commands.executeCommand('fishStock.stock.focus');
     }),
   ];
+}
+
+export function registerOpenQuoteCommand(): Disposable {
+  return commands.registerCommand('fishStock.openQuote', async (node?: StockNode) => {
+    if (!node) {
+      await window.showInformationMessage('FishStock: 请点击自选条目打开行情页面');
+      return;
+    }
+    const url = buildQuoteUrl(node.stock.symbol);
+    if (!url) {
+      await window.showInformationMessage(`FishStock: ${node.stock.symbol} 暂不支持行情页跳转`);
+      return;
+    }
+    await env.openExternal(Uri.parse(url));
+  });
 }
