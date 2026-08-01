@@ -6,3 +6,4 @@ dist/
 .vscode-test/
 coverage/
 docs/decisions.md
+.claude/
