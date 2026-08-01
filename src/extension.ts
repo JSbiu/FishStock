@@ -17,6 +17,7 @@ import {
   createDefaultFuturesWatchlist,
   WatchlistRepository,
 } from './storage/watchlistRepository';
+import { ViewOptionsStore } from './storage/viewOptionsStore';
 import { GroupNode, WatchlistTreeProvider } from './ui/watchlistTreeProvider';
 import { StatusBarController } from './ui/statusBarController';
 
@@ -33,7 +34,12 @@ export async function activate(context: ExtensionContext): Promise<void> {
     storageKey: 'fishStock.futures.v1',
     createDefault: createDefaultFuturesWatchlist,
   });
-  await Promise.all([stockRepository.load(), futuresRepository.load()]);
+  const viewOptions = new ViewOptionsStore(context.globalState);
+  await Promise.all([
+    stockRepository.load(),
+    futuresRepository.load(),
+    viewOptions.load(),
+  ]);
 
   let config = readConfig();
   const stockProvider = new TencentDataProvider({
@@ -55,6 +61,8 @@ export async function activate(context: ExtensionContext): Promise<void> {
     stockQuotes,
     config.colorConvention,
     stockProvider.displayName,
+    {},
+    viewOptions.getSnapshot().stock,
   );
   const futuresTreeProvider = new WatchlistTreeProvider(
     futuresRepository,
@@ -65,6 +73,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
       groupContextValue: 'fishStock.futuresGroup',
       itemContextValue: 'fishStock.future',
     },
+    viewOptions.getSnapshot().futures,
   );
   const stockTreeView = window.createTreeView('fishStock.stock', {
     treeDataProvider: stockTreeProvider,
@@ -164,11 +173,15 @@ export async function activate(context: ExtensionContext): Promise<void> {
       repository: stockRepository,
       provider: stockProvider,
       refresh: refreshStocks,
+      viewOptions,
+      treeProvider: stockTreeProvider,
     }),
     ...registerFuturesCommands({
       repository: futuresRepository,
       provider: futuresProvider,
       refresh: refreshFutures,
+      viewOptions,
+      treeProvider: futuresTreeProvider,
     }),
     registerOpenQuoteCommand(),
     stockTreeView.onDidCollapseElement((event) => {

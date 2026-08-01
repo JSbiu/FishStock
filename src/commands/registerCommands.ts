@@ -10,8 +10,10 @@ import {
 import type { MarketDataProvider } from '../data/marketDataProvider';
 import type { Stock, StockSearchResult, WatchGroup } from '../domain/models';
 import { buildQuoteUrl } from '../domain/quoteUrl';
+import type { ViewMode } from '../domain/viewOptions';
+import type { ViewOptionsStore } from '../storage/viewOptionsStore';
 import type { WatchlistRepository } from '../storage/watchlistRepository';
-import type { GroupNode, StockNode } from '../ui/watchlistTreeProvider';
+import type { GroupNode, StockNode, WatchlistTreeProvider } from '../ui/watchlistTreeProvider';
 
 interface GroupPick extends QuickPickItem {
   group: WatchGroup;
@@ -30,6 +32,28 @@ export interface CommandOptions {
   repository: WatchlistRepository;
   provider: MarketDataProvider;
   refresh(force: boolean, manual: boolean): Promise<void>;
+  viewOptions: ViewOptionsStore;
+  treeProvider: WatchlistTreeProvider;
+}
+
+const VIEW_MODE_PICKS: ReadonlyArray<{ label: string; description: string; mode: ViewMode }> = [
+  { label: '默认顺序', description: '按添加顺序', mode: 'default' },
+  { label: '涨幅从高到低', description: '按涨跌幅降序', mode: 'gainDesc' },
+  { label: '涨幅从低到高', description: '按涨跌幅升序', mode: 'lossDesc' },
+  { label: '仅看上涨', description: '隐藏下跌条目', mode: 'upOnly' },
+  { label: '仅看下跌', description: '隐藏上涨条目', mode: 'downOnly' },
+];
+
+async function chooseViewMode(current: ViewMode): Promise<ViewMode | undefined> {
+  const picked = await window.showQuickPick(
+    VIEW_MODE_PICKS.map((pick) => ({
+      label: pick.label,
+      description: `${pick.description}${pick.mode === current ? '（当前）' : ''}`,
+      mode: pick.mode,
+    })),
+    { placeHolder: '选择视图展示方式' },
+  );
+  return picked?.mode;
 }
 
 function messageOf(error: unknown): string {
@@ -205,7 +229,7 @@ function chooseStockSearchResult(
 }
 
 export function registerCommands(options: CommandOptions): Disposable[] {
-  const { repository, provider, refresh } = options;
+  const { repository, provider, refresh, viewOptions, treeProvider } = options;
   const afterChange = async (): Promise<void> => refresh(false, false);
   const handle = async (action: () => Promise<void>): Promise<void> => {
     try {
@@ -419,6 +443,18 @@ export function registerCommands(options: CommandOptions): Disposable[] {
     commands.registerCommand('fishStock.openWatchlist', async () => {
       await commands.executeCommand('workbench.view.extension.fishStock');
       await commands.executeCommand('fishStock.stock.focus');
+    }),
+
+    commands.registerCommand('fishStock.stockViewMode', async () => {
+      const current = viewOptions.getSnapshot().stock;
+      const mode = await chooseViewMode(current);
+      if (!mode || mode === current) {
+        return;
+      }
+      await handle(async () => {
+        await viewOptions.setViewMode('stock', mode);
+        treeProvider.setViewMode(mode);
+      });
     }),
   ];
 }

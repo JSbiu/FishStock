@@ -8,6 +8,7 @@ import {
 } from 'vscode';
 import type { ColorConvention } from '../config';
 import type { Quote, Stock, WatchGroup } from '../domain/models';
+import { applyViewOptions, type ViewMode } from '../domain/viewOptions';
 import type { QuoteService } from '../data/quoteService';
 import type { WatchlistRepository } from '../storage/watchlistRepository';
 import { createQuoteTooltip, formatPercent, formatPrice } from './quoteTooltip';
@@ -88,10 +89,16 @@ export class WatchlistTreeProvider implements TreeDataProvider<FishTreeNode> {
     private colorConvention: ColorConvention,
     private readonly providerName: string,
     private readonly options: WatchlistTreeOptions = {},
+    private viewMode: ViewMode = 'default',
   ) {}
 
   public setColorConvention(value: ColorConvention): void {
     this.colorConvention = value;
+    this.refresh();
+  }
+
+  public setViewMode(mode: ViewMode): void {
+    this.viewMode = mode;
     this.refresh();
   }
 
@@ -135,11 +142,13 @@ export class WatchlistTreeProvider implements TreeDataProvider<FishTreeNode> {
     }
     if (element instanceof GroupNode) {
       const group = state.groups.find((item) => item.id === element.group.id);
-      return (
-        group?.stocks.map(
-          (stock) => new StockNode(group.id, stock, this.quotes.get(stock.symbol)),
-        ) ?? []
+      if (!group) {
+        return [];
+      }
+      const stocks = applyViewOptions(group.stocks, this.viewMode, (symbol) =>
+        this.quotes.get(symbol),
       );
+      return stocks.map((stock) => new StockNode(group.id, stock, this.quotes.get(stock.symbol)));
     }
     return [];
   }

@@ -117,6 +117,16 @@
         "title": "FishStock: 打开行情页面"
       },
       {
+        "command": "fishStock.stockViewMode",
+        "title": "FishStock: 股票视图排序与筛选",
+        "icon": "$(sort-precedence)"
+      },
+      {
+        "command": "fishStock.futuresViewMode",
+        "title": "FishStock: 期货视图排序与筛选",
+        "icon": "$(sort-precedence)"
+      },
+      {
         "command": "fishStock.clearWatchlist",
         "title": "FishStock: 清空全部股票自选数据"
       },
@@ -200,6 +210,11 @@
           "group": "2_groups@1"
         },
         {
+          "command": "fishStock.stockViewMode",
+          "when": "view == fishStock.stock",
+          "group": "2_groups@2"
+        },
+        {
           "command": "fishStock.clearWatchlist",
           "when": "view == fishStock.stock",
           "group": "9_reset@1"
@@ -223,6 +238,11 @@
           "command": "fishStock.addFuturesGroup",
           "when": "view == fishStock.futures",
           "group": "2_groups@1"
+        },
+        {
+          "command": "fishStock.futuresViewMode",
+          "when": "view == fishStock.futures",
+          "group": "2_groups@2"
         },
         {
           "command": "fishStock.clearFuturesWatchlist",
