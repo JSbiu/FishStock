@@ -7,33 +7,35 @@ import {
   type Disposable,
   type QuickPickItem,
 } from 'vscode';
-import type { MarketDataProvider } from '../data/marketDataProvider';
 import type { Stock, StockSearchResult, WatchGroup } from '../domain/models';
 import { buildQuoteUrl } from '../domain/quoteUrl';
 import type { ViewMode } from '../domain/viewOptions';
 import type { ViewOptionsStore } from '../storage/viewOptionsStore';
 import type { WatchlistRepository } from '../storage/watchlistRepository';
 import type { GroupNode, StockNode, WatchlistTreeProvider } from '../ui/watchlistTreeProvider';
+import type { WatchlistCommandSet } from './commandSets';
+
+export interface WatchlistCommandOptions {
+  repository: WatchlistRepository;
+  search(query: string, signal?: AbortSignal): Promise<StockSearchResult[]>;
+  refresh(force: boolean, manual: boolean): Promise<void>;
+  viewOptions: ViewOptionsStore;
+  treeProvider: WatchlistTreeProvider;
+  set: WatchlistCommandSet;
+  registerCommonCommands?: boolean;
+}
 
 interface GroupPick extends QuickPickItem {
   group: WatchGroup;
 }
 
-interface StockPick extends QuickPickItem {
+interface ItemPick extends QuickPickItem {
   stock: Stock;
   groupId: string;
 }
 
-interface StockSearchPick extends QuickPickItem {
+interface SearchPick extends QuickPickItem {
   result?: StockSearchResult;
-}
-
-export interface CommandOptions {
-  repository: WatchlistRepository;
-  provider: MarketDataProvider;
-  refresh(force: boolean, manual: boolean): Promise<void>;
-  viewOptions: ViewOptionsStore;
-  treeProvider: WatchlistTreeProvider;
 }
 
 const VIEW_MODE_PICKS: ReadonlyArray<{ label: string; description: string; mode: ViewMode }> = [
@@ -44,24 +46,13 @@ const VIEW_MODE_PICKS: ReadonlyArray<{ label: string; description: string; mode:
   { label: '仅看下跌', description: '隐藏上涨条目', mode: 'downOnly' },
 ];
 
-async function chooseViewMode(current: ViewMode): Promise<ViewMode | undefined> {
-  const picked = await window.showQuickPick(
-    VIEW_MODE_PICKS.map((pick) => ({
-      label: pick.label,
-      description: `${pick.description}${pick.mode === current ? '（当前）' : ''}`,
-      mode: pick.mode,
-    })),
-    { placeHolder: '选择视图展示方式' },
-  );
-  return picked?.mode;
-}
-
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : '操作失败';
 }
 
 async function chooseGroup(
   repository: WatchlistRepository,
+  set: WatchlistCommandSet,
   provided?: GroupNode,
 ): Promise<WatchGroup | undefined> {
   if (provided) {
@@ -74,18 +65,19 @@ async function chooseGroup(
   const picked = await window.showQuickPick<GroupPick>(
     groups.map((group) => ({
       label: group.name,
-      description: `${group.stocks.length} 只`,
+      description: `${group.stocks.length} ${set.texts.groupCountSuffix}`,
       group,
     })),
-    { placeHolder: '选择分组' },
+    { placeHolder: set.texts.groupPickPlaceholder },
   );
   return picked?.group;
 }
 
-async function chooseStock(
+async function chooseItem(
   repository: WatchlistRepository,
+  set: WatchlistCommandSet,
   provided?: StockNode,
-): Promise<StockPick | undefined> {
+): Promise<ItemPick | undefined> {
   if (provided) {
     return {
       label: provided.stock.name ?? provided.stock.symbol,
@@ -101,31 +93,29 @@ async function chooseStock(
       groupId: group.id,
     })),
   );
-  return window.showQuickPick<StockPick>(items, { placeHolder: '选择股票' });
+  return window.showQuickPick<ItemPick>(items, { placeHolder: set.texts.itemPickPlaceholder });
 }
 
-function searchPickItems(results: readonly StockSearchResult[]): StockSearchPick[] {
-  return results.map((result) => {
-    const type = result.kind === 'index' ? '指数' : result.market === 'CN' ? 'A 股' : '港股';
-    return {
-      label: result.name,
-      description: `${result.symbol} · ${type}`,
-      ...(result.abbreviation
-        ? { detail: `简称：${result.abbreviation.toUpperCase()}` }
-        : {}),
-      alwaysShow: true,
-      result,
-    };
-  });
+function searchPickItems(
+  results: readonly StockSearchResult[],
+  set: WatchlistCommandSet,
+): SearchPick[] {
+  return results.map((result) => ({
+    label: result.name,
+    ...set.texts.describeSearchResult(result),
+    alwaysShow: true,
+    result,
+  }));
 }
 
-function chooseStockSearchResult(
-  provider: MarketDataProvider,
+function chooseSearchResult(
+  search: (query: string, signal?: AbortSignal) => Promise<StockSearchResult[]>,
   group: WatchGroup,
+  set: WatchlistCommandSet,
 ): Promise<StockSearchResult | undefined> {
-  const picker = window.createQuickPick<StockSearchPick>();
+  const picker = window.createQuickPick<SearchPick>();
   picker.title = `添加到“${group.name}”`;
-  picker.placeholder = '输入名称、简称或代码，如 美的集团、mdjt、000333';
+  picker.placeholder = set.texts.searchPlaceholder;
   picker.matchOnDescription = true;
   picker.matchOnDetail = true;
 
@@ -166,19 +156,18 @@ function chooseStockSearchResult(
         timer = setTimeout(() => {
           const controller = new AbortController();
           request = controller;
-          void provider
-            .searchStocks(query, controller.signal)
+          void search(query, controller.signal)
             .then((results) => {
               if (controller.signal.aborted || currentGeneration !== generation) {
                 return;
               }
               picker.items =
                 results.length > 0
-                  ? searchPickItems(results)
+                  ? searchPickItems(results, set)
                   : [
                       {
-                        label: '$(info) 未找到匹配的 A 股、港股或指数',
-                        description: '请尝试完整名称、拼音简称或证券代码',
+                        label: set.texts.searchEmptyLabel,
+                        description: set.texts.searchEmptyHint,
                         alwaysShow: true,
                       },
                     ];
@@ -228,8 +217,23 @@ function chooseStockSearchResult(
   });
 }
 
-export function registerCommands(options: CommandOptions): Disposable[] {
-  const { repository, provider, refresh, viewOptions, treeProvider } = options;
+async function chooseViewMode(current: ViewMode): Promise<ViewMode | undefined> {
+  const picked = await window.showQuickPick(
+    VIEW_MODE_PICKS.map((pick) => ({
+      label: pick.label,
+      description: `${pick.description}${pick.mode === current ? '（当前）' : ''}`,
+      mode: pick.mode,
+    })),
+    { placeHolder: '选择视图展示方式' },
+  );
+  return picked?.mode;
+}
+
+export function registerWatchlistCommands(
+  options: WatchlistCommandOptions,
+): Disposable[] {
+  const { repository, search, refresh, viewOptions, treeProvider, set } = options;
+  const { names, texts } = set;
   const afterChange = async (): Promise<void> => refresh(false, false);
   const handle = async (action: () => Promise<void>): Promise<void> => {
     try {
@@ -239,13 +243,13 @@ export function registerCommands(options: CommandOptions): Disposable[] {
     }
   };
 
-  return [
-    commands.registerCommand('fishStock.addStock', async (node?: GroupNode) => {
-      const group = await chooseGroup(repository, node);
+  const disposables: Disposable[] = [
+    commands.registerCommand(names.add, async (node?: GroupNode) => {
+      const group = await chooseGroup(repository, set, node);
       if (!group) {
         return;
       }
-      const result = await chooseStockSearchResult(provider, group);
+      const result = await chooseSearchResult(search, group, set);
       if (!result) {
         return;
       }
@@ -260,13 +264,13 @@ export function registerCommands(options: CommandOptions): Disposable[] {
       });
     }),
 
-    commands.registerCommand('fishStock.removeStock', async (node?: StockNode) => {
-      const picked = await chooseStock(repository, node);
+    commands.registerCommand(names.remove, async (node?: StockNode) => {
+      const picked = await chooseItem(repository, set, node);
       if (!picked) {
         return;
       }
       const answer = await window.showWarningMessage(
-        `从自选列表删除 ${picked.stock.name ?? picked.stock.symbol}？`,
+        texts.removeConfirm(picked.stock.name ?? picked.stock.symbol),
         { modal: true },
         '删除',
       );
@@ -279,13 +283,13 @@ export function registerCommands(options: CommandOptions): Disposable[] {
       });
     }),
 
-    commands.registerCommand('fishStock.refresh', async () => {
+    commands.registerCommand(names.refresh, async () => {
       await refresh(true, true);
     }),
 
-    commands.registerCommand('fishStock.addGroup', async () => {
+    commands.registerCommand(names.addGroup, async () => {
       const name = await window.showInputBox({
-        title: '添加分组',
+        title: texts.addGroupTitle,
         prompt: '分组名称',
         validateInput: (value) => (value.trim() ? undefined : '请输入分组名称'),
       });
@@ -298,13 +302,13 @@ export function registerCommands(options: CommandOptions): Disposable[] {
       });
     }),
 
-    commands.registerCommand('fishStock.renameGroup', async (node?: GroupNode) => {
-      const group = await chooseGroup(repository, node);
+    commands.registerCommand(names.renameGroup, async (node?: GroupNode) => {
+      const group = await chooseGroup(repository, set, node);
       if (!group) {
         return;
       }
       const name = await window.showInputBox({
-        title: '重命名分组',
+        title: texts.renameGroupTitle,
         value: group.name,
         validateInput: (value) => (value.trim() ? undefined : '请输入分组名称'),
       });
@@ -317,16 +321,16 @@ export function registerCommands(options: CommandOptions): Disposable[] {
       });
     }),
 
-    commands.registerCommand('fishStock.removeGroup', async (node?: GroupNode) => {
-      const group = await chooseGroup(repository, node);
+    commands.registerCommand(names.removeGroup, async (node?: GroupNode) => {
+      const group = await chooseGroup(repository, set, node);
       if (!group) {
         return;
       }
-      const detail =
-        group.stocks.length > 0
-          ? `“${group.name}”中有 ${group.stocks.length} 只股票，删除分组会一并删除。`
-          : `删除空分组“${group.name}”？`;
-      const answer = await window.showWarningMessage(detail, { modal: true }, '删除分组');
+      const answer = await window.showWarningMessage(
+        texts.removeGroupDetail(group.name, group.stocks.length),
+        { modal: true },
+        '删除分组',
+      );
       if (answer !== '删除分组') {
         return;
       }
@@ -336,65 +340,8 @@ export function registerCommands(options: CommandOptions): Disposable[] {
       });
     }),
 
-    commands.registerCommand('fishStock.clearWatchlist', async () => {
-      const state = repository.getSnapshot();
-      const stockCount = state.groups.reduce(
-        (total, group) => total + group.stocks.length,
-        0,
-      );
-      const alreadyEmpty =
-        state.groups.length === 1 &&
-        state.groups[0].name === '默认' &&
-        stockCount === 0;
-      if (alreadyEmpty) {
-        await window.showInformationMessage('FishStock: 股票自选数据已经是空的');
-        return;
-      }
-
-      const answer = await window.showWarningMessage(
-        '清空全部股票自选数据？',
-        {
-          modal: true,
-          detail: `将删除 ${state.groups.length} 个分组和 ${stockCount} 只股票，并保留一个空的“默认”分组。此操作无法撤销。`,
-        },
-        '清空全部数据',
-      );
-      if (answer !== '清空全部数据') {
-        return;
-      }
-      await handle(async () => {
-        await repository.clear();
-        await afterChange();
-        window.setStatusBarMessage('FishStock: 股票自选数据已清空', 2_500);
-      });
-    }),
-
-    commands.registerCommand('fishStock.restoreDefaultWatchlist', async () => {
-      const state = repository.getSnapshot();
-      const stockCount = state.groups.reduce(
-        (total, group) => total + group.stocks.length,
-        0,
-      );
-      const answer = await window.showWarningMessage(
-        '恢复默认股票自选数据？',
-        {
-          modal: true,
-          detail: `将用“默认”“指数”“银行”分组及 11 个默认条目替换当前 ${state.groups.length} 个分组及 ${stockCount} 只股票。此操作无法撤销。`,
-        },
-        '恢复默认数据',
-      );
-      if (answer !== '恢复默认数据') {
-        return;
-      }
-      await handle(async () => {
-        await repository.restoreDefault();
-        await afterChange();
-        window.setStatusBarMessage('FishStock: 已恢复默认股票自选数据', 2_500);
-      });
-    }),
-
-    commands.registerCommand('fishStock.moveStockUp', async (node?: StockNode) => {
-      const picked = await chooseStock(repository, node);
+    commands.registerCommand(names.moveUp, async (node?: StockNode) => {
+      const picked = await chooseItem(repository, set, node);
       if (!picked) {
         return;
       }
@@ -404,8 +351,8 @@ export function registerCommands(options: CommandOptions): Disposable[] {
       });
     }),
 
-    commands.registerCommand('fishStock.moveStockDown', async (node?: StockNode) => {
-      const picked = await chooseStock(repository, node);
+    commands.registerCommand(names.moveDown, async (node?: StockNode) => {
+      const picked = await chooseItem(repository, set, node);
       if (!picked) {
         return;
       }
@@ -415,8 +362,8 @@ export function registerCommands(options: CommandOptions): Disposable[] {
       });
     }),
 
-    commands.registerCommand('fishStock.moveStockToGroup', async (node?: StockNode) => {
-      const picked = await chooseStock(repository, node);
+    commands.registerCommand(names.moveToGroup, async (node?: StockNode) => {
+      const picked = await chooseItem(repository, set, node);
       if (!picked) {
         return;
       }
@@ -424,12 +371,12 @@ export function registerCommands(options: CommandOptions): Disposable[] {
         .getSnapshot()
         .groups.filter((group) => group.id !== picked.groupId);
       if (targets.length === 0) {
-        await window.showInformationMessage('FishStock: 请先创建另一个分组');
+        await window.showInformationMessage(`FishStock: ${texts.moveToGroupHint}`);
         return;
       }
       const target = await window.showQuickPick<GroupPick>(
         targets.map((group) => ({ label: group.name, group })),
-        { placeHolder: '移动到分组' },
+        { placeHolder: texts.moveToGroupPlaceholder },
       );
       if (!target) {
         return;
@@ -440,36 +387,99 @@ export function registerCommands(options: CommandOptions): Disposable[] {
       });
     }),
 
-    commands.registerCommand('fishStock.openWatchlist', async () => {
+    commands.registerCommand(names.open, async () => {
       await commands.executeCommand('workbench.view.extension.fishStock');
-      await commands.executeCommand('fishStock.stock.focus');
+      await commands.executeCommand(names.focusView);
     }),
 
-    commands.registerCommand('fishStock.stockViewMode', async () => {
-      const current = viewOptions.getSnapshot().stock;
+    commands.registerCommand(names.clear, async () => {
+      const state = repository.getSnapshot();
+      const itemCount = state.groups.reduce(
+        (total, group) => total + group.stocks.length,
+        0,
+      );
+      const alreadyEmpty =
+        state.groups.length === 1 &&
+        state.groups[0].name === '默认' &&
+        itemCount === 0;
+      if (alreadyEmpty) {
+        await window.showInformationMessage(texts.alreadyEmptyMessage);
+        return;
+      }
+
+      const answer = await window.showWarningMessage(
+        texts.clearTitle,
+        {
+          modal: true,
+          detail: texts.clearDetail(state.groups.length, itemCount),
+        },
+        texts.clearButton,
+      );
+      if (answer !== texts.clearButton) {
+        return;
+      }
+      await handle(async () => {
+        await repository.clear();
+        await afterChange();
+        window.setStatusBarMessage(texts.clearMessage, 2_500);
+      });
+    }),
+
+    commands.registerCommand(names.restoreDefault, async () => {
+      const state = repository.getSnapshot();
+      const itemCount = state.groups.reduce(
+        (total, group) => total + group.stocks.length,
+        0,
+      );
+      const answer = await window.showWarningMessage(
+        texts.restoreTitle,
+        {
+          modal: true,
+          detail: texts.restoreDetail(state.groups.length, itemCount),
+        },
+        texts.restoreButton,
+      );
+      if (answer !== texts.restoreButton) {
+        return;
+      }
+      await handle(async () => {
+        await repository.restoreDefault();
+        await afterChange();
+        window.setStatusBarMessage(texts.restoreMessage, 2_500);
+      });
+    }),
+
+    commands.registerCommand(names.viewMode, async () => {
+      const current = viewOptions.getSnapshot()[set.viewKind];
       const mode = await chooseViewMode(current);
       if (!mode || mode === current) {
         return;
       }
       await handle(async () => {
-        await viewOptions.setViewMode('stock', mode);
+        await viewOptions.setViewMode(set.viewKind, mode);
         treeProvider.setViewMode(mode);
       });
     }),
   ];
-}
 
-export function registerOpenQuoteCommand(): Disposable {
-  return commands.registerCommand('fishStock.openQuote', async (node?: StockNode) => {
-    if (!node) {
-      await window.showInformationMessage('FishStock: 请点击自选条目打开行情页面');
-      return;
-    }
-    const url = buildQuoteUrl(node.stock.symbol);
-    if (!url) {
-      await window.showInformationMessage(`FishStock: ${node.stock.symbol} 暂不支持行情页跳转`);
-      return;
-    }
-    await env.openExternal(Uri.parse(url));
-  });
+  if (options.registerCommonCommands) {
+    disposables.push(
+      commands.registerCommand('fishStock.openQuote', async (node?: StockNode) => {
+        if (!node) {
+          await window.showInformationMessage('FishStock: 请点击自选条目打开行情页面');
+          return;
+        }
+        const url = buildQuoteUrl(node.stock.symbol);
+        if (!url) {
+          await window.showInformationMessage(
+            `FishStock: ${node.stock.symbol} 暂不支持行情页跳转`,
+          );
+          return;
+        }
+        await env.openExternal(Uri.parse(url));
+      }),
+    );
+  }
+
+  return disposables;
 }

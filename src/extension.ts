@@ -3,8 +3,11 @@ import {
   workspace,
   type ExtensionContext,
 } from 'vscode';
-import { registerFuturesCommands } from './commands/registerFuturesCommands';
-import { registerCommands, registerOpenQuoteCommand } from './commands/registerCommands';
+import {
+  buildFuturesCommandSet,
+  buildStockCommandSet,
+} from './commands/commandSets';
+import { registerWatchlistCommands } from './commands/registerWatchlistCommands';
 import { readConfig } from './config';
 import { BseSecurityDirectory } from './data/bseSecurityDirectory';
 import { QuoteService } from './data/quoteService';
@@ -169,21 +172,23 @@ export async function activate(context: ExtensionContext): Promise<void> {
     futuresTreeView,
     statusBar,
     scheduler,
-    ...registerCommands({
+    ...registerWatchlistCommands({
       repository: stockRepository,
-      provider: stockProvider,
+      search: (query, signal) => stockProvider.searchStocks(query, signal),
       refresh: refreshStocks,
       viewOptions,
       treeProvider: stockTreeProvider,
+      set: buildStockCommandSet(),
+      registerCommonCommands: true,
     }),
-    ...registerFuturesCommands({
+    ...registerWatchlistCommands({
       repository: futuresRepository,
-      provider: futuresProvider,
+      search: (query, signal) => futuresProvider.searchFutures(query, signal),
       refresh: refreshFutures,
       viewOptions,
       treeProvider: futuresTreeProvider,
+      set: buildFuturesCommandSet(),
     }),
-    registerOpenQuoteCommand(),
     stockTreeView.onDidCollapseElement((event) => {
       if (event.element instanceof GroupNode) {
         void stockRepository.setGroupCollapsed(event.element.group.id, true);
