@@ -268,3 +268,38 @@ test('marks after-hours data closed and skips unusable rows', () => {
   assert.equal(quotes.length, 1);
   assert.equal(quotes[0].marketState, 'closed');
 });
+
+test('marks exchange holiday quotes closed even inside regular sessions', () => {
+  const payload = {
+    sh600519: row('贵州茅台', '1350.60', '1361.76', '20261001100530'),
+    r_hk00700: row('腾讯控股', '475.200', '471.800', '20261001100531'),
+  };
+  const quotes = parseTencentPayload(
+    payload,
+    [A_SHARE, HK_SHARE],
+    new Date('2026-10-01T02:05:40Z'),
+  );
+  assert.deepEqual(
+    quotes.map((quote) => quote.marketState),
+    ['closed', 'closed'],
+  );
+});
+
+test('keeps mainland quotes open on a Hong Kong-only holiday', () => {
+  const payload = {
+    sh600519: row('贵州茅台', '1350.60', '1361.76', '20260525100530'),
+    r_hk00700: row('腾讯控股', '475.200', '471.800', '20260525100531'),
+  };
+  const quotes = parseTencentPayload(
+    payload,
+    [A_SHARE, HK_SHARE],
+    new Date('2026-05-25T02:05:40Z'),
+  );
+  assert.deepEqual(
+    quotes.map((quote) => [quote.symbol, quote.marketState]),
+    [
+      ['600519.SH', 'open'],
+      ['00700.HK', 'closed'],
+    ],
+  );
+});

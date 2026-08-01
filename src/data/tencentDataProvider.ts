@@ -6,6 +6,7 @@ import type {
   StockSearchResult,
 } from '../domain/models';
 import { isIndexSymbol, normalizeSymbol } from '../domain/symbol';
+import { isTradingDay } from '../domain/tradingCalendar';
 import type { BseSecurityDirectory } from './bseSecurityDirectory';
 import type { MarketDataProvider } from './marketDataProvider';
 
@@ -79,10 +80,10 @@ function marketState(market: Market, asOf: number, now: Date): 'open' | 'closed'
     current.year === quoteTime.year &&
     current.month === quoteTime.month &&
     current.day === quoteTime.day;
-  const weekend = current.weekday === 'Sat' || current.weekday === 'Sun';
-  return sameTradingDate && !weekend && isOpenSession(market, current.minutes)
-    ? 'open'
-    : 'closed';
+  if (!isTradingDay(market, now)) {
+    return 'closed';
+  }
+  return sameTradingDate && isOpenSession(market, current.minutes) ? 'open' : 'closed';
 }
 
 export function toTencentSymbol(symbol: NormalizedSymbol): string {

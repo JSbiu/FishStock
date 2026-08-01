@@ -10,7 +10,8 @@ import { BseSecurityDirectory } from './data/bseSecurityDirectory';
 import { QuoteService } from './data/quoteService';
 import { SinaFuturesProvider } from './data/sinaFuturesProvider';
 import { TencentDataProvider } from './data/tencentDataProvider';
-import type { NormalizedSymbol } from './domain/models';
+import type { Market, NormalizedSymbol } from './domain/models';
+import { shouldAutoRefresh } from './domain/tradingCalendar';
 import { RefreshScheduler } from './services/refreshScheduler';
 import {
   createDefaultFuturesWatchlist,
@@ -133,9 +134,21 @@ export async function activate(context: ExtensionContext): Promise<void> {
     await Promise.all([refreshStocks(false, false), refreshFutures(false, false)]);
   };
 
+  const activeMarkets = (): Market[] => [
+    ...new Set([
+      ...stockRepository
+        .getSnapshot()
+        .groups.flatMap((group) => group.stocks.map((stock) => stock.market)),
+      ...futuresRepository
+        .getSnapshot()
+        .groups.flatMap((group) => group.stocks.map((stock) => stock.market)),
+    ]),
+  ];
   const scheduler = new RefreshScheduler(config.refreshIntervalMs, async () => {
     try {
-      await refreshAll();
+      if (shouldAutoRefresh(activeMarkets(), new Date())) {
+        await refreshAll();
+      }
     } catch (error: unknown) {
       output.appendLine(`[${new Date().toISOString()}] 刷新任务异常：${compactError(error)}`);
     }
