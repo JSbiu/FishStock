@@ -2,7 +2,7 @@
   "name": "fish-stock",
   "displayName": "FishStock",
   "description": "轻量、安静、本地优先的 VS Code 自选行情插件",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "publisher": "fishstock-local",
   "private": true,
   "repository": {
@@ -127,6 +127,16 @@
         "icon": "$(sort-precedence)"
       },
       {
+        "command": "fishStock.expandAllStockGroups",
+        "title": "FishStock: 展开全部股票分组",
+        "icon": "$(expand-all)"
+      },
+      {
+        "command": "fishStock.expandAllFuturesGroups",
+        "title": "FishStock: 展开全部期货分组",
+        "icon": "$(expand-all)"
+      },
+      {
         "command": "fishStock.clearWatchlist",
         "title": "FishStock: 清空全部股票自选数据"
       },
@@ -215,6 +225,11 @@
           "group": "2_groups@2"
         },
         {
+          "command": "fishStock.expandAllStockGroups",
+          "when": "view == fishStock.stock",
+          "group": "navigation@3"
+        },
+        {
           "command": "fishStock.clearWatchlist",
           "when": "view == fishStock.stock",
           "group": "9_reset@1"
@@ -243,6 +258,11 @@
           "command": "fishStock.futuresViewMode",
           "when": "view == fishStock.futures",
           "group": "2_groups@2"
+        },
+        {
+          "command": "fishStock.expandAllFuturesGroups",
+          "when": "view == fishStock.futures",
+          "group": "navigation@3"
         },
         {
           "command": "fishStock.clearFuturesWatchlist",

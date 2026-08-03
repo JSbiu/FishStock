@@ -15,6 +15,7 @@ export interface CommandNames {
   clear: string;
   restoreDefault: string;
   viewMode: string;
+  expandAll: string;
   focusView: string;
 }
 
@@ -70,6 +71,7 @@ export function buildStockCommandSet(): WatchlistCommandSet {
       clear: 'fishStock.clearWatchlist',
       restoreDefault: 'fishStock.restoreDefaultWatchlist',
       viewMode: 'fishStock.stockViewMode',
+      expandAll: 'fishStock.expandAllStockGroups',
       focusView: 'fishStock.stock.focus',
     },
     texts: {
@@ -128,6 +130,7 @@ export function buildFuturesCommandSet(): WatchlistCommandSet {
       clear: 'fishStock.clearFuturesWatchlist',
       restoreDefault: 'fishStock.restoreDefaultFuturesWatchlist',
       viewMode: 'fishStock.futuresViewMode',
+      expandAll: 'fishStock.expandAllFuturesGroups',
       focusView: 'fishStock.futures.focus',
     },
     texts: {

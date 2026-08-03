@@ -2,6 +2,7 @@ import {
   window,
   workspace,
   type ExtensionContext,
+  type TreeView,
 } from 'vscode';
 import {
   buildFuturesCommandSet,
@@ -21,13 +22,29 @@ import {
   WatchlistRepository,
 } from './storage/watchlistRepository';
 import { ViewOptionsStore } from './storage/viewOptionsStore';
-import { GroupNode, WatchlistTreeProvider } from './ui/watchlistTreeProvider';
+import {
+  GroupNode,
+  WatchlistTreeProvider,
+  type FishTreeNode,
+} from './ui/watchlistTreeProvider';
 import { StatusBarController } from './ui/statusBarController';
 
 const MIN_FETCH_INTERVAL_MS = 10_000;
 
 function compactError(error: unknown): string {
   return error instanceof Error ? error.message : '未知错误';
+}
+
+async function expandAllGroups(
+  repository: WatchlistRepository,
+  provider: WatchlistTreeProvider,
+  treeView: TreeView<FishTreeNode>,
+): Promise<void> {
+  await repository.expandAllGroups();
+  provider.refresh();
+  for (const group of provider.getGroupNodes()) {
+    await treeView.reveal(group, { expand: true, focus: false, select: false });
+  }
 }
 
 export async function activate(context: ExtensionContext): Promise<void> {
@@ -176,6 +193,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
       repository: stockRepository,
       search: (query, signal) => stockProvider.searchStocks(query, signal),
       refresh: refreshStocks,
+      expandAll: () => expandAllGroups(stockRepository, stockTreeProvider, stockTreeView),
       viewOptions,
       treeProvider: stockTreeProvider,
       set: buildStockCommandSet(),
@@ -185,6 +203,11 @@ export async function activate(context: ExtensionContext): Promise<void> {
       repository: futuresRepository,
       search: (query, signal) => futuresProvider.searchFutures(query, signal),
       refresh: refreshFutures,
+      expandAll: () => expandAllGroups(
+        futuresRepository,
+        futuresTreeProvider,
+        futuresTreeView,
+      ),
       viewOptions,
       treeProvider: futuresTreeProvider,
       set: buildFuturesCommandSet(),

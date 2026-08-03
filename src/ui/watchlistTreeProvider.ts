@@ -106,6 +106,20 @@ export class WatchlistTreeProvider implements TreeDataProvider<FishTreeNode> {
     this.emitter.fire(undefined);
   }
 
+  public getGroupNodes(): GroupNode[] {
+    return this.repository.getSnapshot().groups.map((group) => new GroupNode(group));
+  }
+
+  public getParent(element: FishTreeNode): GroupNode | undefined {
+    if (!(element instanceof StockNode)) {
+      return undefined;
+    }
+    const group = this.repository
+      .getSnapshot()
+      .groups.find((item) => item.id === element.groupId);
+    return group ? new GroupNode(group) : undefined;
+  }
+
   public getTreeItem(element: FishTreeNode): TreeItem {
     if (element instanceof GroupNode) {
       const item = new TreeItem(
@@ -138,7 +152,7 @@ export class WatchlistTreeProvider implements TreeDataProvider<FishTreeNode> {
   public getChildren(element?: FishTreeNode): FishTreeNode[] {
     const state = this.repository.getSnapshot();
     if (!element) {
-      return state.groups.map((group) => new GroupNode(group));
+      return this.getGroupNodes();
     }
     if (element instanceof GroupNode) {
       const group = state.groups.find((item) => item.id === element.group.id);

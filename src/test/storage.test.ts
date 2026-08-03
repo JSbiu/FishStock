@@ -173,6 +173,27 @@ test('restores the persisted first-run default watchlist', async () => {
   assert.deepEqual(await reloaded.load(), createDefaultWatchlist());
 });
 
+test('expands all groups and persists their state', async () => {
+  const store = new MemoryStateStore();
+  const repository = new WatchlistRepository(store);
+  await repository.load();
+  await repository.setGroupCollapsed('default', true);
+  await repository.setGroupCollapsed('indices', true);
+  await repository.setGroupCollapsed('banks', true);
+
+  await repository.expandAllGroups();
+
+  assert.equal(
+    repository.getSnapshot().groups.every((group) => !group.collapsed),
+    true,
+  );
+  const reloaded = new WatchlistRepository(store);
+  assert.equal(
+    (await reloaded.load()).groups.every((group) => !group.collapsed),
+    true,
+  );
+});
+
 test('rejects invalid persisted watchlist states', () => {
   assert.throws(
     () =>

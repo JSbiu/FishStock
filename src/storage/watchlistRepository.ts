@@ -322,6 +322,14 @@ export class WatchlistRepository {
     await this.save(state);
   }
 
+  public async expandAllGroups(): Promise<void> {
+    const state = this.getSnapshot();
+    for (const group of state.groups) {
+      group.collapsed = false;
+    }
+    await this.save(state);
+  }
+
   public async addStock(groupId: string, stock: Stock): Promise<void> {
     const state = this.getSnapshot();
     const normalized = normalizeSymbol(stock.symbol);

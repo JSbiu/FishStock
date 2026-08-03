@@ -19,6 +19,7 @@ export interface WatchlistCommandOptions {
   repository: WatchlistRepository;
   search(query: string, signal?: AbortSignal): Promise<StockSearchResult[]>;
   refresh(force: boolean, manual: boolean): Promise<void>;
+  expandAll(): Promise<void>;
   viewOptions: ViewOptionsStore;
   treeProvider: WatchlistTreeProvider;
   set: WatchlistCommandSet;
@@ -459,6 +460,10 @@ export function registerWatchlistCommands(
         await viewOptions.setViewMode(set.viewKind, mode);
         treeProvider.setViewMode(mode);
       });
+    }),
+
+    commands.registerCommand(names.expandAll, async () => {
+      await handle(options.expandAll);
     }),
   ];
 
