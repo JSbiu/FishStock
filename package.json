@@ -2,7 +2,7 @@
   "name": "fish-stock",
   "displayName": "FishStock",
   "description": "轻量、安静、本地优先的 VS Code 自选行情插件",
-  "version": "0.4.6",
+  "version": "0.4.7",
   "publisher": "fishstock-local",
   "private": true,
   "repository": {
@@ -24,16 +24,7 @@
     "大宗商品"
   ],
   "activationEvents": [
-    "onStartupFinished",
-    "onView:fishStock.stock",
-    "onView:fishStock.futures",
-    "onCommand:fishStock.addStock",
-    "onCommand:fishStock.addFuture",
-    "onCommand:fishStock.refresh",
-    "onCommand:fishStock.refreshFutures",
-    "onCommand:fishStock.clearWatchlist",
-    "onCommand:fishStock.restoreDefaultWatchlist",
-    "onCommand:fishStock.restoreDefaultFuturesWatchlist"
+    "onStartupFinished"
   ],
   "main": "./out/extension.js",
   "contributes": {

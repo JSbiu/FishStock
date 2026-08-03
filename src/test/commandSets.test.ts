@@ -11,6 +11,13 @@ function declaredCommandIds(): string[] {
   return manifest.contributes.commands.map((entry) => entry.command);
 }
 
+function activationEvents(): string[] {
+  const manifest = JSON.parse(
+    readFileSync(join(process.cwd(), 'package.json'), 'utf8'),
+  ) as { activationEvents: string[] };
+  return manifest.activationEvents;
+}
+
 test('every registered command id is declared in package.json', () => {
   const declared = new Set(declaredCommandIds());
   const ids = [
@@ -34,4 +41,8 @@ test('stock and futures command ids do not collide', () => {
 test('stock and futures command sets keep their own focus views', () => {
   assert.equal(buildStockCommandSet().names.focusView, 'fishStock.stock.focus');
   assert.equal(buildFuturesCommandSet().names.focusView, 'fishStock.futures.focus');
+});
+
+test('manifest only declares activation events that VS Code cannot generate', () => {
+  assert.deepEqual(activationEvents(), ['onStartupFinished']);
 });
