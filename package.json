@@ -2,7 +2,7 @@
   "name": "fish-stock",
   "displayName": "FishStock",
   "description": "轻量、安静、本地优先的 VS Code 自选行情插件",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "publisher": "fishstock-local",
   "private": true,
   "repository": {
@@ -137,6 +137,10 @@
         "icon": "$(expand-all)"
       },
       {
+        "command": "fishStock.copyDiagnostics",
+        "title": "FishStock: 复制运行诊断信息"
+      },
+      {
         "command": "fishStock.clearWatchlist",
         "title": "FishStock: 清空全部股票自选数据"
       },
@@ -240,6 +244,11 @@
           "group": "9_reset@2"
         },
         {
+          "command": "fishStock.copyDiagnostics",
+          "when": "view == fishStock.stock",
+          "group": "9_support@1"
+        },
+        {
           "command": "fishStock.refreshFutures",
           "when": "view == fishStock.futures",
           "group": "navigation@1"
@@ -273,6 +282,11 @@
           "command": "fishStock.restoreDefaultFuturesWatchlist",
           "when": "view == fishStock.futures",
           "group": "9_reset@2"
+        },
+        {
+          "command": "fishStock.copyDiagnostics",
+          "when": "view == fishStock.futures",
+          "group": "9_support@1"
         }
       ],
       "view/item/context": [
@@ -403,8 +417,11 @@
     "watch": "tsc -watch -p tsconfig.json",
     "lint": "eslint .",
     "test": "pnpm run compile && node --test out/test/*.test.js",
+    "test:smoke": "pnpm run compile && node scripts/run-smoke-tests.mjs",
     "check": "pnpm run lint && pnpm run test",
-    "package:vsix": "pnpm run check && vsce package --no-dependencies"
+    "verify:release": "node scripts/verify-release.mjs",
+    "release:check": "pnpm run check && pnpm run test:smoke && pnpm run verify:release && vsce package --no-dependencies && node scripts/verify-release.mjs --packaged",
+    "package:vsix": "pnpm run release:check"
   },
   "devDependencies": {
     "@eslint/js": "^9.31.0",

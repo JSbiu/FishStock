@@ -4,7 +4,10 @@ AGENTS.md
 .gitignore
 .vscode/**
 docs/decisions.md
+docs/release-checklist.md
+scripts/**
 src/**
+out/smoke/**
 out/test/**
 out/**/*.map
 eslint.config.mjs

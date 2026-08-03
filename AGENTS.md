@@ -23,6 +23,8 @@ FishStock 是 TypeScript 编写的 VS Code 扩展。`src/extension.ts` 负责扩
 - `pnpm run lint`：执行 ESLint 检查。
 - `pnpm test`：编译后运行全部单元测试。
 - `pnpm run check`：依次执行 lint、编译和测试。
+- `pnpm run test:smoke`：在隔离用户目录中启动 VS Code Extension Host 冒烟测试。
+- `pnpm run release:check`：执行完整发布门槛并生成当前版本 VSIX。
 - `pnpm run package:vsix`：验证并生成本地 VSIX，不进行发布。
 
 在 VS Code 中按 `F5` 启动 Extension Development Host。
@@ -40,6 +42,8 @@ FishStock 是 TypeScript 编写的 VS Code 扩展。`src/extension.ts` 负责扩
 提交信息采用 Conventional Commits 英文类型前缀和简洁中文结果描述，例如 `fix: 修复了北交所股票搜索`、`feat: 增加了期货默认数据`。每个提交保持单一目的，避免混入无关格式调整。
 
 版本号采用 `主版本.次版本.修订版本`。规划中的功能里程碑滚动次版本号；交互优化、性能优化、缺陷修复和文档修正只滚动第三位修订版本号。
+
+用户和开发者可以随时提出反馈，但不参与固定版本流程。维护者必须独立完成 `docs/release-checklist.md`，并以 `pnpm run release:check` 通过作为版本完成的必要条件。
 
 Pull Request 应说明变更范围、验证命令及数据源或存储影响。涉及 Tree View、浮窗等可见变化时附截图。不要提交密钥、用户自选数据、生成的 VSIX 或无关文件。
 

@@ -2,7 +2,7 @@
 
 FishStock 是一个轻量、安静、本地优先的 VS Code 自选行情插件。
 
-0.4.5 是 0.4 系列的优化版本，主题是可信与顺手，当前支持 A 股、港股、市场指数和国内商品期货。
+0.4.6 是 0.4 系列的质量工程版本，主题是可信与顺手，当前支持 A 股、港股、市场指数和国内商品期货。
 
 ## 当前功能
 
@@ -25,6 +25,7 @@ FishStock 是一个轻量、安静、本地优先的 VS Code 自选行情插件�
 - 内置 A 股与港股交易所节假日休市数据，休市状态可信；非交易日停止自动轮询
 - 点击自选条目在浏览器打开行情详情页（东方财富 / 腾讯行情 / 新浪期货）
 - 每个视图独立的展示方式：默认顺序、按涨跌幅排序、仅看上涨或下跌
+- 可主动复制脱敏运行诊断信息，便于反馈问题，不自动上传数据
 
 ## 使用方法
 
@@ -40,6 +41,7 @@ FishStock 是一个轻量、安静、本地优先的 VS Code 自选行情插件�
 | 清空或恢复默认 | 对应视图标题栏的 `...` 菜单；执行前会二次确认 |
 | 打开对应自选 | 点击正在轮播该品类行情的状态栏项目 |
 | 在浏览器查看行情详情 | 点击具体自选条目（A 股、港股个股及 A 股指数打开东方财富，港股指数打开腾讯行情，国内期货打开新浪期货） |
+| 复制运行诊断信息 | 命令面板，或对应视图标题栏的 `...` 菜单 |
 
 股票搜索支持中文名称、拼音简称或代码，例如 `美的集团`、`mdjt`、`000333`。期货搜索支持品种名称、主连代码或月份合约代码，例如 `沪金`、`AU0`、`AL2608`。搜索结果会先预览，确认后才写入自选。
 
@@ -73,6 +75,7 @@ VS Code 只会在某个工作区第一次遇到这些 View 时参考初始布局
 ```powershell
 pnpm install
 pnpm run check
+pnpm run test:smoke
 ```
 
 然后在 VS Code 中：
@@ -88,7 +91,7 @@ pnpm run check
 pnpm run package:vsix
 ```
 
-命令会根据当前扩展版本在项目根目录生成 `fish-stock-<version>.vsix`。可在 VS Code 的 Extensions 视图中选择“Install from VSIX...”进行本地安装。当前阶段不要发布到 Marketplace。
+命令会执行 lint、单元测试、Extension Host 冒烟、版本一致性和包内容检查，再根据当前扩展版本生成 `fish-stock-<version>.vsix`。可在 VS Code 的 Extensions 视图中选择“Install from VSIX...”进行本地安装。当前阶段不要发布到 Marketplace。
 
 ## 配置
 
@@ -113,6 +116,7 @@ pnpm run package:vsix
 - [产品范围](docs/product.md)
 - [架构设计](docs/architecture.md)
 - [行情源调研](docs/data-sources.md)
+- [试用反馈说明](docs/feedback.md)
 - [版本记录](CHANGELOG.md)
 
 ## 数据与隐私

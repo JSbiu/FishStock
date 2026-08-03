@@ -1,6 +1,10 @@
 import {
+  commands,
+  env,
+  ExtensionMode,
   window,
   workspace,
+  version as vscodeVersion,
   type ExtensionContext,
   type TreeView,
 } from 'vscode';
@@ -14,8 +18,13 @@ import { BseSecurityDirectory } from './data/bseSecurityDirectory';
 import { QuoteService } from './data/quoteService';
 import { SinaFuturesProvider } from './data/sinaFuturesProvider';
 import { TencentDataProvider } from './data/tencentDataProvider';
+import {
+  formatDiagnosticReport,
+  summarizeWatchlist,
+  type DiagnosticRefreshState,
+} from './domain/diagnostics';
 import type { Market, NormalizedSymbol } from './domain/models';
-import { shouldAutoRefresh } from './domain/tradingCalendar';
+import { isTradingDay, shouldAutoRefresh } from './domain/tradingCalendar';
 import { RefreshScheduler } from './services/refreshScheduler';
 import {
   createDefaultFuturesWatchlist,
@@ -33,6 +42,14 @@ const MIN_FETCH_INTERVAL_MS = 10_000;
 
 function compactError(error: unknown): string {
   return error instanceof Error ? error.message : '未知错误';
+}
+
+function extensionVersion(context: ExtensionContext): string {
+  const manifest: unknown = context.extension.packageJSON;
+  if (typeof manifest !== 'object' || manifest === null || !('version' in manifest)) {
+    return '未知';
+  }
+  return typeof manifest.version === 'string' ? manifest.version : '未知';
 }
 
 async function expandAllGroups(
@@ -105,6 +122,10 @@ export async function activate(context: ExtensionContext): Promise<void> {
   });
 
   const statusBar = new StatusBarController(config.rotationIntervalMs);
+  let stockRefreshState: DiagnosticRefreshState = 'not-run';
+  let stockRefreshAt: string | undefined;
+  let futuresRefreshState: DiagnosticRefreshState = 'not-run';
+  let futuresRefreshAt: string | undefined;
   const updateStatusBar = (): void => {
     statusBar.setSources([
       {
@@ -129,6 +150,8 @@ export async function activate(context: ExtensionContext): Promise<void> {
       group.stocks.map((stock) => ({ symbol: stock.symbol, market: stock.market })),
     );
     const result = await stockQuotes.refresh(symbols, force);
+    stockRefreshState = result.error ? 'error' : 'success';
+    stockRefreshAt = new Date().toISOString();
     stockTreeProvider.refresh();
     updateStatusBar();
     if (result.error) {
@@ -147,6 +170,8 @@ export async function activate(context: ExtensionContext): Promise<void> {
       group.stocks.map((future) => ({ symbol: future.symbol, market: future.market })),
     );
     const result = await futuresQuotes.refresh(symbols, force);
+    futuresRefreshState = result.error ? 'error' : 'success';
+    futuresRefreshAt = new Date().toISOString();
     futuresTreeProvider.refresh();
     updateStatusBar();
     if (result.error) {
@@ -173,6 +198,42 @@ export async function activate(context: ExtensionContext): Promise<void> {
         .groups.flatMap((group) => group.stocks.map((stock) => stock.market)),
     ]),
   ];
+  const diagnosticReport = (): string => {
+    const tradingDays: Partial<Record<Market, boolean>> = {};
+    const now = new Date();
+    for (const market of activeMarkets()) {
+      tradingDays[market] = isTradingDay(market, now);
+    }
+    const modes = viewOptions.getSnapshot();
+    return formatDiagnosticReport({
+      generatedAt: now.toISOString(),
+      extensionVersion: extensionVersion(context),
+      vscodeVersion,
+      platform: `${process.platform}-${process.arch}`,
+      config: {
+        refreshIntervalSeconds: config.refreshIntervalMs / 1000,
+        staleAfterSeconds: config.staleAfterMs / 1000,
+        rotationSeconds: config.rotationIntervalMs / 1000,
+        colorConvention: config.colorConvention,
+      },
+      viewModes: { stock: modes.stock, futures: modes.futures },
+      tradingDays,
+      stock: summarizeWatchlist(
+        stockRepository.getSnapshot(),
+        stockProvider.displayName,
+        (symbol) => stockQuotes.get(symbol)?.state,
+        stockRefreshState,
+        stockRefreshAt,
+      ),
+      futures: summarizeWatchlist(
+        futuresRepository.getSnapshot(),
+        futuresProvider.displayName,
+        (symbol) => futuresQuotes.get(symbol)?.state,
+        futuresRefreshState,
+        futuresRefreshAt,
+      ),
+    });
+  };
   const scheduler = new RefreshScheduler(config.refreshIntervalMs, async () => {
     try {
       if (shouldAutoRefresh(activeMarkets(), new Date())) {
@@ -189,6 +250,10 @@ export async function activate(context: ExtensionContext): Promise<void> {
     futuresTreeView,
     statusBar,
     scheduler,
+    commands.registerCommand('fishStock.copyDiagnostics', async () => {
+      await env.clipboard.writeText(diagnosticReport());
+      window.setStatusBarMessage('FishStock: 已复制脱敏诊断信息', 3_000);
+    }),
     ...registerWatchlistCommands({
       repository: stockRepository,
       search: (query, signal) => stockProvider.searchStocks(query, signal),
@@ -247,8 +312,10 @@ export async function activate(context: ExtensionContext): Promise<void> {
     }),
   );
 
-  scheduler.start();
-  await refreshAll();
+  if (context.extensionMode !== ExtensionMode.Test) {
+    scheduler.start();
+    await refreshAll();
+  }
   output.appendLine('FishStock 已启动；股票使用腾讯行情，国内期货使用新浪行情。');
 }
 
