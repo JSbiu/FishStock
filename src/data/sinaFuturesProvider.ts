@@ -4,6 +4,7 @@ import type {
   StockSearchResult,
 } from '../domain/models';
 import { isFuturesSymbol, normalizeSymbol } from '../domain/symbol';
+import { AccessDeniedBackoff } from './accessDeniedBackoff';
 import type { FuturesDataProvider } from './marketDataProvider';
 
 const SINA_QUOTE_URL = 'https://hq.sinajs.cn/list=';
@@ -41,6 +42,13 @@ export interface SinaFuturesProviderOptions {
   fetcher?: typeof fetch;
   now?: () => Date;
   decode?: (bytes: ArrayBuffer) => string;
+}
+
+class SinaFuturesHttpError extends Error {
+  public constructor(public readonly status: number) {
+    super(`新浪期货行情请求失败：HTTP ${status}`);
+    this.name = 'SinaFuturesHttpError';
+  }
 }
 
 function toSinaSymbol(symbol: NormalizedSymbol): string {
@@ -254,12 +262,22 @@ export class SinaFuturesProvider implements FuturesDataProvider {
   private readonly fetcher: typeof fetch;
   private readonly now: () => Date;
   private readonly decode: (bytes: ArrayBuffer) => string;
+  private readonly accessDeniedBackoff: AccessDeniedBackoff;
 
   public constructor(options: SinaFuturesProviderOptions = {}) {
     this.fetcher = options.fetcher ?? fetch;
     this.now = options.now ?? (() => new Date());
     this.decode =
       options.decode ?? ((bytes) => new TextDecoder('gb18030').decode(bytes));
+    this.accessDeniedBackoff = new AccessDeniedBackoff(this.now);
+  }
+
+  public canAutomaticallyRefresh(): boolean {
+    return this.accessDeniedBackoff.canRetry();
+  }
+
+  public getNextAutomaticRetryAt(): Date | undefined {
+    return this.accessDeniedBackoff.getNextRetryAt();
   }
 
   public async searchFutures(
@@ -315,14 +333,26 @@ export class SinaFuturesProvider implements FuturesDataProvider {
     symbols: readonly NormalizedSymbol[],
     signal?: AbortSignal,
   ): Promise<RawMarketQuote[]> {
-    const quotes: RawMarketQuote[] = [];
-    for (let index = 0; index < symbols.length; index += BATCH_SIZE) {
-      const batch = symbols.slice(index, index + BATCH_SIZE);
-      const query = batch.map(toSinaSymbol).join(',');
-      const payload = await this.fetchText(`${SINA_QUOTE_URL}${query}`, signal);
-      quotes.push(...parseSinaFuturesPayload(payload, batch, this.now()));
+    try {
+      const quotes: RawMarketQuote[] = [];
+      for (let index = 0; index < symbols.length; index += BATCH_SIZE) {
+        const batch = symbols.slice(index, index + BATCH_SIZE);
+        const query = batch.map(toSinaSymbol).join(',');
+        const payload = await this.fetchText(`${SINA_QUOTE_URL}${query}`, signal);
+        quotes.push(...parseSinaFuturesPayload(payload, batch, this.now()));
+      }
+      this.accessDeniedBackoff.reset();
+      return quotes;
+    } catch (error: unknown) {
+      if (error instanceof SinaFuturesHttpError && error.status === 403) {
+        const retryAt = this.accessDeniedBackoff.recordFailure();
+        throw new Error(
+          `${error.message}；自动刷新将在 ${retryAt.toISOString()} 后重试，手动刷新可立即探测`,
+          { cause: error },
+        );
+      }
+      throw error;
     }
-    return quotes;
   }
 
   private normalizeDirectQuery(query: string): NormalizedSymbol | undefined {
@@ -348,7 +378,7 @@ export class SinaFuturesProvider implements FuturesDataProvider {
         signal: controller.signal,
       });
       if (!response.ok) {
-        throw new Error(`新浪期货行情请求失败：HTTP ${response.status}`);
+        throw new SinaFuturesHttpError(response.status);
       }
       return this.decode(await response.arrayBuffer());
     } finally {

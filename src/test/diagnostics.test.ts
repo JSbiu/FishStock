@@ -40,7 +40,14 @@ test('summarizes watchlist counts without carrying private labels or symbols', (
 });
 
 test('formats a copyable diagnostic report with an explicit privacy statement', () => {
-  const summary = summarizeWatchlist(state, '测试行情源', () => 'closed', 'not-run');
+  const summary = summarizeWatchlist(
+    state,
+    '测试行情源',
+    () => 'closed',
+    'error',
+    '2026-08-03T10:00:00.000Z',
+    '2026-08-03T10:15:00.000Z',
+  );
   const report = formatDiagnosticReport({
     generatedAt: '2026-08-03T10:00:00.000Z',
     extensionVersion: '0.4.6',
@@ -59,6 +66,8 @@ test('formats a copyable diagnostic report with an explicit privacy statement', 
   });
   assert.match(report, /扩展版本：0\.4\.6/);
   assert.match(report, /CN=交易日, HK=非交易日/);
+  assert.match(report, /下次自动探测：2026-08-03T10:15:00\.000Z/);
+  assert.match(report, /手动刷新可立即探测/);
   assert.match(report, /本报告不包含自选名称、证券代码、文件路径或工作区信息/);
   assert.equal(report.includes('600519'), false);
   assert.equal(report.includes('贵州茅台'), false);

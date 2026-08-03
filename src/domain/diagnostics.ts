@@ -11,6 +11,7 @@ export interface DiagnosticWatchlistSummary {
   quoteStates: Readonly<Record<DiagnosticQuoteState, number>>;
   lastRefreshState: DiagnosticRefreshState;
   lastRefreshAt?: string;
+  nextRetryAt?: string;
 }
 
 export interface DiagnosticReport {
@@ -47,6 +48,7 @@ export function summarizeWatchlist(
   quoteStateOf: (symbol: string) => QuoteState | undefined,
   lastRefreshState: DiagnosticRefreshState,
   lastRefreshAt?: string,
+  nextRetryAt?: string,
 ): DiagnosticWatchlistSummary {
   const quoteStates: Record<DiagnosticQuoteState, number> = {
     live: 0,
@@ -70,6 +72,7 @@ export function summarizeWatchlist(
     quoteStates,
     lastRefreshState,
     ...(lastRefreshAt ? { lastRefreshAt } : {}),
+    ...(nextRetryAt ? { nextRetryAt } : {}),
   };
 }
 
@@ -92,6 +95,9 @@ function formatWatchlist(label: string, summary: DiagnosticWatchlistSummary): st
     `- 条目：${summary.itemCount}`,
     `- 行情状态：${quoteStates}`,
     `- 最近刷新：${formatRefresh(summary)}`,
+    ...(summary.nextRetryAt
+      ? [`- 下次自动探测：${summary.nextRetryAt}（手动刷新可立即探测）`]
+      : []),
   ];
 }
 

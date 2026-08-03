@@ -145,6 +145,9 @@ export async function activate(context: ExtensionContext): Promise<void> {
   updateStatusBar();
 
   const refreshStocks = async (force: boolean, manual: boolean): Promise<void> => {
+    if (!manual && !stockProvider.canAutomaticallyRefresh()) {
+      return;
+    }
     const state = stockRepository.getSnapshot();
     const symbols: NormalizedSymbol[] = state.groups.flatMap((group) =>
       group.stocks.map((stock) => ({ symbol: stock.symbol, market: stock.market })),
@@ -165,6 +168,9 @@ export async function activate(context: ExtensionContext): Promise<void> {
   };
 
   const refreshFutures = async (force: boolean, manual: boolean): Promise<void> => {
+    if (!manual && !futuresProvider.canAutomaticallyRefresh()) {
+      return;
+    }
     const state = futuresRepository.getSnapshot();
     const symbols: NormalizedSymbol[] = state.groups.flatMap((group) =>
       group.stocks.map((future) => ({ symbol: future.symbol, market: future.market })),
@@ -188,15 +194,22 @@ export async function activate(context: ExtensionContext): Promise<void> {
     await Promise.all([refreshStocks(false, false), refreshFutures(false, false)]);
   };
 
-  const activeMarkets = (): Market[] => [
+  const activeStockMarkets = (): Market[] => [
     ...new Set([
       ...stockRepository
         .getSnapshot()
         .groups.flatMap((group) => group.stocks.map((stock) => stock.market)),
+    ]),
+  ];
+  const activeFuturesMarkets = (): Market[] => [
+    ...new Set([
       ...futuresRepository
         .getSnapshot()
         .groups.flatMap((group) => group.stocks.map((stock) => stock.market)),
     ]),
+  ];
+  const activeMarkets = (): Market[] => [
+    ...new Set([...activeStockMarkets(), ...activeFuturesMarkets()]),
   ];
   const diagnosticReport = (): string => {
     const tradingDays: Partial<Record<Market, boolean>> = {};
@@ -224,6 +237,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
         (symbol) => stockQuotes.get(symbol)?.state,
         stockRefreshState,
         stockRefreshAt,
+        stockProvider.getNextAutomaticRetryAt()?.toISOString(),
       ),
       futures: summarizeWatchlist(
         futuresRepository.getSnapshot(),
@@ -231,14 +245,21 @@ export async function activate(context: ExtensionContext): Promise<void> {
         (symbol) => futuresQuotes.get(symbol)?.state,
         futuresRefreshState,
         futuresRefreshAt,
+        futuresProvider.getNextAutomaticRetryAt()?.toISOString(),
       ),
     });
   };
   const scheduler = new RefreshScheduler(config.refreshIntervalMs, async () => {
     try {
-      if (shouldAutoRefresh(activeMarkets(), new Date())) {
-        await refreshAll();
-      }
+      const now = new Date();
+      await Promise.all([
+        shouldAutoRefresh(activeStockMarkets(), now)
+          ? refreshStocks(false, false)
+          : Promise.resolve(),
+        shouldAutoRefresh(activeFuturesMarkets(), now)
+          ? refreshFutures(false, false)
+          : Promise.resolve(),
+      ]);
     } catch (error: unknown) {
       output.appendLine(`[${new Date().toISOString()}] 刷新任务异常：${compactError(error)}`);
     }

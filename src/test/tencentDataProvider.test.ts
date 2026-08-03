@@ -139,6 +139,39 @@ test('falls back to a direct quote lookup for a BSE code missing from Tencent se
   assert.equal(requested.some((url) => url.includes('q=bj920189')), true);
 });
 
+test('backs off quote refreshes after HTTP 403 and recovers on success', async () => {
+  let now = new Date('2026-08-03T07:00:00.000Z');
+  let responseStatus = 403;
+  const quoteRow = row('贵州茅台', '1350.60', '1361.76', '20260803150000');
+  const provider = new TencentDataProvider({
+    fetcher: async () => responseStatus === 200
+      ? new Response(JSON.stringify({ sh600519: quoteRow }))
+      : new Response('', { status: responseStatus }),
+    now: () => now,
+  });
+
+  await assert.rejects(
+    provider.fetchQuotes([A_SHARE]),
+    /自动刷新将在 2026-08-03T07:15:00\.000Z 后重试/,
+  );
+  assert.equal(provider.canAutomaticallyRefresh(), false);
+  assert.equal(
+    provider.getNextAutomaticRetryAt()?.toISOString(),
+    '2026-08-03T07:15:00.000Z',
+  );
+
+  now = new Date('2026-08-03T07:15:00.000Z');
+  await assert.rejects(
+    provider.fetchQuotes([A_SHARE]),
+    /自动刷新将在 2026-08-03T07:45:00\.000Z 后重试/,
+  );
+
+  responseStatus = 200;
+  assert.equal((await provider.fetchQuotes([A_SHARE])).length, 1);
+  assert.equal(provider.canAutomaticallyRefresh(), true);
+  assert.equal(provider.getNextAutomaticRetryAt(), undefined);
+});
+
 test('parses Tencent A-share and Hong Kong timestamps as China Standard Time', () => {
   assert.equal(
     parseTencentTimestamp('20260731100530'),

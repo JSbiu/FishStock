@@ -7,6 +7,7 @@ import type {
 } from '../domain/models';
 import { isIndexSymbol, normalizeSymbol } from '../domain/symbol';
 import { isTradingDay } from '../domain/tradingCalendar';
+import { AccessDeniedBackoff } from './accessDeniedBackoff';
 import type { BseSecurityDirectory } from './bseSecurityDirectory';
 import type { MarketDataProvider } from './marketDataProvider';
 
@@ -265,10 +266,20 @@ export class TencentDataProvider implements MarketDataProvider {
 
   private readonly fetcher: typeof fetch;
   private readonly bseDirectory: BseSecurityDirectory | undefined;
+  private readonly accessDeniedBackoff: AccessDeniedBackoff;
 
   public constructor(options: TencentDataProviderOptions = {}) {
     this.fetcher = options.fetcher ?? fetch;
     this.bseDirectory = options.bseDirectory;
+    this.accessDeniedBackoff = new AccessDeniedBackoff(options.now ?? (() => new Date()));
+  }
+
+  public canAutomaticallyRefresh(): boolean {
+    return this.accessDeniedBackoff.canRetry();
+  }
+
+  public getNextAutomaticRetryAt(): Date | undefined {
+    return this.accessDeniedBackoff.getNextRetryAt();
   }
 
   public supports(market: Market): boolean {
@@ -332,12 +343,24 @@ export class TencentDataProvider implements MarketDataProvider {
     symbols: readonly NormalizedSymbol[],
     signal?: AbortSignal,
   ): Promise<RawMarketQuote[]> {
-    const quotes: RawMarketQuote[] = [];
-    for (let index = 0; index < symbols.length; index += BATCH_SIZE) {
-      const batch = symbols.slice(index, index + BATCH_SIZE);
-      quotes.push(...(await this.fetchBatch(batch, signal)));
+    try {
+      const quotes: RawMarketQuote[] = [];
+      for (let index = 0; index < symbols.length; index += BATCH_SIZE) {
+        const batch = symbols.slice(index, index + BATCH_SIZE);
+        quotes.push(...(await this.fetchBatch(batch, signal)));
+      }
+      this.accessDeniedBackoff.reset();
+      return quotes;
+    } catch (error: unknown) {
+      if (error instanceof TencentQuoteHttpError && error.status === 403) {
+        const retryAt = this.accessDeniedBackoff.recordFailure();
+        throw new Error(
+          `${error.message}；自动刷新将在 ${retryAt.toISOString()} 后重试，手动刷新可立即探测`,
+          { cause: error },
+        );
+      }
+      throw error;
     }
-    return quotes;
   }
 
   private async fetchBatch(
@@ -361,7 +384,7 @@ export class TencentDataProvider implements MarketDataProvider {
         signal: controller.signal,
       });
       if (!response.ok) {
-        throw new Error(`腾讯行情请求失败：HTTP ${response.status}`);
+        throw new TencentQuoteHttpError(response.status);
       }
       const bytes = await response.arrayBuffer();
       const text = new TextDecoder('gbk').decode(bytes);
@@ -407,4 +430,12 @@ export class TencentDataProvider implements MarketDataProvider {
 export interface TencentDataProviderOptions {
   fetcher?: typeof fetch;
   bseDirectory?: BseSecurityDirectory;
+  now?: () => Date;
+}
+
+class TencentQuoteHttpError extends Error {
+  public constructor(public readonly status: number) {
+    super(`腾讯行情请求失败：HTTP ${status}`);
+    this.name = 'TencentQuoteHttpError';
+  }
 }

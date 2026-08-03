@@ -128,3 +128,59 @@ test('accepts an active month code and rejects an expired contract with stale tr
   );
   assert.deepEqual(await provider.searchFutures('AL2607'), []);
 });
+
+test('backs off repeated automatic refreshes after HTTP 403 and recovers on success', async () => {
+  let now = new Date('2026-08-03T07:00:00.000Z');
+  let responseStatus = 403;
+  let requestCount = 0;
+  const provider = new SinaFuturesProvider({
+    fetcher: async () => {
+      requestCount += 1;
+      return responseStatus === 200
+        ? new Response(futuresRow('AL0', '铝连续', '23680.000'))
+        : new Response('', { status: responseStatus });
+    },
+    now: () => now,
+    decode: (bytes) => new TextDecoder().decode(bytes),
+  });
+
+  await assert.rejects(
+    provider.fetchQuotes([AL_MAIN]),
+    /自动刷新将在 2026-08-03T07:15:00\.000Z 后重试/,
+  );
+  assert.equal(requestCount, 1);
+  assert.equal(provider.canAutomaticallyRefresh(), false);
+  assert.equal(
+    provider.getNextAutomaticRetryAt()?.toISOString(),
+    '2026-08-03T07:15:00.000Z',
+  );
+
+  now = new Date('2026-08-03T07:15:00.000Z');
+  assert.equal(provider.canAutomaticallyRefresh(), true);
+  await assert.rejects(
+    provider.fetchQuotes([AL_MAIN]),
+    /自动刷新将在 2026-08-03T07:45:00\.000Z 后重试/,
+  );
+
+  responseStatus = 200;
+  const quotes = await provider.fetchQuotes([AL_MAIN]);
+  assert.equal(quotes.length, 1);
+  assert.equal(provider.canAutomaticallyRefresh(), true);
+  assert.equal(provider.getNextAutomaticRetryAt(), undefined);
+});
+
+test('caps the HTTP 403 backoff at six hours', async () => {
+  let now = new Date('2026-08-03T00:00:00.000Z');
+  const provider = new SinaFuturesProvider({
+    fetcher: async () => new Response('', { status: 403 }),
+    now: () => now,
+  });
+  const delaysInMinutes = [15, 30, 60, 120, 360, 360];
+
+  for (const delay of delaysInMinutes) {
+    await assert.rejects(provider.fetchQuotes([AL_MAIN]), /HTTP 403/);
+    const expected = now.getTime() + delay * 60 * 1_000;
+    assert.equal(provider.getNextAutomaticRetryAt()?.getTime(), expected);
+    now = new Date(expected);
+  }
+});
