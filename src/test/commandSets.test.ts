@@ -32,7 +32,7 @@ test('every registered command id is declared in package.json', () => {
     ...Object.values(buildFuturesCommandSet().names),
     'fishStock.openQuote',
     'fishStock.copyDiagnostics',
-  ].filter((id) => !id.endsWith('.focus'));
+  ];
   for (const id of ids) {
     assert.equal(declared.has(id), true, `${id} 未在 package.json 声明`);
   }
@@ -45,9 +45,12 @@ test('stock and futures command ids do not collide', () => {
   assert.deepEqual(overlap, []);
 });
 
-test('stock and futures command sets keep their own focus views', () => {
-  assert.equal(buildStockCommandSet().names.focusView, 'fishStock.stock.focus');
-  assert.equal(buildFuturesCommandSet().names.focusView, 'fishStock.futures.focus');
+test('open commands do not target a specific view focus', () => {
+  const ids = [
+    ...Object.values(buildStockCommandSet().names),
+    ...Object.values(buildFuturesCommandSet().names),
+  ];
+  assert.equal(ids.some((id) => id.endsWith('.focus')), false);
 });
 
 test('manifest only declares activation events that VS Code cannot generate', () => {

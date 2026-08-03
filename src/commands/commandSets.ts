@@ -16,7 +16,6 @@ export interface CommandNames {
   restoreDefault: string;
   viewMode: string;
   expandAll: string;
-  focusView: string;
 }
 
 export interface SearchResultDescription {
@@ -72,7 +71,6 @@ export function buildStockCommandSet(): WatchlistCommandSet {
       restoreDefault: 'fishStock.restoreDefaultWatchlist',
       viewMode: 'fishStock.stockViewMode',
       expandAll: 'fishStock.expandAllStockGroups',
-      focusView: 'fishStock.stock.focus',
     },
     texts: {
       groupPickPlaceholder: '选择分组',
@@ -131,7 +129,6 @@ export function buildFuturesCommandSet(): WatchlistCommandSet {
       restoreDefault: 'fishStock.restoreDefaultFuturesWatchlist',
       viewMode: 'fishStock.futuresViewMode',
       expandAll: 'fishStock.expandAllFuturesGroups',
-      focusView: 'fishStock.futures.focus',
     },
     texts: {
       groupPickPlaceholder: '选择期货分组',

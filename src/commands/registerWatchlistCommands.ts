@@ -390,7 +390,6 @@ export function registerWatchlistCommands(
 
     commands.registerCommand(names.open, async () => {
       await commands.executeCommand('workbench.view.extension.fishStock');
-      await commands.executeCommand(names.focusView);
     }),
 
     commands.registerCommand(names.clear, async () => {
