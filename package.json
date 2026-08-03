@@ -2,7 +2,7 @@
   "name": "fish-stock",
   "displayName": "FishStock",
   "description": "轻量、安静、本地优先的 VS Code 自选行情插件",
-  "version": "0.4.7",
+  "version": "0.4.8",
   "publisher": "fishstock-local",
   "private": true,
   "repository": {
@@ -42,12 +42,14 @@
         {
           "id": "fishStock.stock",
           "name": "Stock",
+          "icon": "resources/fishstock.svg",
           "visibility": "visible",
           "initialSize": 2
         },
         {
           "id": "fishStock.futures",
           "name": "Futures",
+          "icon": "resources/fishstock.svg",
           "visibility": "visible",
           "initialSize": 1
         }

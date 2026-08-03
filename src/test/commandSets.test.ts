@@ -18,6 +18,13 @@ function activationEvents(): string[] {
   return manifest.activationEvents;
 }
 
+function contributedViews(): Array<{ id: string; icon?: string }> {
+  const manifest = JSON.parse(
+    readFileSync(join(process.cwd(), 'package.json'), 'utf8'),
+  ) as { contributes: { views: Record<string, Array<{ id: string; icon?: string }>> } };
+  return Object.values(manifest.contributes.views).flat();
+}
+
 test('every registered command id is declared in package.json', () => {
   const declared = new Set(declaredCommandIds());
   const ids = [
@@ -45,4 +52,11 @@ test('stock and futures command sets keep their own focus views', () => {
 
 test('manifest only declares activation events that VS Code cannot generate', () => {
   assert.deepEqual(activationEvents(), ['onStartupFinished']);
+});
+
+test('every contributed view declares an icon', () => {
+  for (const view of contributedViews()) {
+    assert.equal(typeof view.icon, 'string', `${view.id} 缺少 icon`);
+    assert.notEqual(view.icon, '', `${view.id} 的 icon 为空`);
+  }
 });
