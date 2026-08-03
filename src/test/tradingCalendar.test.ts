@@ -14,6 +14,7 @@ test('treats weekends as closed for every market', () => {
 });
 
 test('marks mainland exchange holidays as closed', () => {
+  assert.equal(isTradingDay('CN', at('2024-10-07')), false);
   assert.equal(isTradingDay('CN', at('2026-10-01')), false);
   assert.equal(isTradingDay('CN', at('2026-02-16')), false);
   assert.equal(isTradingDay('CN', at('2026-04-06')), false);
@@ -21,9 +22,15 @@ test('marks mainland exchange holidays as closed', () => {
 });
 
 test('marks Hong Kong exchange holidays as closed', () => {
+  assert.equal(isTradingDay('HK', at('2025-10-07')), false);
   assert.equal(isTradingDay('HK', at('2026-02-17')), false);
   assert.equal(isTradingDay('HK', at('2026-12-25')), false);
   assert.equal(isTradingDay('HK', at('2026-10-19')), false);
+});
+
+test('keeps Hong Kong open on mainland-only observed holidays', () => {
+  assert.equal(isTradingDay('HK', at('2025-06-02')), true);
+  assert.equal(isTradingDay('HK', at('2025-10-06')), true);
 });
 
 test('keeps mainland trading days open on Hong Kong-only holidays', () => {

@@ -64,21 +64,23 @@ test('sorts by change percent ascending and keeps uncovered quotes last', () => 
 test('keeps only rising stocks in up-only mode and preserves relative order', () => {
   assert.deepEqual(
     applyViewOptions(stocks, 'upOnly', quoteOf).map((item) => item.id),
-    ['1', '3', '2', '4'],
+    ['1', '3'],
   );
 });
 
 test('keeps only falling stocks in down-only mode and preserves relative order', () => {
   assert.deepEqual(
     applyViewOptions(stocks, 'downOnly', quoteOf).map((item) => item.id),
-    ['2', '1', '3', '4'],
+    ['2'],
   );
 });
 
-test('keeps uncovered stocks visible at the end in filter modes', () => {
+test('hides flat and uncovered stocks in filter modes', () => {
   assert.deepEqual(
-    applyViewOptions([stock('1'), stock('4')], 'upOnly', quoteOf).map((item) => item.id),
-    ['1', '4'],
+    applyViewOptions([stock('1'), stock('4')], 'upOnly', (symbol) =>
+      symbol === '6001.SH' ? quote(0) : undefined,
+    ).map((item) => item.id),
+    [],
   );
 });
 

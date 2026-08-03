@@ -19,10 +19,7 @@ export function applyViewOptions(
   if (mode === 'upOnly' || mode === 'downOnly') {
     const keep = mode === 'upOnly' ? (change: number | null) => (change ?? 0) > 0
       : (change: number | null) => (change ?? 0) < 0;
-    return [
-      ...withChange.filter((item) => keep(item.change)).map((item) => item.stock),
-      ...withChange.filter((item) => !keep(item.change)).map((item) => item.stock),
-    ];
+    return withChange.filter((item) => keep(item.change)).map((item) => item.stock);
   }
 
   const direction = mode === 'gainDesc' ? -1 : 1;

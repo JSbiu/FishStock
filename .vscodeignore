@@ -1,4 +1,5 @@
 .agents/**
+AGENTS.md
 .pnpm-store/**
 .gitignore
 .vscode/**
