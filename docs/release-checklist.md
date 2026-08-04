@@ -15,7 +15,7 @@ pnpm run release:check
 - ESLint 与严格 TypeScript 编译。
 - 全部单元和回归测试。
 - 独立用户目录中的 VS Code Extension Host 冒烟测试。
-- 扩展激活、Stock/Futures 聚焦、关键命令注册和全部展开命令执行。
+- 扩展激活、Stock/Fund/Futures 打开、关键命令注册和全部展开命令执行。
 - `package.json`、README 与 CHANGELOG 版本一致性。
 - VSIX 文件清单检查，不包含源码、测试、脚本、本地记忆或协作说明。
 - 生成非空的当前版本 VSIX。
@@ -25,7 +25,7 @@ pnpm run release:check
 ## 维护者验收
 
 - 从上一版本升级后，自选数据、分组折叠状态和视图模式保持不变。
-- Stock 与 Futures 的对称功能均有入口，命令名称和图标可理解。
+- Stock、Fund 与 Futures 的对称功能均有入口，命令名称和图标可理解。
 - 首次运行、窗口重载、手动刷新、断网和休市状态没有阻塞错误。
 - 清空、恢复默认和删除等破坏性操作仍有明确确认。
 - README、CHANGELOG 与可见行为一致。

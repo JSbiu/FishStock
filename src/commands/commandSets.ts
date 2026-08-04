@@ -165,3 +165,59 @@ export function buildFuturesCommandSet(): WatchlistCommandSet {
     viewKind: 'futures',
   };
 }
+
+export function buildFundCommandSet(): WatchlistCommandSet {
+  return {
+    names: {
+      add: 'fishStock.addFund',
+      remove: 'fishStock.removeFund',
+      refresh: 'fishStock.refreshFunds',
+      addGroup: 'fishStock.addFundGroup',
+      renameGroup: 'fishStock.renameFundGroup',
+      removeGroup: 'fishStock.removeFundGroup',
+      moveUp: 'fishStock.moveFundUp',
+      moveDown: 'fishStock.moveFundDown',
+      moveToGroup: 'fishStock.moveFundToGroup',
+      open: 'fishStock.openFunds',
+      clear: 'fishStock.clearFundWatchlist',
+      restoreDefault: 'fishStock.restoreDefaultFundWatchlist',
+      viewMode: 'fishStock.fundViewMode',
+      expandAll: 'fishStock.expandAllFundGroups',
+    },
+    texts: {
+      groupPickPlaceholder: '选择基金分组',
+      groupCountSuffix: '只',
+      itemPickPlaceholder: '选择 ETF',
+      searchPlaceholder: '输入 ETF 名称、简称或代码，如 电网设备ETF、dwsbetf、159326',
+      searchEmptyLabel: '$(info) 未找到匹配的境内 ETF',
+      searchEmptyHint: '请尝试完整名称、拼音简称或六位证券代码',
+      describeSearchResult: (result) => ({
+        description: `${result.symbol} · ETF`,
+        ...(result.abbreviation
+          ? { detail: `简称：${result.abbreviation.toUpperCase()}` }
+          : {}),
+      }),
+      removeConfirm: (name) => `从基金自选删除 ${name}？`,
+      addGroupTitle: '添加基金分组',
+      renameGroupTitle: '重命名基金分组',
+      removeGroupDetail: (name, count) =>
+        count > 0
+          ? `“${name}”中有 ${count} 只 ETF，删除分组会一并删除。`
+          : `删除空分组“${name}”？`,
+      moveToGroupHint: '请先创建另一个基金分组',
+      moveToGroupPlaceholder: '移动到基金分组',
+      clearTitle: '清空全部基金自选？',
+      clearDetail: (groupCount, itemCount) =>
+        `将删除 ${groupCount} 个分组和 ${itemCount} 只 ETF，并保留一个空的“默认”分组。此操作无法撤销。`,
+      clearButton: '清空基金自选',
+      clearMessage: 'FishStock: 基金自选已清空',
+      alreadyEmptyMessage: 'FishStock: 基金自选已经是空的',
+      restoreTitle: '恢复默认基金自选数据？',
+      restoreDetail: (groupCount, itemCount) =>
+        `将用“默认”分组及沪深300ETF示例替换当前 ${groupCount} 个分组及 ${itemCount} 只 ETF。此操作无法撤销。`,
+      restoreButton: '恢复默认数据',
+      restoreMessage: 'FishStock: 已恢复默认基金自选数据',
+    },
+    viewKind: 'fund',
+  };
+}

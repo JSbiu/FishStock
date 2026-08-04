@@ -59,13 +59,16 @@ test('formats a copyable diagnostic report with an explicit privacy statement', 
       rotationSeconds: 5,
       colorConvention: 'china',
     },
-    viewModes: { stock: 'default', futures: 'upOnly' },
+    viewModes: { stock: 'default', fund: 'gainDesc', futures: 'upOnly' },
     tradingDays: { CN: true, HK: false },
     stock: summary,
+    fund: summary,
     futures: summary,
   });
   assert.match(report, /扩展版本：0\.4\.6/);
   assert.match(report, /CN=交易日, HK=非交易日/);
+  assert.match(report, /Stock=default, Fund=gainDesc, Futures=upOnly/);
+  assert.match(report, /Fund:/);
   assert.match(report, /下次自动探测：2026-08-03T10:15:00\.000Z/);
   assert.match(report, /手动刷新可立即探测/);
   assert.match(report, /本报告不包含自选名称、证券代码、文件路径或工作区信息/);

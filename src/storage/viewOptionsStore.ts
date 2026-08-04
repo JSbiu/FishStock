@@ -3,11 +3,12 @@ import type { StateStore } from './watchlistRepository';
 
 const STORAGE_KEY = 'fishStock.viewOptions.v1';
 
-export type ViewKind = 'stock' | 'futures';
+export type ViewKind = 'stock' | 'fund' | 'futures';
 
 export interface ViewOptionsState {
   version: 1;
   stock: ViewMode;
+  fund: ViewMode;
   futures: ViewMode;
 }
 
@@ -23,12 +24,13 @@ function isViewMode(value: unknown): value is ViewMode {
 
 export function parseViewOptionsState(value: unknown): ViewOptionsState {
   if (typeof value !== 'object' || value === null) {
-    return { version: 1, stock: 'default', futures: 'default' };
+    return { version: 1, stock: 'default', fund: 'default', futures: 'default' };
   }
   const candidate = value as Partial<ViewOptionsState>;
   return {
     version: 1,
     stock: isViewMode(candidate.stock) ? candidate.stock : 'default',
+    fund: isViewMode(candidate.fund) ? candidate.fund : 'default',
     futures: isViewMode(candidate.futures) ? candidate.futures : 'default',
   };
 }

@@ -9,6 +9,11 @@ test('builds East Money URLs for A-shares by exchange', () => {
   assert.equal(buildQuoteUrl('600519'), 'https://quote.eastmoney.com/sh600519.html');
 });
 
+test('builds East Money URLs for domestic ETFs', () => {
+  assert.equal(buildQuoteUrl('510300.SH'), 'https://quote.eastmoney.com/sh510300.html');
+  assert.equal(buildQuoteUrl('159326.SZ'), 'https://quote.eastmoney.com/sz159326.html');
+});
+
 test('builds East Money URLs for market indices', () => {
   assert.equal(buildQuoteUrl('000001.SHI'), 'https://quote.eastmoney.com/zs000001.html');
   assert.equal(buildQuoteUrl('399001.SZI'), 'https://quote.eastmoney.com/zs399001.html');

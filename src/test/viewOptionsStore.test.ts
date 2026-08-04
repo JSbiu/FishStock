@@ -23,12 +23,13 @@ class MemoryStateStore implements StateStore {
   }
 }
 
-test('defaults both view modes when nothing is stored', async () => {
+test('defaults all view modes when nothing is stored', async () => {
   const store = new ViewOptionsStore(new MemoryStateStore());
   await store.load();
   assert.deepEqual(store.getSnapshot(), {
     version: 1,
     stock: 'default',
+    fund: 'default',
     futures: 'default',
   });
 });
@@ -38,6 +39,7 @@ test('persists view modes per kind and reloads them', async () => {
   const store = new ViewOptionsStore(backing);
   await store.load();
   await store.setViewMode('stock', 'gainDesc');
+  await store.setViewMode('fund', 'lossDesc');
   await store.setViewMode('futures', 'upOnly');
 
   const reloaded = new ViewOptionsStore(backing);
@@ -45,6 +47,7 @@ test('persists view modes per kind and reloads them', async () => {
   assert.deepEqual(reloaded.getSnapshot(), {
     version: 1,
     stock: 'gainDesc',
+    fund: 'lossDesc',
     futures: 'upOnly',
   });
 });
@@ -59,6 +62,7 @@ test('falls back to default for invalid stored modes', async () => {
   assert.deepEqual(store.getSnapshot(), {
     version: 1,
     stock: 'default',
+    fund: 'default',
     futures: 'default',
   });
 });
@@ -67,11 +71,13 @@ test('parses non-record stored values as defaults', () => {
   assert.deepEqual(parseViewOptionsState(undefined), {
     version: 1,
     stock: 'default',
+    fund: 'default',
     futures: 'default',
   });
   assert.deepEqual(parseViewOptionsState('garbage'), {
     version: 1,
     stock: 'default',
+    fund: 'default',
     futures: 'default',
   });
 });

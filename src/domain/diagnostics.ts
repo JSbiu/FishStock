@@ -27,10 +27,12 @@ export interface DiagnosticReport {
   };
   viewModes: {
     stock: string;
+    fund: string;
     futures: string;
   };
   tradingDays: Readonly<Partial<Record<Market, boolean>>>;
   stock: DiagnosticWatchlistSummary;
+  fund: DiagnosticWatchlistSummary;
   futures: DiagnosticWatchlistSummary;
 }
 
@@ -117,10 +119,12 @@ export function formatDiagnosticReport(report: DiagnosticReport): string {
     `- 过期阈值：${report.config.staleAfterSeconds} 秒`,
     `- 状态栏轮播：${report.config.rotationSeconds} 秒`,
     `- 涨跌颜色：${report.config.colorConvention}`,
-    `- 视图模式：Stock=${report.viewModes.stock}, Futures=${report.viewModes.futures}`,
+    `- 视图模式：Stock=${report.viewModes.stock}, Fund=${report.viewModes.fund}, Futures=${report.viewModes.futures}`,
     `- 当日交易判断：${tradingDays || '无自选市场'}`,
     '',
     ...formatWatchlist('Stock', report.stock),
+    '',
+    ...formatWatchlist('Fund', report.fund),
     '',
     ...formatWatchlist('Futures', report.futures),
     '',

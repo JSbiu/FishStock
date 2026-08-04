@@ -1,6 +1,6 @@
 export type Market = 'CN' | 'HK' | 'US' | 'CNF';
 
-export type InstrumentKind = 'stock' | 'index' | 'future';
+export type InstrumentKind = 'stock' | 'index' | 'fund' | 'future';
 
 export type QuoteState = 'live' | 'closed' | 'stale' | 'error';
 

@@ -174,6 +174,27 @@ export function createDefaultFuturesWatchlist(): WatchlistState {
   };
 }
 
+export function createDefaultFundWatchlist(): WatchlistState {
+  return {
+    version: 1,
+    groups: [
+      {
+        id: 'default',
+        name: '默认',
+        collapsed: false,
+        stocks: [
+          {
+            id: 'sample-fund-csi-300',
+            symbol: '510300.SH',
+            market: 'CN',
+            name: '沪深300ETF',
+          },
+        ],
+      },
+    ],
+  };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

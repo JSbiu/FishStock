@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  createDefaultFundWatchlist,
   createDefaultFuturesWatchlist,
   createDefaultWatchlist,
   parseWatchlistState,
@@ -103,6 +104,27 @@ test('creates the expected first-run futures watchlist', () => {
       ],
     ],
   );
+});
+
+test('creates an independent first-run fund watchlist', () => {
+  assert.deepEqual(createDefaultFundWatchlist(), {
+    version: 1,
+    groups: [
+      {
+        id: 'default',
+        name: '默认',
+        collapsed: false,
+        stocks: [
+          {
+            id: 'sample-fund-csi-300',
+            symbol: '510300.SH',
+            market: 'CN',
+            name: '沪深300ETF',
+          },
+        ],
+      },
+    ],
+  });
 });
 
 test('prevents duplicate stock symbols across groups', async () => {
@@ -235,6 +257,44 @@ test('keeps futures data in an independent local namespace', async () => {
 
   assert.equal(stocks.getSnapshot().groups.some((group) => group.stocks.some((item) => item.symbol === 'RB0.CNF')), false);
   assert.equal(futures.getSnapshot().groups[0].stocks.at(-1)?.symbol, 'RB0.CNF');
+});
+
+test('keeps fund data in an independent local namespace', async () => {
+  const store = new MemoryStateStore();
+  const stocks = new WatchlistRepository(store);
+  const funds = new WatchlistRepository(store, {
+    storageKey: 'fishStock.funds.v1',
+    createDefault: createDefaultFundWatchlist,
+  });
+  await Promise.all([stocks.load(), funds.load()]);
+  await funds.addStock('default', {
+    id: 'fund-grid-equipment',
+    symbol: '159326.SZ',
+    market: 'CN',
+    name: '电网设备ETF华夏',
+  });
+
+  assert.equal(
+    stocks.getSnapshot().groups.some((group) =>
+      group.stocks.some((item) => item.symbol === '159326.SZ'),
+    ),
+    false,
+  );
+  assert.equal(funds.getSnapshot().groups[0].stocks.at(-1)?.symbol, '159326.SZ');
+});
+
+test('clears and restores fund defaults independently', async () => {
+  const store = new MemoryStateStore();
+  const funds = new WatchlistRepository(store, {
+    storageKey: 'fishStock.funds.v1',
+    createDefault: createDefaultFundWatchlist,
+  });
+  await funds.load();
+  await funds.clear();
+  assert.deepEqual(funds.getSnapshot().groups[0].stocks, []);
+
+  await funds.restoreDefault();
+  assert.deepEqual(funds.getSnapshot(), createDefaultFundWatchlist());
 });
 
 test('clears and restores futures defaults independently', async () => {

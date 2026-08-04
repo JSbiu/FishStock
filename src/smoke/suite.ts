@@ -6,12 +6,16 @@ const EXTENSION_ID = 'fishstock-local.fish-stock';
 const REQUIRED_COMMANDS = [
   'fishStock.addStock',
   'fishStock.addFuture',
+  'fishStock.addFund',
   'fishStock.refresh',
   'fishStock.refreshFutures',
+  'fishStock.refreshFunds',
   'fishStock.stockViewMode',
   'fishStock.futuresViewMode',
+  'fishStock.fundViewMode',
   'fishStock.expandAllStockGroups',
   'fishStock.expandAllFuturesGroups',
+  'fishStock.expandAllFundGroups',
   'fishStock.copyDiagnostics',
 ] as const;
 
@@ -28,6 +32,8 @@ export async function run(): Promise<void> {
 
   await commands.executeCommand('fishStock.openWatchlist');
   await commands.executeCommand('fishStock.expandAllStockGroups');
+  await commands.executeCommand('fishStock.openFunds');
+  await commands.executeCommand('fishStock.expandAllFundGroups');
   await commands.executeCommand('fishStock.openFutures');
   await commands.executeCommand('fishStock.expandAllFuturesGroups');
 }

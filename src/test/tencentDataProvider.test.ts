@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { NormalizedSymbol } from '../domain/models';
 import {
+  parseTencentFundSearchPayload,
   parseTencentPayload,
   parseTencentSearchPayload,
   parseTencentTimestamp,
@@ -111,6 +112,64 @@ test('deduplicates equivalent index aliases returned with the same name', () => 
 
 test('returns no stock matches for an empty Tencent search response', () => {
   assert.deepEqual(parseTencentSearchPayload('v_hint=""'), []);
+});
+
+test('parses exchange-traded ETFs separately from stocks and off-exchange funds', () => {
+  const payload = String.raw`v_hint="sz~159326~\u7535\u7f51\u8bbe\u5907ETF\u534e\u590f~dwsbetfhx~ETF^sh~561380~\u7535\u7f51\u8bbe\u5907ETF\u56fd\u6cf0~dwsbetfgt~ETF^jj~023639~\u56fd\u6cf0A\u80a1\u7535\u7f51\u8bbe\u5907ETF\u8054\u63a5C~gtagdwsbetfljc~KJ"`;
+  assert.deepEqual(parseTencentFundSearchPayload(payload), [
+    {
+      symbol: '159326.SZ',
+      market: 'CN',
+      kind: 'fund',
+      name: '电网设备ETF华夏',
+      abbreviation: 'dwsbetfhx',
+    },
+    {
+      symbol: '561380.SH',
+      market: 'CN',
+      kind: 'fund',
+      name: '电网设备ETF国泰',
+      abbreviation: 'dwsbetfgt',
+    },
+  ]);
+  assert.deepEqual(parseTencentSearchPayload(payload), []);
+});
+
+test('searches domestic ETFs by name through the fund entry point', async () => {
+  const provider = new TencentDataProvider({
+    fetcher: async () => new Response(
+      String.raw`v_hint="sz~159326~\u7535\u7f51\u8bbe\u5907ETF\u534e\u590f~dwsbetfhx~ETF"`,
+    ),
+  });
+  const results = await provider.searchFunds('电网设备ETF');
+  assert.equal(results[0]?.symbol, '159326.SZ');
+  assert.equal(results[0]?.kind, 'fund');
+});
+
+test('parses domestic ETF quotes through the common Tencent quote fields', () => {
+  const etfRow = row('电网设备ETF华夏', '1.643', '1.614', '20260804142415');
+  etfRow[5] = '1.626';
+  etfRow[33] = '1.651';
+  etfRow[34] = '1.610';
+  etfRow[36] = '5617807';
+  etfRow[37] = '91819';
+  etfRow[38] = '4.61';
+  const quotes = parseTencentPayload(
+    { sz159326: etfRow },
+    [{ symbol: '159326.SZ', market: 'CN' }],
+    new Date('2026-08-04T06:24:20Z'),
+  );
+
+  assert.deepEqual(
+    quotes.map((quote) => [
+      quote.symbol,
+      quote.name,
+      quote.price,
+      quote.previousClose,
+      quote.marketState,
+    ]),
+    [['159326.SZ', '电网设备ETF华夏', 1.643, 1.614, 'open']],
+  );
 });
 
 test('falls back to a direct quote lookup for a BSE code missing from Tencent search', async () => {

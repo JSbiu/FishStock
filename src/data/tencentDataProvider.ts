@@ -116,7 +116,7 @@ export function toTencentSymbol(symbol: NormalizedSymbol): string {
 function decodeTencentSearchValue(payload: string): string {
   const match = payload.match(/^\s*v_hint="((?:\\.|[^"\\])*)";?\s*$/);
   if (!match) {
-    throw new Error('腾讯股票搜索响应格式无效');
+    throw new Error('腾讯证券搜索响应格式无效');
   }
   try {
     const decoded: unknown = JSON.parse(`"${match[1]}"`);
@@ -125,11 +125,14 @@ function decodeTencentSearchValue(payload: string): string {
     }
     return decoded;
   } catch {
-    throw new Error('腾讯股票搜索内容无法解析');
+    throw new Error('腾讯证券搜索内容无法解析');
   }
 }
 
-export function parseTencentSearchPayload(payload: string): StockSearchResult[] {
+function parseTencentSearchPayloadFor(
+  payload: string,
+  target: 'stock' | 'fund',
+): StockSearchResult[] {
   const value = decodeTencentSearchValue(payload);
   if (!value) {
     return [];
@@ -156,7 +159,11 @@ export function parseTencentSearchPayload(payload: string): StockSearchResult[] 
           : assetType === 'ZS' && exchange === 'hk'
             ? 'HKI'
             : undefined;
-    const suffix = stockSuffix ?? indexSuffix;
+    const fundSuffix =
+      target === 'fund' && assetType === 'ETF' && ['sh', 'sz'].includes(exchange)
+        ? exchange.toUpperCase()
+        : undefined;
+    const suffix = target === 'stock' ? stockSuffix ?? indexSuffix : fundSuffix;
     if (!suffix || !code || !name) {
       continue;
     }
@@ -177,7 +184,7 @@ export function parseTencentSearchPayload(payload: string): StockSearchResult[] 
       }
       results.push({
         ...normalized,
-        kind: indexSuffix ? 'index' : 'stock',
+        kind: target === 'fund' ? 'fund' : indexSuffix ? 'index' : 'stock',
         name: cleanName,
         ...(abbreviation?.trim() ? { abbreviation: abbreviation.trim() } : {}),
       });
@@ -185,10 +192,18 @@ export function parseTencentSearchPayload(payload: string): StockSearchResult[] 
         break;
       }
     } catch {
-      // Ignore supplier entries that are not valid A-share or Hong Kong stock symbols.
+      // Ignore supplier entries outside the selected Stock or Fund category.
     }
   }
   return results;
+}
+
+export function parseTencentSearchPayload(payload: string): StockSearchResult[] {
+  return parseTencentSearchPayloadFor(payload, 'stock');
+}
+
+export function parseTencentFundSearchPayload(payload: string): StockSearchResult[] {
+  return parseTencentSearchPayloadFor(payload, 'fund');
 }
 
 function normalizeCodeQuery(query: string): NormalizedSymbol | undefined {
@@ -301,7 +316,7 @@ export class TencentDataProvider implements MarketDataProvider {
     let tencentResults: StockSearchResult[] = [];
     let tencentError: unknown;
     try {
-      tencentResults = await this.searchTencent(keyword, signal);
+      tencentResults = await this.searchTencent(keyword, parseTencentSearchPayload, signal);
     } catch (error: unknown) {
       tencentError = error;
     }
@@ -337,6 +352,17 @@ export class TencentDataProvider implements MarketDataProvider {
       throw tencentError;
     }
     return [];
+  }
+
+  public async searchFunds(
+    query: string,
+    signal?: AbortSignal,
+  ): Promise<StockSearchResult[]> {
+    const keyword = query.trim();
+    if (!keyword) {
+      return [];
+    }
+    return this.searchTencent(keyword, parseTencentFundSearchPayload, signal);
   }
 
   public async fetchQuotes(
@@ -398,6 +424,7 @@ export class TencentDataProvider implements MarketDataProvider {
 
   private async searchTencent(
     keyword: string,
+    parse: (payload: string) => StockSearchResult[] = parseTencentSearchPayload,
     signal?: AbortSignal,
   ): Promise<StockSearchResult[]> {
     const controller = new AbortController();
@@ -415,11 +442,11 @@ export class TencentDataProvider implements MarketDataProvider {
         },
       );
       if (!response.ok) {
-        throw new Error(`腾讯股票搜索失败：HTTP ${response.status}`);
+        throw new Error(`腾讯证券搜索失败：HTTP ${response.status}`);
       }
       const bytes = await response.arrayBuffer();
       const text = new TextDecoder('gbk').decode(bytes);
-      return parseTencentSearchPayload(text);
+      return parse(text);
     } finally {
       clearTimeout(timeout);
       signal?.removeEventListener('abort', abort);

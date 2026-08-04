@@ -2,7 +2,7 @@
   "name": "fish-stock",
   "displayName": "FishStock",
   "description": "轻量、安静、本地优先的 VS Code 自选行情插件",
-  "version": "0.4.10",
+  "version": "0.5.0",
   "publisher": "fishstock-local",
   "private": true,
   "repository": {
@@ -20,6 +20,8 @@
     "watchlist",
     "A股",
     "港股",
+    "ETF",
+    "基金",
     "期货",
     "大宗商品"
   ],
@@ -45,6 +47,13 @@
           "icon": "resources/fishstock.svg",
           "visibility": "visible",
           "initialSize": 2
+        },
+        {
+          "id": "fishStock.fund",
+          "name": "Fund",
+          "icon": "resources/fishstock.svg",
+          "visibility": "visible",
+          "initialSize": 1
         },
         {
           "id": "fishStock.futures",
@@ -140,6 +149,73 @@
       {
         "command": "fishStock.restoreDefaultWatchlist",
         "title": "FishStock: 恢复默认股票自选数据"
+      },
+      {
+        "command": "fishStock.addFund",
+        "title": "FishStock: 添加 ETF",
+        "icon": "$(add)"
+      },
+      {
+        "command": "fishStock.removeFund",
+        "title": "FishStock: 删除 ETF 条目",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "fishStock.refreshFunds",
+        "title": "FishStock: 刷新基金行情",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "fishStock.addFundGroup",
+        "title": "FishStock: 添加基金分组",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "fishStock.renameFundGroup",
+        "title": "FishStock: 重命名基金分组",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "fishStock.removeFundGroup",
+        "title": "FishStock: 删除基金分组",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "fishStock.moveFundUp",
+        "title": "FishStock: ETF 条目上移",
+        "icon": "$(arrow-up)"
+      },
+      {
+        "command": "fishStock.moveFundDown",
+        "title": "FishStock: ETF 条目下移",
+        "icon": "$(arrow-down)"
+      },
+      {
+        "command": "fishStock.moveFundToGroup",
+        "title": "FishStock: 移动 ETF 到其他分组",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "fishStock.clearFundWatchlist",
+        "title": "FishStock: 清空全部基金自选"
+      },
+      {
+        "command": "fishStock.restoreDefaultFundWatchlist",
+        "title": "FishStock: 恢复默认基金自选数据"
+      },
+      {
+        "command": "fishStock.openFunds",
+        "title": "FishStock: 打开基金自选"
+      },
+      {
+        "command": "fishStock.fundViewMode",
+        "title": "FishStock: 基金视图排序与筛选",
+        "icon": "$(sort-precedence)"
+      },
+      {
+        "command": "fishStock.expandAllFundGroups",
+        "title": "FishStock: 展开全部基金分组",
+        "icon": "$(expand-all)"
       },
       {
         "command": "fishStock.addFuture",
@@ -242,6 +318,46 @@
           "group": "9_support@1"
         },
         {
+          "command": "fishStock.refreshFunds",
+          "when": "view == fishStock.fund",
+          "group": "navigation@1"
+        },
+        {
+          "command": "fishStock.addFund",
+          "when": "view == fishStock.fund",
+          "group": "navigation@2"
+        },
+        {
+          "command": "fishStock.addFundGroup",
+          "when": "view == fishStock.fund",
+          "group": "2_groups@1"
+        },
+        {
+          "command": "fishStock.fundViewMode",
+          "when": "view == fishStock.fund",
+          "group": "2_groups@2"
+        },
+        {
+          "command": "fishStock.expandAllFundGroups",
+          "when": "view == fishStock.fund",
+          "group": "navigation@3"
+        },
+        {
+          "command": "fishStock.clearFundWatchlist",
+          "when": "view == fishStock.fund",
+          "group": "9_reset@1"
+        },
+        {
+          "command": "fishStock.restoreDefaultFundWatchlist",
+          "when": "view == fishStock.fund",
+          "group": "9_reset@2"
+        },
+        {
+          "command": "fishStock.copyDiagnostics",
+          "when": "view == fishStock.fund",
+          "group": "9_support@1"
+        },
+        {
           "command": "fishStock.refreshFutures",
           "when": "view == fishStock.futures",
           "group": "navigation@1"
@@ -321,6 +437,46 @@
         {
           "command": "fishStock.removeGroup",
           "when": "view == fishStock.stock && viewItem == fishStock.group",
+          "group": "9_delete@1"
+        },
+        {
+          "command": "fishStock.addFund",
+          "when": "view == fishStock.fund && viewItem == fishStock.fundGroup",
+          "group": "inline@1"
+        },
+        {
+          "command": "fishStock.addFund",
+          "when": "view == fishStock.fund && viewItem == fishStock.fundGroup",
+          "group": "1_edit@1"
+        },
+        {
+          "command": "fishStock.moveFundUp",
+          "when": "view == fishStock.fund && viewItem == fishStock.fund",
+          "group": "1_order@1"
+        },
+        {
+          "command": "fishStock.moveFundDown",
+          "when": "view == fishStock.fund && viewItem == fishStock.fund",
+          "group": "1_order@2"
+        },
+        {
+          "command": "fishStock.moveFundToGroup",
+          "when": "view == fishStock.fund && viewItem == fishStock.fund",
+          "group": "2_group@1"
+        },
+        {
+          "command": "fishStock.removeFund",
+          "when": "view == fishStock.fund && viewItem == fishStock.fund",
+          "group": "9_delete@1"
+        },
+        {
+          "command": "fishStock.renameFundGroup",
+          "when": "view == fishStock.fund && viewItem == fishStock.fundGroup",
+          "group": "1_edit@2"
+        },
+        {
+          "command": "fishStock.removeFundGroup",
+          "when": "view == fishStock.fund && viewItem == fishStock.fundGroup",
           "group": "9_delete@1"
         },
         {
