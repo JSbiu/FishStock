@@ -2,7 +2,7 @@
   "name": "fish-stock",
   "displayName": "FishStock",
   "description": "轻量、安静、本地优先的股票、ETF 与期货自选行情插件",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "publisher": "jsbiu",
   "private": true,
   "author": {
@@ -167,6 +167,11 @@
         "title": "FishStock: 复制运行诊断信息"
       },
       {
+        "command": "fishStock.selectStatusBarGroups",
+        "title": "FishStock: 选择状态栏轮播分组",
+        "icon": "$(list-selection)"
+      },
+      {
         "command": "fishStock.clearWatchlist",
         "title": "FishStock: 清空全部股票自选数据"
       },
@@ -327,6 +332,11 @@
           "group": "navigation@3"
         },
         {
+          "command": "fishStock.selectStatusBarGroups",
+          "when": "view == fishStock.stock",
+          "group": "3_status@1"
+        },
+        {
           "command": "fishStock.clearWatchlist",
           "when": "view == fishStock.stock",
           "group": "9_reset@1"
@@ -367,6 +377,11 @@
           "group": "navigation@3"
         },
         {
+          "command": "fishStock.selectStatusBarGroups",
+          "when": "view == fishStock.fund",
+          "group": "3_status@1"
+        },
+        {
           "command": "fishStock.clearFundWatchlist",
           "when": "view == fishStock.fund",
           "group": "9_reset@1"
@@ -405,6 +420,11 @@
           "command": "fishStock.expandAllFuturesGroups",
           "when": "view == fishStock.futures",
           "group": "navigation@3"
+        },
+        {
+          "command": "fishStock.selectStatusBarGroups",
+          "when": "view == fishStock.futures",
+          "group": "3_status@1"
         },
         {
           "command": "fishStock.clearFuturesWatchlist",

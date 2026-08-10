@@ -30,10 +30,10 @@ if (manifest.license !== 'MIT') {
   throw new Error(`license 必须为 MIT，当前为 ${manifest.license ?? '缺失'}`);
 }
 if (manifest.preview !== true) {
-  throw new Error('0.5.1 Marketplace 发布必须标记为 Preview');
+  throw new Error('Marketplace 发布必须标记为 Preview');
 }
 if (manifest.pricing !== 'Free') {
-  throw new Error('0.5.1 Marketplace 定价标记必须为 Free');
+  throw new Error('Marketplace 定价标记必须为 Free');
 }
 if (!privacy.includes('不会收集或上传遥测')) {
   throw new Error('PRIVACY.md 缺少无遥测声明');

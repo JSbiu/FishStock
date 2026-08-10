@@ -37,6 +37,7 @@ test('every registered command id is declared in package.json', () => {
     ...Object.values(buildFuturesCommandSet().names),
     'fishStock.openQuote',
     'fishStock.copyDiagnostics',
+    'fishStock.selectStatusBarGroups',
   ];
   for (const id of ids) {
     assert.equal(declared.has(id), true, `${id} 未在 package.json 声明`);

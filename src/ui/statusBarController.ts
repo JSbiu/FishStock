@@ -6,7 +6,10 @@ import {
 } from 'vscode';
 import type { Quote, Stock, WatchlistState } from '../domain/models';
 import type { QuoteService } from '../data/quoteService';
+import type { StatusBarGroupKind } from '../storage/statusBarRotationStore';
 import { createQuoteTooltip, formatPrice } from './quoteTooltip';
+
+const SELECT_GROUPS_COMMAND = 'fishStock.selectStatusBarGroups';
 
 function displayText(stock: Stock, quote: Quote | undefined): string {
   const name = stock.name ?? quote?.name ?? stock.symbol;
@@ -31,6 +34,7 @@ export class StatusBarController implements Disposable {
   private entries: StatusBarEntry[] = [];
   private index = 0;
   private timer: NodeJS.Timeout | undefined;
+  private hasIncludedGroups = true;
 
   public constructor(
     private rotationIntervalMs: number,
@@ -44,17 +48,30 @@ export class StatusBarController implements Disposable {
   }
 
   public setSources(sources: readonly StatusBarSource[]): void {
+    const currentKey = this.entries[this.index]?.key;
+    let includedGroupCount = 0;
     this.entries = sources.flatMap((source) =>
-      source.state.groups.flatMap((group) =>
-        group.stocks.map((stock) => ({
+      source.state.groups.flatMap((group) => {
+        if (!source.isGroupIncluded(group.id)) {
+          return [];
+        }
+        includedGroupCount += 1;
+        return group.stocks.map((stock) => ({
+          key: `${source.kind}:${stock.id}`,
           stock,
           quotes: source.quotes,
           providerName: source.providerName,
           openCommand: source.openCommand,
-        })),
-      ),
+        }));
+      }),
     );
-    if (this.index >= this.entries.length) {
+    this.hasIncludedGroups = includedGroupCount > 0;
+    const currentIndex = currentKey
+      ? this.entries.findIndex((entry) => entry.key === currentKey)
+      : -1;
+    if (currentIndex >= 0) {
+      this.index = currentIndex;
+    } else if (this.index >= this.entries.length) {
       this.index = 0;
     }
     this.render();
@@ -88,9 +105,13 @@ export class StatusBarController implements Disposable {
   private render(): void {
     const entry = this.entries[this.index];
     if (!entry) {
-      this.item.text = '$(pulse) FishStock';
-      this.item.tooltip = '暂无自选行情。点击打开 FishStock。';
-      this.item.command = 'fishStock.openWatchlist';
+      this.item.text = this.hasIncludedGroups
+        ? '$(pulse) FishStock'
+        : '$(debug-pause) FishStock';
+      this.item.tooltip = this.hasIncludedGroups
+        ? '已选择的轮播分组暂无自选行情。点击重新选择轮播分组。'
+        : '状态栏轮播已关闭。点击选择参与轮播的分组。';
+      this.item.command = SELECT_GROUPS_COMMAND;
       return;
     }
     const quote = entry.quotes.get(entry.stock.symbol);
@@ -106,13 +127,16 @@ export class StatusBarController implements Disposable {
 }
 
 export interface StatusBarSource {
+  kind: StatusBarGroupKind;
   state: WatchlistState;
   quotes: QuoteService;
   providerName: string;
   openCommand: string;
+  isGroupIncluded(groupId: string): boolean;
 }
 
 interface StatusBarEntry {
+  key: string;
   stock: Stock;
   quotes: QuoteService;
   providerName: string;

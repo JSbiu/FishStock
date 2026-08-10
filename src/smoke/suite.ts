@@ -17,6 +17,7 @@ const REQUIRED_COMMANDS = [
   'fishStock.expandAllFuturesGroups',
   'fishStock.expandAllFundGroups',
   'fishStock.copyDiagnostics',
+  'fishStock.selectStatusBarGroups',
 ] as const;
 
 export async function run(): Promise<void> {

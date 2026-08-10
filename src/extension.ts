@@ -6,6 +6,7 @@ import {
   workspace,
   version as vscodeVersion,
   type ExtensionContext,
+  type QuickPickItem,
   type TreeView,
 } from 'vscode';
 import {
@@ -28,6 +29,11 @@ import type { Market, NormalizedSymbol } from './domain/models';
 import { isTradingDay, shouldAutoRefresh } from './domain/tradingCalendar';
 import { RefreshScheduler } from './services/refreshScheduler';
 import {
+  StatusBarRotationStore,
+  type StatusBarGroupIds,
+  type StatusBarGroupKind,
+} from './storage/statusBarRotationStore';
+import {
   createDefaultFundWatchlist,
   createDefaultFuturesWatchlist,
   WatchlistRepository,
@@ -41,6 +47,12 @@ import {
 import { StatusBarController } from './ui/statusBarController';
 
 const MIN_FETCH_INTERVAL_MS = 10_000;
+const SELECT_STATUS_BAR_GROUPS_COMMAND = 'fishStock.selectStatusBarGroups';
+
+interface StatusBarGroupPick extends QuickPickItem {
+  viewKind: StatusBarGroupKind;
+  groupId: string;
+}
 
 function compactError(error: unknown): string {
   return error instanceof Error ? error.message : '未知错误';
@@ -78,11 +90,13 @@ export async function activate(context: ExtensionContext): Promise<void> {
     createDefault: createDefaultFuturesWatchlist,
   });
   const viewOptions = new ViewOptionsStore(context.globalState);
+  const statusBarRotation = new StatusBarRotationStore(context.globalState);
   await Promise.all([
     stockRepository.load(),
     fundRepository.load(),
     futuresRepository.load(),
     viewOptions.load(),
+    statusBarRotation.load(),
   ]);
 
   let config = readConfig();
@@ -156,25 +170,36 @@ export async function activate(context: ExtensionContext): Promise<void> {
   let fundRefreshAt: string | undefined;
   let futuresRefreshState: DiagnosticRefreshState = 'not-run';
   let futuresRefreshAt: string | undefined;
+  const statusBarGroupIds = (): StatusBarGroupIds => ({
+    stock: stockRepository.getSnapshot().groups.map((group) => group.id),
+    fund: fundRepository.getSnapshot().groups.map((group) => group.id),
+    futures: futuresRepository.getSnapshot().groups.map((group) => group.id),
+  });
   const updateStatusBar = (): void => {
     statusBar.setSources([
       {
+        kind: 'stock',
         state: stockRepository.getSnapshot(),
         quotes: stockQuotes,
         providerName: stockProvider.displayName,
         openCommand: 'fishStock.openWatchlist',
+        isGroupIncluded: (groupId) => statusBarRotation.isGroupIncluded('stock', groupId),
       },
       {
+        kind: 'fund',
         state: fundRepository.getSnapshot(),
         quotes: fundQuotes,
         providerName: fundProvider.displayName,
         openCommand: 'fishStock.openFunds',
+        isGroupIncluded: (groupId) => statusBarRotation.isGroupIncluded('fund', groupId),
       },
       {
+        kind: 'futures',
         state: futuresRepository.getSnapshot(),
         quotes: futuresQuotes,
         providerName: futuresProvider.displayName,
         openCommand: 'fishStock.openFutures',
+        isGroupIncluded: (groupId) => statusBarRotation.isGroupIncluded('futures', groupId),
       },
     ]);
   };
@@ -360,6 +385,55 @@ export async function activate(context: ExtensionContext): Promise<void> {
     commands.registerCommand('fishStock.copyDiagnostics', async () => {
       await env.clipboard.writeText(diagnosticReport());
       window.setStatusBarMessage('FishStock: 已复制脱敏诊断信息', 3_000);
+    }),
+    commands.registerCommand(SELECT_STATUS_BAR_GROUPS_COMMAND, async () => {
+      const groups: StatusBarGroupPick[] = [
+        ...stockRepository.getSnapshot().groups.map((group) => ({
+          label: group.name,
+          description: `Stock · ${group.stocks.length} 个条目`,
+          picked: statusBarRotation.isGroupIncluded('stock', group.id),
+          viewKind: 'stock' as const,
+          groupId: group.id,
+        })),
+        ...fundRepository.getSnapshot().groups.map((group) => ({
+          label: group.name,
+          description: `ETF · ${group.stocks.length} 个条目`,
+          picked: statusBarRotation.isGroupIncluded('fund', group.id),
+          viewKind: 'fund' as const,
+          groupId: group.id,
+        })),
+        ...futuresRepository.getSnapshot().groups.map((group) => ({
+          label: group.name,
+          description: `Futures · ${group.stocks.length} 个条目`,
+          picked: statusBarRotation.isGroupIncluded('futures', group.id),
+          viewKind: 'futures' as const,
+          groupId: group.id,
+        })),
+      ];
+      const picked = await window.showQuickPick<StatusBarGroupPick>(groups, {
+        canPickMany: true,
+        title: '选择状态栏轮播分组',
+        placeHolder: '勾选参与轮播的分组；全部取消可关闭轮播',
+      });
+      if (!picked) {
+        return;
+      }
+      const included: Record<StatusBarGroupKind, string[]> = {
+        stock: [],
+        fund: [],
+        futures: [],
+      };
+      for (const group of picked) {
+        included[group.viewKind].push(group.groupId);
+      }
+      await statusBarRotation.setIncludedGroupIds(statusBarGroupIds(), included);
+      updateStatusBar();
+      window.setStatusBarMessage(
+        picked.length === 0
+          ? 'FishStock: 状态栏轮播已关闭'
+          : `FishStock: ${picked.length} 个分组参与状态栏轮播`,
+        2_500,
+      );
     }),
     ...registerWatchlistCommands({
       repository: stockRepository,
