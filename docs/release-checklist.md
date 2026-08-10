@@ -17,8 +17,10 @@ pnpm run release:check
 - 独立用户目录中的 VS Code Extension Host 冒烟测试。
 - 扩展激活、Stock/Fund/Futures 打开、关键命令注册和全部展开命令执行。
 - `package.json`、README 与 CHANGELOG 版本一致性。
+- Publisher、MIT 许可证、Preview/Pre-Release、免费定价和 Marketplace PNG 图标一致性。
+- 隐私与支持说明存在，并明确无遥测、第三方网络请求、诊断和反馈入口。
 - VSIX 文件清单检查，不包含源码、测试、脚本、本地记忆或协作说明。
-- 生成非空的当前版本 VSIX。
+- 生成非空且带 Marketplace 预发布属性的当前版本 VSIX。
 
 任何一项失败都不得提交为完成版本。
 
@@ -29,6 +31,9 @@ pnpm run release:check
 - 首次运行、窗口重载、手动刷新、断网和休市状态没有阻塞错误。
 - 清空、恢复默认和删除等破坏性操作仍有明确确认。
 - README、CHANGELOG 与可见行为一致。
+- Marketplace 名称、简介、关键词、图标、许可证、隐私和支持链接可正常显示。
+- 公开说明腾讯/新浪行情端点的访问限制，HTTP 403 不形成高频重试。
+- 从 VSIX 安装、升级、禁用、重新启用和卸载不会阻塞 VS Code；升级保留本地自选。
 - `git status --short` 不包含遗漏文件；VSIX、`out/` 和本地记忆不进入提交。
 
 ## 版本规则

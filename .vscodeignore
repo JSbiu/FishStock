@@ -1,4 +1,5 @@
 .agents/**
+.github/**
 AGENTS.md
 .pnpm-store/**
 .gitignore

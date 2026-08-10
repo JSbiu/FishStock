@@ -1,28 +1,52 @@
 {
   "name": "fish-stock",
   "displayName": "FishStock",
-  "description": "轻量、安静、本地优先的 VS Code 自选行情插件",
-  "version": "0.5.0",
-  "publisher": "fishstock-local",
+  "description": "轻量、安静、本地优先的股票、ETF 与期货自选行情插件",
+  "version": "0.5.1",
+  "publisher": "jsbiu",
   "private": true,
+  "author": {
+    "name": "JSbiu",
+    "url": "https://github.com/JSbiu"
+  },
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/JSbiu/FishStock.git"
   },
+  "homepage": "https://github.com/JSbiu/FishStock#readme",
+  "bugs": {
+    "url": "https://github.com/JSbiu/FishStock/issues"
+  },
+  "icon": "resources/fishstock.png",
+  "galleryBanner": {
+    "color": "#0B1F33",
+    "theme": "dark"
+  },
+  "preview": true,
+  "pricing": "Free",
   "engines": {
     "vscode": "^1.90.0"
   },
   "categories": [
+    "Visualization",
     "Other"
   ],
   "keywords": [
     "stock",
+    "stocks",
     "watchlist",
+    "行情",
+    "自选",
+    "股票",
     "A股",
     "港股",
     "ETF",
+    "etf watchlist",
     "基金",
+    "fund",
     "期货",
+    "futures",
     "大宗商品"
   ],
   "activationEvents": [
@@ -569,7 +593,7 @@
     "test:smoke": "pnpm run compile && node scripts/run-smoke-tests.mjs",
     "check": "pnpm run lint && pnpm run test",
     "verify:release": "node scripts/verify-release.mjs",
-    "release:check": "pnpm run check && pnpm run test:smoke && pnpm run verify:release && vsce package --no-dependencies && node scripts/verify-release.mjs --packaged",
+    "release:check": "pnpm run check && pnpm run test:smoke && pnpm run verify:release && vsce package --pre-release --no-dependencies && node scripts/verify-release.mjs --packaged",
     "package:vsix": "pnpm run release:check"
   },
   "devDependencies": {
