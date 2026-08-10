@@ -6,7 +6,7 @@
 
 FishStock 是一个轻量、安静、本地优先的 VS Code 自选行情扩展。在不离开编辑器的情况下，用原生侧边栏快速查看少量股票、指数、ETF 和国内商品期货。
 
-0.5.2 是状态栏轮播体验优化版本，允许按用户分组选择参与轮播的股票、ETF 和期货。它不要求 FishStock 账户，不上传自选数据，不提供投资建议；行情来自第三方公开网页端点，可能受到地区、网络和访问策略影响。
+0.5.2 是公开预览阶段的首个稳定通道版本，允许按用户分组选择参与轮播的股票、ETF 和期货。它不要求 FishStock 账户，不上传自选数据，不提供投资建议；行情来自第三方公开网页端点，可能受到地区、网络和访问策略影响。
 
 ## 主要特点
 
@@ -22,7 +22,7 @@ FishStock 是一个轻量、安静、本地优先的 VS Code 自选行情扩展�
 
 ## 快速开始
 
-1. 安装 FishStock。预览阶段请在扩展详情页选择安装 Pre-Release Version。
+1. 从 VS Code 扩展市场安装 FishStock。
 2. 点击 Activity Bar 中的 FishStock 图标。
 3. 在 `Stock`、`Fund` 或 `Futures` 标题栏点击 `+`，搜索并确认条目。
 4. 将鼠标悬停在条目上查看详情，点击条目可在浏览器打开外部行情页面。
@@ -100,10 +100,16 @@ pnpm run test:smoke
 
 在 VS Code 中按 `F5` 启动 Extension Development Host。
 
-生成预发布 VSIX：
+生成稳定通道 VSIX：
 
 ```powershell
 pnpm run package:vsix
+```
+
+生成预发布通道 VSIX：
+
+```powershell
+pnpm run package:vsix:pre-release
 ```
 
 命令会执行 lint、单元与回归测试、真实 Extension Host 冒烟、版本和 Marketplace 元数据校验、包内容检查，并生成 `fish-stock-<version>.vsix`。

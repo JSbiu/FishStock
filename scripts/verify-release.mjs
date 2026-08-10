@@ -94,6 +94,11 @@ for (const file of lowerFiles) {
 }
 
 if (process.argv.includes('--packaged')) {
+  const channelArgument = process.argv.find((argument) => argument.startsWith('--channel='));
+  const channel = channelArgument?.slice('--channel='.length) ?? 'stable';
+  if (channel !== 'stable' && channel !== 'pre-release') {
+    throw new Error(`未知发布通道：${channel}`);
+  }
   const packagePath = resolve(root, `fish-stock-${version}.vsix`);
   if (!existsSync(packagePath) || statSync(packagePath).size === 0) {
     throw new Error(`未生成有效 VSIX：${packagePath}`);
@@ -103,8 +108,13 @@ if (process.argv.includes('--packaged')) {
   const isPreRelease = packageProperties.some(
     (property) => property.$.Id === 'Microsoft.VisualStudio.Code.PreRelease',
   );
-  if (!isPreRelease) {
-    throw new Error('VSIX 未标记为 Marketplace 预发布包');
+  const expectedPreRelease = channel === 'pre-release';
+  if (isPreRelease !== expectedPreRelease) {
+    throw new Error(
+      expectedPreRelease
+        ? 'VSIX 未标记为 Marketplace 预发布包'
+        : 'VSIX 被错误标记为 Marketplace 预发布包',
+    );
   }
 }
 

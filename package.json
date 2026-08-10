@@ -613,8 +613,11 @@
     "test:smoke": "pnpm run compile && node scripts/run-smoke-tests.mjs",
     "check": "pnpm run lint && pnpm run test",
     "verify:release": "node scripts/verify-release.mjs",
-    "release:check": "pnpm run check && pnpm run test:smoke && pnpm run verify:release && vsce package --pre-release --no-dependencies && node scripts/verify-release.mjs --packaged",
-    "package:vsix": "pnpm run release:check"
+    "release:gate": "pnpm run check && pnpm run test:smoke && pnpm run verify:release",
+    "release:check": "pnpm run release:gate && vsce package --no-dependencies && node scripts/verify-release.mjs --packaged --channel=stable",
+    "release:check:pre-release": "pnpm run release:gate && vsce package --pre-release --no-dependencies && node scripts/verify-release.mjs --packaged --channel=pre-release",
+    "package:vsix": "pnpm run release:check",
+    "package:vsix:pre-release": "pnpm run release:check:pre-release"
   },
   "devDependencies": {
     "@eslint/js": "^9.31.0",

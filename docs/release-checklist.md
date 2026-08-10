@@ -10,6 +10,8 @@
 pnpm run release:check
 ```
 
+该命令生成稳定通道包；预发布通道使用 `pnpm run release:check:pre-release`。
+
 命令必须依次通过：
 
 - ESLint 与严格 TypeScript 编译。
@@ -17,10 +19,10 @@ pnpm run release:check
 - 独立用户目录中的 VS Code Extension Host 冒烟测试。
 - 扩展激活、Stock/Fund/Futures 打开、关键命令注册和全部展开命令执行。
 - `package.json`、README 与 CHANGELOG 版本一致性。
-- Publisher、MIT 许可证、Preview/Pre-Release、免费定价和 Marketplace PNG 图标一致性。
+- Publisher、MIT 许可证、Preview、免费定价、发布通道和 Marketplace PNG 图标一致性。
 - 隐私与支持说明存在，并明确无遥测、第三方网络请求、诊断和反馈入口。
 - VSIX 文件清单检查，不包含源码、测试、脚本、本地记忆或协作说明。
-- 生成非空且带 Marketplace 预发布属性的当前版本 VSIX。
+- 生成非空且发布通道属性与验收命令一致的当前版本 VSIX。
 
 任何一项失败都不得提交为完成版本。
 
