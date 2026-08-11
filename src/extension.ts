@@ -46,6 +46,7 @@ import {
   type FishTreeNode,
 } from './ui/watchlistTreeProvider';
 import { StatusBarController } from './ui/statusBarController';
+import { refreshTreeWhenVisible } from './ui/refreshTreeWhenVisible';
 
 const MIN_FETCH_INTERVAL_MS = 10_000;
 const SELECT_STATUS_BAR_GROUPS_COMMAND = 'fishStock.selectStatusBarGroups';
@@ -383,6 +384,9 @@ export async function activate(context: ExtensionContext): Promise<void> {
     futuresTreeView,
     statusBar,
     scheduler,
+    refreshTreeWhenVisible(stockTreeView, stockTreeProvider),
+    refreshTreeWhenVisible(fundTreeView, fundTreeProvider),
+    refreshTreeWhenVisible(futuresTreeView, futuresTreeProvider),
     commands.registerCommand('fishStock.copyDiagnostics', async () => {
       await env.clipboard.writeText(diagnosticReport());
       window.setStatusBarMessage('FishStock: 已复制脱敏诊断信息', 3_000);

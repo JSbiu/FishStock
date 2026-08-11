@@ -91,7 +91,7 @@ flowchart LR
 
 期货仓库为了复用版本 1 的最小结构，内部字段仍名为 `stocks`，但它只存放 `.CNF` 条目且位于独立命名空间。这是内部持久化兼容细节，不代表期货被放入 Stock View，也不是公开 JSON 导入导出格式。
 
-`Stock`、`Fund` 与 `Futures` 保持为三个可在 VS Code Views 菜单中独立显示或隐藏的原生 View。扩展清单将三者的首次可见性设为 `visible`，并以 `initialSize` 权重 `2:1:1` 提供初始高度；VS Code 只在工作区第一次遇到该 View 时参考 `visibility`，已有开发宿主或工作区会恢复保存过的折叠、可见性和高度。激活和打开命令都不执行单个 View 的 `focus` 命令。高度仍由 VS Code 原生布局维护，用户可拖动或双击分隔线重新分配。
+`Stock`、`Fund` 与 `Futures` 保持为三个可在 VS Code Views 菜单中独立显示或隐藏的原生 View。扩展清单将三者的首次可见性设为 `visible`，并以 `initialSize` 权重 `2:1:1` 提供初始高度；VS Code 只在工作区第一次遇到该 View 时参考 `visibility`，已有开发宿主或工作区会恢复保存过的折叠、可见性和高度。每个 View 变为可见时，扩展立即触发一次只读取内存状态的 TreeDataProvider 刷新，不等待网络行情。激活和打开命令都不执行单个 View 的 `focus` 命令。高度仍由 VS Code 原生布局维护，用户可拖动或双击分隔线重新分配。
 
 ## 行情状态
 

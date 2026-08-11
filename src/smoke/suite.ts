@@ -36,5 +36,6 @@ export async function run(): Promise<void> {
   await commands.executeCommand('fishStock.openFunds');
   await commands.executeCommand('fishStock.expandAllFundGroups');
   await commands.executeCommand('fishStock.openFutures');
+  await commands.executeCommand('fishStock.futures.focus');
   await commands.executeCommand('fishStock.expandAllFuturesGroups');
 }
