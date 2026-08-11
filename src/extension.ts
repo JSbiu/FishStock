@@ -6,6 +6,7 @@ import {
   workspace,
   version as vscodeVersion,
   type ExtensionContext,
+  type Disposable,
   type QuickPickItem,
   type TreeView,
 } from 'vscode';
@@ -47,6 +48,7 @@ import {
 } from './ui/watchlistTreeProvider';
 import { StatusBarController } from './ui/statusBarController';
 import { refreshTreeWhenVisible } from './ui/refreshTreeWhenVisible';
+import { prewarmTreeViews } from './ui/prewarmTreeViews';
 
 const MIN_FETCH_INTERVAL_MS = 10_000;
 const SELECT_STATUS_BAR_GROUPS_COMMAND = 'fishStock.selectStatusBarGroups';
@@ -164,6 +166,9 @@ export async function activate(context: ExtensionContext): Promise<void> {
     treeDataProvider: fundTreeProvider,
     showCollapseAll: true,
   });
+  const stockTreeRefresh = refreshTreeWhenVisible(stockTreeView, stockTreeProvider);
+  const fundTreeRefresh = refreshTreeWhenVisible(fundTreeView, fundTreeProvider);
+  const futuresTreeRefresh = refreshTreeWhenVisible(futuresTreeView, futuresTreeProvider);
 
   const statusBar = new StatusBarController(config.rotationIntervalMs);
   let stockRefreshState: DiagnosticRefreshState = 'not-run';
@@ -217,7 +222,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
     const result = await fundQuotes.refresh(symbols, force);
     fundRefreshState = result.error ? 'error' : 'success';
     fundRefreshAt = new Date().toISOString();
-    fundTreeProvider.refresh();
+    fundTreeRefresh.requestRefresh();
     updateStatusBar();
     if (result.error) {
       output.appendLine(`[${new Date().toISOString()}] 基金行情刷新失败：${result.error}`);
@@ -241,7 +246,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
     const result = await stockQuotes.refresh(symbols, force);
     stockRefreshState = result.error ? 'error' : 'success';
     stockRefreshAt = new Date().toISOString();
-    stockTreeProvider.refresh();
+    stockTreeRefresh.requestRefresh();
     updateStatusBar();
     if (result.error) {
       output.appendLine(`[${new Date().toISOString()}] 股票行情刷新失败：${result.error}`);
@@ -264,7 +269,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
     const result = await futuresQuotes.refresh(symbols, force);
     futuresRefreshState = result.error ? 'error' : 'success';
     futuresRefreshAt = new Date().toISOString();
-    futuresTreeProvider.refresh();
+    futuresTreeRefresh.requestRefresh();
     updateStatusBar();
     if (result.error) {
       output.appendLine(`[${new Date().toISOString()}] 期货行情刷新失败：${result.error}`);
@@ -384,9 +389,9 @@ export async function activate(context: ExtensionContext): Promise<void> {
     futuresTreeView,
     statusBar,
     scheduler,
-    refreshTreeWhenVisible(stockTreeView, stockTreeProvider),
-    refreshTreeWhenVisible(fundTreeView, fundTreeProvider),
-    refreshTreeWhenVisible(futuresTreeView, futuresTreeProvider),
+    stockTreeRefresh,
+    fundTreeRefresh,
+    futuresTreeRefresh,
     commands.registerCommand('fishStock.copyDiagnostics', async () => {
       await env.clipboard.writeText(diagnosticReport());
       window.setStatusBarMessage('FishStock: 已复制脱敏诊断信息', 3_000);
@@ -519,13 +524,50 @@ export async function activate(context: ExtensionContext): Promise<void> {
     }),
   );
 
+  output.appendLine('FishStock 已启动；股票和境内 ETF 使用腾讯行情，国内期货使用新浪行情。');
   if (context.extensionMode !== ExtensionMode.Test) {
+    let prewarmRegistration: Disposable | undefined;
+    const prewarmTimer = setTimeout(() => {
+      prewarmRegistration = prewarmTreeViews(
+        [
+          {
+            label: 'Stock',
+            treeView: stockTreeView,
+            element: stockTreeProvider.getGroupNodes()[0],
+          },
+          {
+            label: 'Fund',
+            treeView: fundTreeView,
+            element: fundTreeProvider.getGroupNodes()[0],
+          },
+          {
+            label: 'Futures',
+            treeView: futuresTreeView,
+            element: futuresTreeProvider.getGroupNodes()[0],
+          },
+        ],
+        {
+          restorePreviousSidebar: () =>
+            commands.executeCommand('workbench.action.previousSideBarView'),
+          onError: (label, error) => {
+            output.appendLine(
+              `[${new Date().toISOString()}] ${label} 预初始化失败：${compactError(error)}`,
+            );
+          },
+        },
+      );
+    }, 0);
+    context.subscriptions.push({
+      dispose: () => {
+        clearTimeout(prewarmTimer);
+        prewarmRegistration?.dispose();
+      },
+    });
     scheduler.start();
     startBackgroundRefresh(refreshAll, (error) => {
       output.appendLine(`[${new Date().toISOString()}] 首次行情刷新异常：${compactError(error)}`);
     });
   }
-  output.appendLine('FishStock 已启动；股票和境内 ETF 使用腾讯行情，国内期货使用新浪行情。');
 }
 
 export function deactivate(): void {}

@@ -343,7 +343,11 @@ export class WatchlistRepository {
 
   public async setGroupCollapsed(groupId: string, collapsed: boolean): Promise<void> {
     const state = this.getSnapshot();
-    this.requireGroup(state, groupId).collapsed = collapsed;
+    const group = this.requireGroup(state, groupId);
+    if (group.collapsed === collapsed) {
+      return;
+    }
+    group.collapsed = collapsed;
     await this.save(state);
   }
 

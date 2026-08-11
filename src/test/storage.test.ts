@@ -12,12 +12,14 @@ import {
 
 class MemoryStateStore implements StateStore {
   private readonly values = new Map<string, unknown>();
+  public updateCount = 0;
 
   public get<T>(key: string): T | undefined {
     return this.values.get(key) as T | undefined;
   }
 
   public async update(key: string, value: unknown): Promise<void> {
+    this.updateCount += 1;
     this.values.set(key, structuredClone(value));
   }
 }
@@ -69,6 +71,19 @@ test('loads valid persisted groups without waiting for a redundant storage write
   assert.equal(outcome, 'loaded');
   assert.equal(updateCalled, false);
   assert.deepEqual(repository.getSnapshot(), persisted);
+});
+
+test('does not persist an unchanged group collapse state', async () => {
+  const store = new MemoryStateStore();
+  const repository = new WatchlistRepository(store);
+  await repository.load();
+  const updatesAfterLoad = store.updateCount;
+
+  await repository.setGroupCollapsed('default', false);
+  assert.equal(store.updateCount, updatesAfterLoad);
+
+  await repository.setGroupCollapsed('default', true);
+  assert.equal(store.updateCount, updatesAfterLoad + 1);
 });
 
 test('creates the expected grouped first-run watchlist', () => {
