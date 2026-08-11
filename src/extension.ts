@@ -27,6 +27,7 @@ import {
 } from './domain/diagnostics';
 import type { Market, NormalizedSymbol } from './domain/models';
 import { isTradingDay, shouldAutoRefresh } from './domain/tradingCalendar';
+import { startBackgroundRefresh } from './services/backgroundRefresh';
 import { RefreshScheduler } from './services/refreshScheduler';
 import {
   StatusBarRotationStore,
@@ -516,7 +517,9 @@ export async function activate(context: ExtensionContext): Promise<void> {
 
   if (context.extensionMode !== ExtensionMode.Test) {
     scheduler.start();
-    await refreshAll();
+    startBackgroundRefresh(refreshAll, (error) => {
+      output.appendLine(`[${new Date().toISOString()}] 首次行情刷新异常：${compactError(error)}`);
+    });
   }
   output.appendLine('FishStock 已启动；股票和境内 ETF 使用腾讯行情，国内期货使用新浪行情。');
 }
