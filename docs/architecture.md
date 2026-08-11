@@ -87,7 +87,7 @@ flowchart LR
 }
 ```
 
-存储位置是扩展的 `globalState`，股票使用 `fishStock.watchlist.v1`，基金使用 `fishStock.funds.v1`，期货使用 `fishStock.futures.v1`，状态栏轮播排除项使用 `fishStock.statusBarRotation.v1`；没有调用 `setKeysForSync`。卸载或升级扩展通常保留数据。载入时会校验版本、分组、ID、代码格式和全局重复代码；无效数据回退到该品类的默认状态。股票可恢复三组共 11 个默认条目；基金默认包含沪深300ETF示例；期货默认包含五个主连合约。三个仓库均可独立清空或恢复默认。
+存储位置是扩展的 `globalState`，股票使用 `fishStock.watchlist.v1`，基金使用 `fishStock.funds.v1`，期货使用 `fishStock.futures.v1`，状态栏轮播排除项使用 `fishStock.statusBarRotation.v1`；没有调用 `setKeysForSync`。卸载或升级扩展通常保留数据。载入时会校验版本、分组、ID、代码格式和全局重复代码；有效状态只读取到内存，不在每次激活时重复写回。无效数据回退并持久化为该品类的默认状态。股票可恢复三组共 11 个默认条目；基金默认包含沪深300ETF示例；期货默认包含五个主连合约。三个仓库均可独立清空或恢复默认。
 
 期货仓库为了复用版本 1 的最小结构，内部字段仍名为 `stocks`，但它只存放 `.CNF` 条目且位于独立命名空间。这是内部持久化兼容细节，不代表期货被放入 Stock View，也不是公开 JSON 导入导出格式。
 

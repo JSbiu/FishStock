@@ -46,6 +46,31 @@ test('persists groups, stock order and stock moves between repository instances'
   );
 });
 
+test('loads valid persisted groups without waiting for a redundant storage write', async () => {
+  const persisted = createDefaultFuturesWatchlist();
+  let updateCalled = false;
+  const slowStore: StateStore = {
+    get: <T>() => structuredClone(persisted) as T,
+    update: () => {
+      updateCalled = true;
+      return new Promise<void>(() => undefined);
+    },
+  };
+  const repository = new WatchlistRepository(slowStore, {
+    storageKey: 'fishStock.futures.v1',
+    createDefault: createDefaultFuturesWatchlist,
+  });
+
+  const outcome = await Promise.race([
+    repository.load().then(() => 'loaded'),
+    new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 50)),
+  ]);
+
+  assert.equal(outcome, 'loaded');
+  assert.equal(updateCalled, false);
+  assert.deepEqual(repository.getSnapshot(), persisted);
+});
+
 test('creates the expected grouped first-run watchlist', () => {
   const state = createDefaultWatchlist();
   assert.deepEqual(

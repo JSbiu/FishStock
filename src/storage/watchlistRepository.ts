@@ -282,11 +282,15 @@ export class WatchlistRepository {
       return cloneState(this.state);
     }
     const stored = this.store.get<unknown>(this.storageKey);
-    try {
-      this.state = stored === undefined ? this.createDefault() : parseWatchlistState(stored);
-    } catch {
-      this.state = this.createDefault();
+    if (stored !== undefined) {
+      try {
+        this.state = parseWatchlistState(stored);
+        return cloneState(this.state);
+      } catch {
+        // Replace invalid persisted data with the safe first-run state below.
+      }
     }
+    this.state = this.createDefault();
     await this.store.update(this.storageKey, this.state);
     return cloneState(this.state);
   }
