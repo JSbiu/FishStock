@@ -6,7 +6,6 @@ import type {
   StockSearchResult,
 } from '../domain/models';
 import { isIndexSymbol, normalizeSymbol } from '../domain/symbol';
-import { isTradingDay } from '../domain/tradingCalendar';
 import { AccessDeniedBackoff } from './accessDeniedBackoff';
 import type { BseSecurityDirectory } from './bseSecurityDirectory';
 import type { MarketDataProvider } from './marketDataProvider';
@@ -16,45 +15,6 @@ const TENCENT_SEARCH_URL = 'https://smartbox.gtimg.cn/s3/';
 const BATCH_SIZE = 50;
 const SEARCH_RESULT_LIMIT = 20;
 const REQUEST_TIMEOUT_MS = 10_000;
-
-interface ShanghaiTimeParts {
-  year: number;
-  month: number;
-  day: number;
-  weekday: string;
-  minutes: number;
-}
-function shanghaiTimeParts(date: Date): ShanghaiTimeParts {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    weekday: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(date);
-  const value = (type: Intl.DateTimeFormatPartTypes): string =>
-    parts.find((part) => part.type === type)?.value ?? '';
-  return {
-    year: Number(value('year')),
-    month: Number(value('month')),
-    day: Number(value('day')),
-    weekday: value('weekday'),
-    minutes: Number(value('hour')) * 60 + Number(value('minute')),
-  };
-}
-
-function isOpenSession(market: Market, minutes: number): boolean {
-  if (market === 'CN') {
-    return (minutes >= 570 && minutes <= 690) || (minutes >= 780 && minutes <= 900);
-  }
-  if (market === 'HK') {
-    return (minutes >= 570 && minutes <= 720) || (minutes >= 780 && minutes <= 960);
-  }
-  return false;
-}
 
 export function parseTencentTimestamp(value: unknown): number {
   const text = String(value ?? '').trim();
@@ -72,19 +32,6 @@ export function parseTencentTimestamp(value: unknown): number {
     throw new Error(`腾讯行情时间无效：${text}`);
   }
   return timestamp;
-}
-
-function marketState(market: Market, asOf: number, now: Date): 'open' | 'closed' {
-  const current = shanghaiTimeParts(now);
-  const quoteTime = shanghaiTimeParts(new Date(asOf));
-  const sameTradingDate =
-    current.year === quoteTime.year &&
-    current.month === quoteTime.month &&
-    current.day === quoteTime.day;
-  if (!isTradingDay(market, now)) {
-    return 'closed';
-  }
-  return sameTradingDate && isOpenSession(market, current.minutes) ? 'open' : 'closed';
 }
 
 export function toTencentSymbol(symbol: NormalizedSymbol): string {
@@ -231,7 +178,6 @@ function scaledTencentNumber(value: unknown, scale: number): number | undefined 
 export function parseTencentPayload(
   payload: unknown,
   requested: readonly NormalizedSymbol[],
-  now: Date = new Date(),
 ): RawMarketQuote[] {
   if (!isRecord(payload)) {
     throw new Error('腾讯行情响应不是 JSON 对象');
@@ -269,7 +215,6 @@ export function parseTencentPayload(
       peTtm: row[39],
       totalMarketCap: scaledTencentNumber(row[45], 100_000_000),
       asOf,
-      marketState: marketState(symbol.market, asOf, now),
     });
   }
   return quotes;

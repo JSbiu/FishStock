@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { isTradingDay, shouldAutoRefresh } from '../domain/tradingCalendar';
+import {
+  calendarCoverageEnd,
+  hasCalendarCoverage,
+  isHalfTradingDay,
+  isTradingDay,
+  shouldAutoRefresh,
+} from '../domain/tradingCalendar';
 
 function at(date: string): Date {
   return new Date(`${date}T12:00:00Z`);
@@ -56,6 +62,20 @@ test('falls back to weekday checks after the last known holiday data', () => {
   assert.equal(isTradingDay('CN', at('2027-01-04')), true);
   assert.equal(isTradingDay('CN', at('2027-02-15')), true);
   assert.equal(isTradingDay('CN', at('2027-01-02')), false);
+});
+
+test('reports explicit calendar coverage independently from the last holiday', () => {
+  assert.equal(hasCalendarCoverage('CN', '2026-12-31'), true);
+  assert.equal(hasCalendarCoverage('HK', '2026-12-31'), true);
+  assert.equal(hasCalendarCoverage('CN', '2027-01-01'), false);
+  assert.equal(hasCalendarCoverage('US', '2026-08-12'), false);
+  assert.equal(calendarCoverageEnd('CNF'), '2026-12-31');
+});
+
+test('recognizes Hong Kong half trading days', () => {
+  assert.equal(isHalfTradingDay('HK', '2026-02-16'), true);
+  assert.equal(isHalfTradingDay('HK', '2026-12-24'), true);
+  assert.equal(isHalfTradingDay('CN', '2026-02-16'), false);
 });
 
 test('evaluates the trading date in Shanghai time', () => {

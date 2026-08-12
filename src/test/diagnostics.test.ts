@@ -61,12 +61,20 @@ test('formats a copyable diagnostic report with an explicit privacy statement', 
     },
     viewModes: { stock: 'default', fund: 'gainDesc', futures: 'upOnly' },
     tradingDays: { CN: true, HK: false },
+    sessionPhases: { trading: 1, break: 1, closed: 0, unknown: 0 },
+    nextAutomaticRefreshAt: '2026-08-03T10:01:00.000Z',
+    calendarCoverage: { CN: '2026-12-31', HK: '2026-12-31' },
+    futuresSessionRules: { supportedProductCount: 64, uncoveredItemCount: 1 },
     stock: summary,
     fund: summary,
     futures: summary,
   });
   assert.match(report, /扩展版本：0\.4\.6/);
   assert.match(report, /CN=交易日, HK=非交易日/);
+  assert.match(report, /trading=1, break=1, closed=0, unknown=0/);
+  assert.match(report, /下次计划自动刷新：2026-08-03T10:01:00\.000Z/);
+  assert.match(report, /CN 至 2026-12-31, HK 至 2026-12-31/);
+  assert.match(report, /已收录 64 个品种，未覆盖自选 1 个/);
   assert.match(report, /Stock=default, Fund=gainDesc, Futures=upOnly/);
   assert.match(report, /Fund:/);
   assert.match(report, /下次自动探测：2026-08-03T10:15:00\.000Z/);

@@ -80,6 +80,6 @@ export function parseMarketQuote(raw: RawMarketQuote): Quote {
     change,
     changePercent: (change / previousClose) * 100,
     asOf: requiredTimestamp(raw.asOf),
-    state: raw.marketState === 'closed' ? 'closed' : 'live',
+    state: 'live',
   };
 }

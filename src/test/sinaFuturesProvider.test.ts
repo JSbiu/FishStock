@@ -49,7 +49,11 @@ test('generates both four-digit and Zhengzhou-style contract candidates', () => 
 });
 
 test('parses futures price against previous settlement with volume and open interest', () => {
-  const quotes = parseSinaFuturesPayload(futuresRow('AL0', '铝连续', '23680.000'), [AL_MAIN], NOW);
+  const quotes = parseSinaFuturesPayload(
+    futuresRow('AL0', '铝连续', '23680.000'),
+    [AL_MAIN],
+    NOW,
+  );
   assert.deepEqual(quotes, [
     {
       symbol: 'AL0.CNF',
@@ -67,9 +71,27 @@ test('parses futures price against previous settlement with volume and open inte
       volumeUnit: 'lot',
       venue: '上海期货交易所',
       asOf: Date.parse('2026-07-31T21:19:50+08:00'),
-      marketState: 'open',
     },
   ]);
+});
+
+test('normalizes a night quote stamped with its next trading date', () => {
+  const quote = parseSinaFuturesPayload(
+    futuresRow('AL0', '铝连续', '23680.000', '2026-08-03'),
+    [AL_MAIN],
+    NOW,
+  )[0];
+
+  assert.equal(quote.asOf, Date.parse('2026-07-31T21:19:50+08:00'));
+});
+
+test('normalizes Saturday early hours stamped with the Monday trading date', () => {
+  const saturdayNow = new Date('2026-08-14T16:30:00.000Z');
+  const payload = futuresRow('AL0', '铝连续', '23680.000', '2026-08-17')
+    .replace('211950', '002950');
+  const quote = parseSinaFuturesPayload(payload, [AL_MAIN], saturdayNow)[0];
+
+  assert.equal(quote.asOf, Date.parse('2026-08-15T00:29:50+08:00'));
 });
 
 test('searches a Chinese alias and previews only contracts returned by the quote endpoint', async () => {
@@ -127,6 +149,21 @@ test('accepts an active month code and rejects an expired contract with stale tr
     ['AL2608.CNF'],
   );
   assert.deepEqual(await provider.searchFutures('AL2607'), []);
+});
+
+test('does not add futures whose product session is not covered', async () => {
+  let requestCount = 0;
+  const provider = new SinaFuturesProvider({
+    fetcher: async () => {
+      requestCount += 1;
+      return new Response(futuresRow('XX0', '未知主连', '100.000'));
+    },
+    now: () => NOW,
+    decode: (bytes) => new TextDecoder().decode(bytes),
+  });
+
+  assert.deepEqual(await provider.searchFutures('XX0'), []);
+  assert.equal(requestCount, 0);
 });
 
 test('backs off repeated automatic refreshes after HTTP 403 and recovers on success', async () => {

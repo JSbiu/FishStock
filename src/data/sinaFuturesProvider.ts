@@ -3,6 +3,7 @@ import type {
   RawMarketQuote,
   StockSearchResult,
 } from '../domain/models';
+import { isSupportedFuturesSymbol } from '../domain/futuresSessions';
 import { isFuturesSymbol, normalizeSymbol } from '../domain/symbol';
 import { AccessDeniedBackoff } from './accessDeniedBackoff';
 import type { FuturesDataProvider } from './marketDataProvider';
@@ -13,7 +14,6 @@ const REQUEST_TIMEOUT_MS = 10_000;
 const BATCH_SIZE = 50;
 const CONTRACT_MONTHS = 24;
 const SEARCH_MAIN_LIMIT = 5;
-const OPEN_QUOTE_MAX_AGE_MS = 15 * 60 * 1_000;
 
 const MAIN_CONTRACT_NAMES: Readonly<Record<string, string>> = {
   AL0: '沪铝主连',
@@ -58,7 +58,33 @@ function toSinaSymbol(symbol: NormalizedSymbol): string {
   return `nf_${symbol.symbol.slice(0, -4)}`;
 }
 
-function parseFuturesTimestamp(dateValue: string, timeValue: string): number {
+function shanghaiClock(date: Date): { date: string; seconds: number } {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+  const value = (type: Intl.DateTimeFormatPartTypes): string =>
+    parts.find((part) => part.type === type)?.value ?? '';
+  return {
+    date: `${value('year')}-${value('month')}-${value('day')}`,
+    seconds:
+      Number(value('hour')) * 3_600 +
+      Number(value('minute')) * 60 +
+      Number(value('second')),
+  };
+}
+
+function parseFuturesTimestamp(
+  dateValue: string,
+  timeValue: string,
+  referenceNow: Date,
+): number {
   const date = dateValue.trim();
   const compactTime = timeValue.trim().replaceAll(':', '');
   const dateMatch = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -66,11 +92,27 @@ function parseFuturesTimestamp(dateValue: string, timeValue: string): number {
   if (!dateMatch || !timeMatch) {
     throw new Error(`新浪期货行情时间格式无效：${dateValue} ${timeValue}`);
   }
-  const timestamp = Date.parse(
+  let timestamp = Date.parse(
     `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}T${timeMatch[1]}:${timeMatch[2]}:${timeMatch[3]}+08:00`,
   );
   if (!Number.isFinite(timestamp)) {
     throw new Error(`新浪期货行情时间无效：${dateValue} ${timeValue}`);
+  }
+  const sourceSeconds =
+    Number(timeMatch[1]) * 3_600 +
+    Number(timeMatch[2]) * 60 +
+    Number(timeMatch[3]);
+  const reference = shanghaiClock(referenceNow);
+  const clockDifference = Math.abs(sourceSeconds - reference.seconds);
+  const shortestClockDifference = Math.min(clockDifference, 86_400 - clockDifference);
+  if (
+    (Number(timeMatch[1]) >= 21 || Number(timeMatch[1]) < 3) &&
+    timestamp - referenceNow.getTime() > 5 * 60 * 1_000 &&
+    shortestClockDifference <= 10 * 60
+  ) {
+    timestamp = Date.parse(
+      `${reference.date}T${timeMatch[1]}:${timeMatch[2]}:${timeMatch[3]}+08:00`,
+    );
   }
   return timestamp;
 }
@@ -124,7 +166,7 @@ export function parseSinaFuturesPayload(
     ) {
       continue;
     }
-    const asOf = parseFuturesTimestamp(row[17], row[1]);
+    const asOf = parseFuturesTimestamp(row[17], row[1], now);
     quotes.push({
       symbol: normalized.symbol,
       market: 'CNF',
@@ -141,8 +183,6 @@ export function parseSinaFuturesPayload(
       volumeUnit: 'lot',
       venue: venueName(row[15]),
       asOf,
-      marketState:
-        Math.abs(now.getTime() - asOf) <= OPEN_QUOTE_MAX_AGE_MS ? 'open' : 'closed',
     });
   }
   return quotes;
@@ -168,7 +208,11 @@ export function parseSinaFuturesSuggestions(payload: string): StockSearchResult[
       seen.add(normalized.symbol);
       const code = normalized.symbol.slice(0, -4);
       const product = code.match(/^[A-Z]{1,3}/)?.[0];
-      if (!product || FINANCIAL_FUTURES.has(product)) {
+      if (
+        !product ||
+        FINANCIAL_FUTURES.has(product) ||
+        !isSupportedFuturesSymbol(normalized.symbol)
+      ) {
         continue;
       }
       results.push({
@@ -291,6 +335,9 @@ export class SinaFuturesProvider implements FuturesDataProvider {
 
     const direct = this.normalizeDirectQuery(cleanQuery);
     if (direct) {
+      if (!isSupportedFuturesSymbol(direct.symbol)) {
+        return [];
+      }
       const isMain = direct.symbol.endsWith('0.CNF');
       const main = isMain ? direct : mainSymbolFor(direct);
       const requested = isMain

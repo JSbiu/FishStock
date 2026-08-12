@@ -63,6 +63,26 @@ function appendActionHint(tooltip: MarkdownString, actionHint: string | undefine
   tooltip.appendText(actionHint);
 }
 
+function quoteStateText(quote: Quote): string {
+  if (quote.state === 'live') {
+    return quote.sessionLabel ? `开市 · ${quote.sessionLabel}` : '开市';
+  }
+  if (quote.state === 'closed') {
+    return quote.sessionLabel ?? '休市';
+  }
+  if (quote.state === 'stale') {
+    return quote.sessionLabel ? `数据过期 · ${quote.sessionLabel}` : '数据过期';
+  }
+  return quote.sessionLabel ? `暂不可用 · ${quote.sessionLabel}` : '暂不可用';
+}
+
+function formatMarketTime(timestamp: number): string {
+  return new Date(timestamp).toLocaleString('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    hour12: false,
+  });
+}
+
 function quoteTable(stock: Stock, quote: Quote, state: string): string {
   if (quote.market === 'CNF') {
     return [
@@ -103,14 +123,9 @@ export function createQuoteTooltip(
     return tooltip;
   }
 
-  const timestamp = quote.asOf > 0 ? new Date(quote.asOf).toLocaleString('zh-CN') : '无';
-  const stateText: Record<Quote['state'], string> = {
-    live: '开市',
-    closed: '休市',
-    stale: '数据过期',
-    error: '暂不可用',
-  };
-  tooltip.appendText(`${stock.name ?? quote.name} (${stock.symbol}) · ${stateText[quote.state]}`);
+  const timestamp = quote.asOf > 0 ? formatMarketTime(quote.asOf) : '无';
+  const state = quoteStateText(quote);
+  tooltip.appendText(`${stock.name ?? quote.name} (${stock.symbol}) · ${state}`);
   tooltip.appendMarkdown('\n\n');
   const priceSummary =
     quote.price === null
@@ -122,9 +137,13 @@ export function createQuoteTooltip(
       : `${quote.change > 0 ? '▲ ' : quote.change < 0 ? '▼ ' : ''}${formatDelta(quote.change)} (${formatPercent(quote.changePercent)})`;
   tooltip.appendMarkdown(`**${priceSummary} · ${changeSummary}**`);
   tooltip.appendMarkdown('\n\n');
-  tooltip.appendMarkdown(quoteTable(stock, quote, stateText[quote.state]));
+  tooltip.appendMarkdown(quoteTable(stock, quote, state));
   tooltip.appendMarkdown('\n\n');
   tooltip.appendText(`更新时间：${timestamp} · 数据源：${providerName}`);
+  if (quote.nextOpenAt && quote.state !== 'live') {
+    tooltip.appendMarkdown('\n\n');
+    tooltip.appendText(`下次计划开市：${formatMarketTime(quote.nextOpenAt)}`);
+  }
   if (quote.message) {
     tooltip.appendMarkdown('\n\n$(warning) ');
     tooltip.appendText(quote.message);

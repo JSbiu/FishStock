@@ -42,7 +42,7 @@ function quoteDescription(stock: Stock, quote: Quote | undefined): string {
   }
   const suffix =
     quote.state === 'closed'
-      ? ' · 休市'
+      ? ` · ${quote.sessionLabel ?? '休市'}`
       : quote.state === 'stale'
         ? ' · 数据过期'
         : quote.state === 'error'

@@ -157,7 +157,6 @@ test('parses domestic ETF quotes through the common Tencent quote fields', () =>
   const quotes = parseTencentPayload(
     { sz159326: etfRow },
     [{ symbol: '159326.SZ', market: 'CN' }],
-    new Date('2026-08-04T06:24:20Z'),
   );
 
   assert.deepEqual(
@@ -166,9 +165,8 @@ test('parses domestic ETF quotes through the common Tencent quote fields', () =>
       quote.name,
       quote.price,
       quote.previousClose,
-      quote.marketState,
     ]),
-    [['159326.SZ', '电网设备ETF华夏', 1.643, 1.614, 'open']],
+    [['159326.SZ', '电网设备ETF华夏', 1.643, 1.614]],
   );
 });
 
@@ -242,7 +240,7 @@ test('parses Tencent A-share and Hong Kong timestamps as China Standard Time', (
   );
 });
 
-test('parses batch quotes and marks current-session data open', () => {
+test('parses batch quotes without assigning a final market state', () => {
   const payload = {
     sh600519: row('贵州茅台', '1350.60', '1361.76', '20260731100530'),
     r_hk00700: row('腾讯控股', '475.200', '471.800', '2026/07/31 10:05:31'),
@@ -250,13 +248,12 @@ test('parses batch quotes and marks current-session data open', () => {
   const quotes = parseTencentPayload(
     payload,
     [A_SHARE, HK_SHARE],
-    new Date('2026-07-31T02:05:40Z'),
   );
   assert.deepEqual(
-    quotes.map((quote) => [quote.symbol, quote.name, quote.price, quote.previousClose, quote.marketState]),
+    quotes.map((quote) => [quote.symbol, quote.name, quote.price, quote.previousClose]),
     [
-      ['600519.SH', '贵州茅台', 1350.6, 1361.76, 'open'],
-      ['00700.HK', '腾讯控股', 475.2, 471.8, 'open'],
+      ['600519.SH', '贵州茅台', 1350.6, 1361.76],
+      ['00700.HK', '腾讯控股', 475.2, 471.8],
     ],
   );
 });
@@ -270,13 +267,12 @@ test('parses mainland and Hong Kong index quotes with canonical index symbols', 
       { symbol: '000001.SHI', market: 'CN' },
       { symbol: 'HSI.HKI', market: 'HK' },
     ],
-    new Date('2026-07-31T06:30:10Z'),
   );
   assert.deepEqual(
-    quotes.map((quote) => [quote.symbol, quote.name, quote.price, quote.marketState]),
+    quotes.map((quote) => [quote.symbol, quote.name, quote.price]),
     [
-      ['000001.SHI', '上证指数', 3832.26, 'open'],
-      ['HSI.HKI', '恒生指数', 25884.43, 'open'],
+      ['000001.SHI', '上证指数', 3832.26],
+      ['HSI.HKI', '恒生指数', 25884.43],
     ],
   );
 });
@@ -305,7 +301,6 @@ test('normalizes A-share and Hong Kong trading metrics into common units', () =>
   const quotes = parseTencentPayload(
     { sh600519: aShareRow, r_hk00700: hkShareRow },
     [A_SHARE, HK_SHARE],
-    new Date('2026-07-31T02:05:40Z'),
   );
 
   assert.deepEqual(
@@ -347,7 +342,7 @@ test('normalizes A-share and Hong Kong trading metrics into common units', () =>
   );
 });
 
-test('marks after-hours data closed and skips unusable rows', () => {
+test('parses old source timestamps and skips unusable rows', () => {
   const payload = {
     sh600519: row('贵州茅台', '1350.60', '1361.76', '20260731150000'),
     r_hk00700: row('腾讯控股', '0', '471.800', '2026/07/31 16:00:00'),
@@ -355,43 +350,7 @@ test('marks after-hours data closed and skips unusable rows', () => {
   const quotes = parseTencentPayload(
     payload,
     [A_SHARE, HK_SHARE],
-    new Date('2026-07-31T08:30:00Z'),
   );
   assert.equal(quotes.length, 1);
-  assert.equal(quotes[0].marketState, 'closed');
-});
-
-test('marks exchange holiday quotes closed even inside regular sessions', () => {
-  const payload = {
-    sh600519: row('贵州茅台', '1350.60', '1361.76', '20261001100530'),
-    r_hk00700: row('腾讯控股', '475.200', '471.800', '20261001100531'),
-  };
-  const quotes = parseTencentPayload(
-    payload,
-    [A_SHARE, HK_SHARE],
-    new Date('2026-10-01T02:05:40Z'),
-  );
-  assert.deepEqual(
-    quotes.map((quote) => quote.marketState),
-    ['closed', 'closed'],
-  );
-});
-
-test('keeps mainland quotes open on a Hong Kong-only holiday', () => {
-  const payload = {
-    sh600519: row('贵州茅台', '1350.60', '1361.76', '20260525100530'),
-    r_hk00700: row('腾讯控股', '475.200', '471.800', '20260525100531'),
-  };
-  const quotes = parseTencentPayload(
-    payload,
-    [A_SHARE, HK_SHARE],
-    new Date('2026-05-25T02:05:40Z'),
-  );
-  assert.deepEqual(
-    quotes.map((quote) => [quote.symbol, quote.marketState]),
-    [
-      ['600519.SH', 'open'],
-      ['00700.HK', 'closed'],
-    ],
-  );
+  assert.equal(quotes[0].asOf, Date.parse('2026-07-31T15:00:00+08:00'));
 });

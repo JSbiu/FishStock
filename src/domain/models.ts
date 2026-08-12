@@ -4,6 +4,8 @@ export type InstrumentKind = 'stock' | 'index' | 'fund' | 'future';
 
 export type QuoteState = 'live' | 'closed' | 'stale' | 'error';
 
+export type MarketSessionPhase = 'trading' | 'break' | 'closed' | 'unknown';
+
 export type VolumeUnit = 'lot' | 'share';
 
 export interface Stock {
@@ -56,7 +58,6 @@ export interface RawMarketQuote {
   openInterest?: unknown;
   venue?: string;
   asOf: unknown;
-  marketState: 'open' | 'closed';
 }
 
 export interface Quote {
@@ -82,7 +83,22 @@ export interface Quote {
   changePercent: number | null;
   asOf: number;
   state: QuoteState;
+  sessionPhase?: MarketSessionPhase;
+  sessionLabel?: string;
+  nextOpenAt?: number;
+  lastRefreshError?: string;
   message?: string;
+}
+
+export interface MarketSession {
+  phase: MarketSessionPhase;
+  label: string;
+  exact: boolean;
+  tradingDate?: string;
+  currentSessionStartedAt?: number;
+  lastSessionStartedAt?: number;
+  nextOpenAt?: number;
+  nextTransitionAt?: number;
 }
 
 export interface RefreshResult {

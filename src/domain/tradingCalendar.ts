@@ -17,29 +17,57 @@ const HOLIDAYS: Readonly<Record<string, ReadonlySet<string>>> = Object.fromEntri
   ]),
 );
 
-const LAST_KNOWN_DATE = Object.values(holidaysData.markets)
-  .flat()
-  .reduce((latest, day) => (day > latest ? day : latest), '');
+const HALF_DAYS: Readonly<Record<string, ReadonlySet<string>>> = Object.fromEntries(
+  Object.entries(holidaysData.halfDays).map(([market, days]) => [
+    market,
+    new Set(days),
+  ]),
+);
+
+const CALENDAR_RANGE: Readonly<Record<string, { first: string; last: string }>> =
+  Object.fromEntries(
+    Object.entries(holidaysData.coverage).map(([market, range]) => [
+      market,
+      { first: range.from, last: range.through },
+    ]),
+  );
 
 export function shanghaiDateString(date: Date): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(date);
 }
 
-function isWeekend(dateString: string): boolean {
+export function isWeekend(dateString: string): boolean {
   const weekday = new Date(`${dateString}T00:00:00Z`).getUTCDay();
   return weekday === 0 || weekday === 6;
 }
 
-export function isTradingDay(market: Market, now: Date): boolean {
+export function isTradingDate(market: Market, dateString: string): boolean {
   const calendarKey = CALENDAR_MARKET[market];
-  const dateString = shanghaiDateString(now);
   if (isWeekend(dateString)) {
     return false;
   }
-  if (dateString > LAST_KNOWN_DATE) {
+  const range = CALENDAR_RANGE[calendarKey];
+  if (!range || dateString < range.first || dateString > range.last) {
     return true;
   }
   return !(HOLIDAYS[calendarKey] ?? EMPTY_HOLIDAYS).has(dateString);
+}
+
+export function isTradingDay(market: Market, now: Date): boolean {
+  return isTradingDate(market, shanghaiDateString(now));
+}
+
+export function isHalfTradingDay(market: Market, dateString: string): boolean {
+  return (HALF_DAYS[CALENDAR_MARKET[market]] ?? EMPTY_HOLIDAYS).has(dateString);
+}
+
+export function hasCalendarCoverage(market: Market, dateString: string): boolean {
+  const range = CALENDAR_RANGE[CALENDAR_MARKET[market]];
+  return Boolean(range && dateString >= range.first && dateString <= range.last);
+}
+
+export function calendarCoverageEnd(market: Market): string | undefined {
+  return CALENDAR_RANGE[CALENDAR_MARKET[market]]?.last || undefined;
 }
 
 export function shouldAutoRefresh(markets: readonly Market[], now: Date): boolean {

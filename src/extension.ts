@@ -25,9 +25,20 @@ import {
   summarizeWatchlist,
   type DiagnosticRefreshState,
 } from './domain/diagnostics';
-import type { Market, NormalizedSymbol } from './domain/models';
-import { isTradingDay, shouldAutoRefresh } from './domain/tradingCalendar';
+import type {
+  Market,
+  MarketSession,
+  NormalizedSymbol,
+  RefreshResult,
+} from './domain/models';
+import {
+  futuresSessionRule,
+  supportedFuturesProductCount,
+} from './domain/futuresSessions';
+import { marketSessionFor, shouldAutoRefreshSymbol } from './domain/marketSessions';
+import { calendarCoverageEnd, isTradingDay } from './domain/tradingCalendar';
 import { startBackgroundRefresh } from './services/backgroundRefresh';
+import { MarketSessionMonitor } from './services/marketSessionMonitor';
 import { RefreshScheduler } from './services/refreshScheduler';
 import {
   StatusBarRotationStore,
@@ -66,6 +77,54 @@ function extensionVersion(context: ExtensionContext): string {
     return '未知';
   }
   return typeof manifest.version === 'string' ? manifest.version : '未知';
+}
+
+function watchlistSymbols(repository: WatchlistRepository): NormalizedSymbol[] {
+  return repository.getSnapshot().groups.flatMap((group) =>
+    group.stocks.map((item) => ({ symbol: item.symbol, market: item.market })),
+  );
+}
+
+function sessionWithFreshness(
+  quotes: QuoteService,
+  symbol: NormalizedSymbol,
+  now: Date,
+): MarketSession {
+  const session = marketSessionFor(symbol, now);
+  const freshnessTransition = quotes.nextStateChangeAt(symbol.symbol, now.getTime());
+  if (
+    freshnessTransition === undefined ||
+    (session.nextTransitionAt !== undefined &&
+      session.nextTransitionAt <= freshnessTransition)
+  ) {
+    return session;
+  }
+  return { ...session, nextTransitionAt: freshnessTransition };
+}
+
+function manualSuccessMessage(
+  label: string,
+  symbols: readonly NormalizedSymbol[],
+  now = new Date(),
+): string {
+  const sessions = symbols.map((symbol) => marketSessionFor(symbol, now));
+  if (sessions.some((session) => session.phase === 'unknown')) {
+    return `FishStock: ${label}已获取最近行情，部分期货交易时段未收录`;
+  }
+  if (
+    sessions.length > 0 &&
+    sessions.every((session) => session.phase !== 'trading')
+  ) {
+    return `FishStock: ${label}已获取最近行情，当前休市`;
+  }
+  return `FishStock: ${label}行情已刷新`;
+}
+
+function manualFailureMessage(label: string, result: RefreshResult): string {
+  const hasCache = [...result.quotes.values()].some((quote) => quote.price !== null);
+  return hasCache
+    ? `FishStock: ${label}行情刷新失败，保留最近行情`
+    : `FishStock: ${label}行情刷新失败，暂不可用`;
 }
 
 async function expandAllGroups(
@@ -111,16 +170,22 @@ export async function activate(context: ExtensionContext): Promise<void> {
     stockProvider,
     MIN_FETCH_INTERVAL_MS,
     config.staleAfterMs,
+    Date.now,
+    marketSessionFor,
   );
   const futuresQuotes = new QuoteService(
     futuresProvider,
     MIN_FETCH_INTERVAL_MS,
     config.staleAfterMs,
+    Date.now,
+    marketSessionFor,
   );
   const fundQuotes = new QuoteService(
     fundProvider,
     MIN_FETCH_INTERVAL_MS,
     config.staleAfterMs,
+    Date.now,
+    marketSessionFor,
   );
   const stockTreeProvider = new WatchlistTreeProvider(
     stockRepository,
@@ -175,6 +240,11 @@ export async function activate(context: ExtensionContext): Promise<void> {
   let fundRefreshAt: string | undefined;
   let futuresRefreshState: DiagnosticRefreshState = 'not-run';
   let futuresRefreshAt: string | undefined;
+  const sessionMonitors: {
+    stock?: MarketSessionMonitor;
+    fund?: MarketSessionMonitor;
+    futures?: MarketSessionMonitor;
+  } = {};
   const statusBarGroupIds = (): StatusBarGroupIds => ({
     stock: stockRepository.getSnapshot().groups.map((group) => group.id),
     fund: fundRepository.getSnapshot().groups.map((group) => group.id),
@@ -209,73 +279,79 @@ export async function activate(context: ExtensionContext): Promise<void> {
     ]);
   };
 
-  const refreshFunds = async (force: boolean, manual: boolean): Promise<void> => {
+  const refreshFunds = async (
+    force: boolean,
+    manual: boolean,
+    selectedSymbols?: readonly NormalizedSymbol[],
+  ): Promise<void> => {
     if (!manual && !fundProvider.canAutomaticallyRefresh()) {
       return;
     }
-    const state = fundRepository.getSnapshot();
-    const symbols: NormalizedSymbol[] = state.groups.flatMap((group) =>
-      group.stocks.map((fund) => ({ symbol: fund.symbol, market: fund.market })),
-    );
+    const symbols = selectedSymbols ?? watchlistSymbols(fundRepository);
     const result = await fundQuotes.refresh(symbols, force);
     fundRefreshState = result.error ? 'error' : 'success';
     fundRefreshAt = new Date().toISOString();
     fundTreeRefresh.requestRefresh();
     updateStatusBar();
+    sessionMonitors.fund?.refresh();
     if (result.error) {
       output.appendLine(`[${new Date().toISOString()}] 基金行情刷新失败：${result.error}`);
       if (manual) {
-        window.setStatusBarMessage('FishStock: 基金行情刷新失败，正在显示缓存', 4_000);
+        window.setStatusBarMessage(manualFailureMessage('基金', result), 4_000);
       }
     } else if (manual) {
-      window.setStatusBarMessage('FishStock: 基金行情已刷新', 2_500);
+      window.setStatusBarMessage(manualSuccessMessage('基金', symbols), 2_500);
     }
   };
   updateStatusBar();
 
-  const refreshStocks = async (force: boolean, manual: boolean): Promise<void> => {
+  const refreshStocks = async (
+    force: boolean,
+    manual: boolean,
+    selectedSymbols?: readonly NormalizedSymbol[],
+  ): Promise<void> => {
     if (!manual && !stockProvider.canAutomaticallyRefresh()) {
       return;
     }
-    const state = stockRepository.getSnapshot();
-    const symbols: NormalizedSymbol[] = state.groups.flatMap((group) =>
-      group.stocks.map((stock) => ({ symbol: stock.symbol, market: stock.market })),
-    );
+    const symbols = selectedSymbols ?? watchlistSymbols(stockRepository);
     const result = await stockQuotes.refresh(symbols, force);
     stockRefreshState = result.error ? 'error' : 'success';
     stockRefreshAt = new Date().toISOString();
     stockTreeRefresh.requestRefresh();
     updateStatusBar();
+    sessionMonitors.stock?.refresh();
     if (result.error) {
       output.appendLine(`[${new Date().toISOString()}] 股票行情刷新失败：${result.error}`);
       if (manual) {
-        window.setStatusBarMessage('FishStock: 股票行情刷新失败，正在显示缓存', 4_000);
+        window.setStatusBarMessage(manualFailureMessage('股票', result), 4_000);
       }
     } else if (manual) {
-      window.setStatusBarMessage('FishStock: 股票行情已刷新', 2_500);
+      window.setStatusBarMessage(manualSuccessMessage('股票', symbols), 2_500);
     }
   };
 
-  const refreshFutures = async (force: boolean, manual: boolean): Promise<void> => {
+  const refreshFutures = async (
+    force: boolean,
+    manual: boolean,
+    selectedSymbols?: readonly NormalizedSymbol[],
+  ): Promise<void> => {
     if (!manual && !futuresProvider.canAutomaticallyRefresh()) {
       return;
     }
-    const state = futuresRepository.getSnapshot();
-    const symbols: NormalizedSymbol[] = state.groups.flatMap((group) =>
-      group.stocks.map((future) => ({ symbol: future.symbol, market: future.market })),
-    );
+    const symbols = selectedSymbols ?? watchlistSymbols(futuresRepository);
     const result = await futuresQuotes.refresh(symbols, force);
     futuresRefreshState = result.error ? 'error' : 'success';
     futuresRefreshAt = new Date().toISOString();
     futuresTreeRefresh.requestRefresh();
     updateStatusBar();
+    sessionMonitors.futures?.refresh();
     if (result.error) {
       output.appendLine(`[${new Date().toISOString()}] 期货行情刷新失败：${result.error}`);
       if (manual) {
-        window.setStatusBarMessage('FishStock: 期货行情刷新失败，正在显示缓存', 4_000);
+        window.setStatusBarMessage(manualFailureMessage('期货', result), 4_000);
       }
     } else if (manual) {
-      window.setStatusBarMessage('FishStock: 期货行情已刷新', 2_500);
+      window.setStatusBarMessage(manualSuccessMessage('期货', symbols), 2_500);
     }
   };
 
@@ -321,6 +397,33 @@ export async function activate(context: ExtensionContext): Promise<void> {
     for (const market of activeMarkets()) {
       tradingDays[market] = isTradingDay(market, now);
     }
+    const symbols = [
+      ...watchlistSymbols(stockRepository),
+      ...watchlistSymbols(fundRepository),
+      ...watchlistSymbols(futuresRepository),
+    ];
+    const sessions = symbols.map((symbol) => marketSessionFor(symbol, now));
+    const sessionPhases = {
+      trading: sessions.filter((session) => session.phase === 'trading').length,
+      break: sessions.filter((session) => session.phase === 'break').length,
+      closed: sessions.filter((session) => session.phase === 'closed').length,
+      unknown: sessions.filter((session) => session.phase === 'unknown').length,
+    };
+    const nextAutomaticRefreshAt = sessions
+      .map((session) =>
+        session.phase === 'trading'
+          ? now.getTime() + config.refreshIntervalMs
+          : session.nextOpenAt,
+      )
+      .filter((timestamp): timestamp is number => timestamp !== undefined)
+      .sort((left, right) => left - right)[0];
+    const calendarCoverage: Partial<Record<Market, string>> = {};
+    for (const market of activeMarkets()) {
+      const end = calendarCoverageEnd(market);
+      if (end) {
+        calendarCoverage[market] = end;
+      }
+    }
     const modes = viewOptions.getSnapshot();
     return formatDiagnosticReport({
       generatedAt: now.toISOString(),
@@ -335,6 +438,17 @@ export async function activate(context: ExtensionContext): Promise<void> {
       },
       viewModes: { stock: modes.stock, fund: modes.fund, futures: modes.futures },
       tradingDays,
+      sessionPhases,
+      ...(nextAutomaticRefreshAt
+        ? { nextAutomaticRefreshAt: new Date(nextAutomaticRefreshAt).toISOString() }
+        : {}),
+      calendarCoverage,
+      futuresSessionRules: {
+        supportedProductCount: supportedFuturesProductCount(),
+        uncoveredItemCount: watchlistSymbols(futuresRepository).filter(
+          (symbol) => futuresSessionRule(symbol.symbol) === undefined,
+        ).length,
+      },
       stock: summarizeWatchlist(
         stockRepository.getSnapshot(),
         stockProvider.displayName,
@@ -364,21 +478,79 @@ export async function activate(context: ExtensionContext): Promise<void> {
   const scheduler = new RefreshScheduler(config.refreshIntervalMs, async () => {
     try {
       const now = new Date();
+      const stockSymbols = watchlistSymbols(stockRepository).filter((symbol) =>
+        shouldAutoRefreshSymbol(symbol, now),
+      );
+      const fundSymbols = watchlistSymbols(fundRepository).filter((symbol) =>
+        shouldAutoRefreshSymbol(symbol, now),
+      );
+      const futuresSymbols = watchlistSymbols(futuresRepository).filter((symbol) =>
+        shouldAutoRefreshSymbol(symbol, now),
+      );
       await Promise.all([
-        shouldAutoRefresh(activeStockMarkets(), now)
-          ? refreshStocks(false, false)
+        stockSymbols.length > 0
+          ? refreshStocks(false, false, stockSymbols)
           : Promise.resolve(),
-        shouldAutoRefresh(activeFundMarkets(), now)
-          ? refreshFunds(false, false)
+        fundSymbols.length > 0
+          ? refreshFunds(false, false, fundSymbols)
           : Promise.resolve(),
-        shouldAutoRefresh(activeFuturesMarkets(), now)
-          ? refreshFutures(false, false)
+        futuresSymbols.length > 0
+          ? refreshFutures(false, false, futuresSymbols)
           : Promise.resolve(),
       ]);
     } catch (error: unknown) {
       output.appendLine(`[${new Date().toISOString()}] 刷新任务异常：${compactError(error)}`);
     }
   });
+
+  const transitionTargets = (
+    opened: readonly NormalizedSymbol[],
+    closed: readonly NormalizedSymbol[],
+  ): NormalizedSymbol[] => [
+    ...new Map([...opened, ...closed].map((symbol) => [symbol.symbol, symbol])).values(),
+  ];
+  const logSessionMonitorError = (error: unknown): void => {
+    output.appendLine(`[${new Date().toISOString()}] 时段切换任务异常：${compactError(error)}`);
+  };
+  sessionMonitors.stock = new MarketSessionMonitor(
+    () => watchlistSymbols(stockRepository),
+    (symbol, now) => sessionWithFreshness(stockQuotes, symbol, now),
+    async ({ opened, closed }) => {
+      stockTreeRefresh.requestRefresh();
+      updateStatusBar();
+      const symbols = transitionTargets(opened, closed);
+      if (symbols.length > 0) {
+        await refreshStocks(true, false, symbols);
+      }
+    },
+    logSessionMonitorError,
+  );
+  sessionMonitors.fund = new MarketSessionMonitor(
+    () => watchlistSymbols(fundRepository),
+    (symbol, now) => sessionWithFreshness(fundQuotes, symbol, now),
+    async ({ opened, closed }) => {
+      fundTreeRefresh.requestRefresh();
+      updateStatusBar();
+      const symbols = transitionTargets(opened, closed);
+      if (symbols.length > 0) {
+        await refreshFunds(true, false, symbols);
+      }
+    },
+    logSessionMonitorError,
+  );
+  sessionMonitors.futures = new MarketSessionMonitor(
+    () => watchlistSymbols(futuresRepository),
+    (symbol, now) => sessionWithFreshness(futuresQuotes, symbol, now),
+    async ({ opened, closed }) => {
+      futuresTreeRefresh.requestRefresh();
+      updateStatusBar();
+      const symbols = transitionTargets(opened, closed);
+      if (symbols.length > 0) {
+        await refreshFutures(true, false, symbols);
+      }
+    },
+    logSessionMonitorError,
+  );
 
   context.subscriptions.push(
     output,
@@ -390,6 +562,9 @@ export async function activate(context: ExtensionContext): Promise<void> {
     stockTreeRefresh,
     fundTreeRefresh,
     futuresTreeRefresh,
+    sessionMonitors.stock,
+    sessionMonitors.fund,
+    sessionMonitors.futures,
     commands.registerCommand('fishStock.copyDiagnostics', async () => {
       await env.clipboard.writeText(diagnosticReport());
       window.setStatusBarMessage('FishStock: 已复制脱敏诊断信息', 3_000);
@@ -446,7 +621,10 @@ export async function activate(context: ExtensionContext): Promise<void> {
     ...registerWatchlistCommands({
       repository: stockRepository,
       search: (query, signal) => stockProvider.searchStocks(query, signal),
-      refresh: refreshStocks,
+      refresh: async (force, manual) => {
+        await refreshStocks(force, manual);
+        sessionMonitors.stock?.refresh();
+      },
       expandAll: () => expandAllGroups(stockRepository, stockTreeProvider, stockTreeView),
       viewOptions,
       treeProvider: stockTreeProvider,
@@ -456,7 +634,10 @@ export async function activate(context: ExtensionContext): Promise<void> {
     ...registerWatchlistCommands({
       repository: fundRepository,
       search: (query, signal) => fundProvider.searchFunds(query, signal),
-      refresh: refreshFunds,
+      refresh: async (force, manual) => {
+        await refreshFunds(force, manual);
+        sessionMonitors.fund?.refresh();
+      },
       expandAll: () => expandAllGroups(fundRepository, fundTreeProvider, fundTreeView),
       viewOptions,
       treeProvider: fundTreeProvider,
@@ -465,7 +646,10 @@ export async function activate(context: ExtensionContext): Promise<void> {
     ...registerWatchlistCommands({
       repository: futuresRepository,
       search: (query, signal) => futuresProvider.searchFutures(query, signal),
-      refresh: refreshFutures,
+      refresh: async (force, manual) => {
+        await refreshFutures(force, manual);
+        sessionMonitors.futures?.refresh();
+      },
       expandAll: () => expandAllGroups(
         futuresRepository,
         futuresTreeProvider,
@@ -518,13 +702,22 @@ export async function activate(context: ExtensionContext): Promise<void> {
       futuresTreeProvider.setColorConvention(config.colorConvention);
       statusBar.configure(config.rotationIntervalMs);
       scheduler.configure(config.refreshIntervalMs);
-      void refreshAll();
+      stockTreeRefresh.requestRefresh();
+      fundTreeRefresh.requestRefresh();
+      futuresTreeRefresh.requestRefresh();
+      updateStatusBar();
+      sessionMonitors.stock?.refresh();
+      sessionMonitors.fund?.refresh();
+      sessionMonitors.futures?.refresh();
     }),
   );
 
   output.appendLine('FishStock 已启动；股票和境内 ETF 使用腾讯行情，国内期货使用新浪行情。');
   if (context.extensionMode !== ExtensionMode.Test) {
     scheduler.start();
+    sessionMonitors.stock.start();
+    sessionMonitors.fund.start();
+    sessionMonitors.futures.start();
     startBackgroundRefresh(refreshAll, (error) => {
       output.appendLine(`[${new Date().toISOString()}] 首次行情刷新异常：${compactError(error)}`);
     });

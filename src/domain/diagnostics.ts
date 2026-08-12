@@ -1,4 +1,9 @@
-import type { Market, QuoteState, WatchlistState } from './models';
+import type {
+  Market,
+  MarketSessionPhase,
+  QuoteState,
+  WatchlistState,
+} from './models';
 
 export type DiagnosticRefreshState = 'not-run' | 'success' | 'error';
 export type DiagnosticQuoteState = QuoteState | 'missing';
@@ -31,6 +36,13 @@ export interface DiagnosticReport {
     futures: string;
   };
   tradingDays: Readonly<Partial<Record<Market, boolean>>>;
+  sessionPhases?: Readonly<Record<MarketSessionPhase, number>>;
+  nextAutomaticRefreshAt?: string;
+  calendarCoverage?: Readonly<Partial<Record<Market, string>>>;
+  futuresSessionRules?: {
+    supportedProductCount: number;
+    uncoveredItemCount: number;
+  };
   stock: DiagnosticWatchlistSummary;
   fund: DiagnosticWatchlistSummary;
   futures: DiagnosticWatchlistSummary;
@@ -121,6 +133,26 @@ export function formatDiagnosticReport(report: DiagnosticReport): string {
     `- 涨跌颜色：${report.config.colorConvention}`,
     `- 视图模式：Stock=${report.viewModes.stock}, Fund=${report.viewModes.fund}, Futures=${report.viewModes.futures}`,
     `- 当日交易判断：${tradingDays || '无自选市场'}`,
+    ...(report.sessionPhases
+      ? [
+          `- 当前交易阶段：trading=${report.sessionPhases.trading}, break=${report.sessionPhases.break}, closed=${report.sessionPhases.closed}, unknown=${report.sessionPhases.unknown}`,
+        ]
+      : []),
+    ...(report.nextAutomaticRefreshAt
+      ? [`- 下次计划自动刷新：${report.nextAutomaticRefreshAt}`]
+      : []),
+    ...(report.calendarCoverage
+      ? [
+          `- 交易日历覆盖：${Object.entries(report.calendarCoverage)
+            .map(([market, end]) => `${market} 至 ${end}`)
+            .join(', ') || '无自选市场'}`,
+        ]
+      : []),
+    ...(report.futuresSessionRules
+      ? [
+          `- 期货时段规则：已收录 ${report.futuresSessionRules.supportedProductCount} 个品种，未覆盖自选 ${report.futuresSessionRules.uncoveredItemCount} 个`,
+        ]
+      : []),
     '',
     ...formatWatchlist('Stock', report.stock),
     '',
