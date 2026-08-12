@@ -6,7 +6,6 @@ import {
   workspace,
   version as vscodeVersion,
   type ExtensionContext,
-  type Disposable,
   type QuickPickItem,
   type TreeView,
 } from 'vscode';
@@ -48,7 +47,6 @@ import {
 } from './ui/watchlistTreeProvider';
 import { StatusBarController } from './ui/statusBarController';
 import { refreshTreeWhenVisible } from './ui/refreshTreeWhenVisible';
-import { prewarmTreeViews } from './ui/prewarmTreeViews';
 
 const MIN_FETCH_INTERVAL_MS = 10_000;
 const SELECT_STATUS_BAR_GROUPS_COMMAND = 'fishStock.selectStatusBarGroups';
@@ -526,43 +524,6 @@ export async function activate(context: ExtensionContext): Promise<void> {
 
   output.appendLine('FishStock 已启动；股票和境内 ETF 使用腾讯行情，国内期货使用新浪行情。');
   if (context.extensionMode !== ExtensionMode.Test) {
-    let prewarmRegistration: Disposable | undefined;
-    const prewarmTimer = setTimeout(() => {
-      prewarmRegistration = prewarmTreeViews(
-        [
-          {
-            label: 'Stock',
-            treeView: stockTreeView,
-            element: stockTreeProvider.getGroupNodes()[0],
-          },
-          {
-            label: 'Fund',
-            treeView: fundTreeView,
-            element: fundTreeProvider.getGroupNodes()[0],
-          },
-          {
-            label: 'Futures',
-            treeView: futuresTreeView,
-            element: futuresTreeProvider.getGroupNodes()[0],
-          },
-        ],
-        {
-          restorePreviousSidebar: () =>
-            commands.executeCommand('workbench.action.previousSideBarView'),
-          onError: (label, error) => {
-            output.appendLine(
-              `[${new Date().toISOString()}] ${label} 预初始化失败：${compactError(error)}`,
-            );
-          },
-        },
-      );
-    }, 0);
-    context.subscriptions.push({
-      dispose: () => {
-        clearTimeout(prewarmTimer);
-        prewarmRegistration?.dispose();
-      },
-    });
     scheduler.start();
     startBackgroundRefresh(refreshAll, (error) => {
       output.appendLine(`[${new Date().toISOString()}] 首次行情刷新异常：${compactError(error)}`);

@@ -127,3 +127,9 @@ FishStock 是面向开发者的轻量 VS Code 自选行情工具。它只解决�
 - FishStock 启动后预初始化 Stock、Fund 与 Futures 的原生 Tree View，把 VS Code 的首次 View 初始化放到用户查看之前完成。
 - 三个 View 在窗口重载后保持展开；启动时若正在使用其他侧边栏，预初始化完成后自动切回，避免长期抢占界面。
 - View 隐藏期间合并行情引起的树更新，首次显示直接使用当前内存缓存；重复的分组折叠状态不再触发本地存储写入。
+
+## 0.5.6 启动边界修复
+
+- 撤销启动阶段主动 `reveal` 三个 View 的方案，FishStock 不改变 VS Code 原本选择的活动侧边栏。
+- 全新工作区首次进入 FishStock 时使用清单声明的默认展开布局；已有工作区继续使用 VS Code 保存的用户布局。
+- Stock、Fund 与 Futures 始终独立折叠和展开，不在首次展开某个 View 时联动其余 View。
