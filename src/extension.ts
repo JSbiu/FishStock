@@ -452,7 +452,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
       stock: summarizeWatchlist(
         stockRepository.getSnapshot(),
         stockProvider.displayName,
-        (symbol) => stockQuotes.get(symbol)?.state,
+        (symbol) => stockQuotes.get(symbol),
         stockRefreshState,
         stockRefreshAt,
         stockProvider.getNextAutomaticRetryAt()?.toISOString(),
@@ -460,7 +460,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
       fund: summarizeWatchlist(
         fundRepository.getSnapshot(),
         fundProvider.displayName,
-        (symbol) => fundQuotes.get(symbol)?.state,
+        (symbol) => fundQuotes.get(symbol),
         fundRefreshState,
         fundRefreshAt,
         fundProvider.getNextAutomaticRetryAt()?.toISOString(),
@@ -468,7 +468,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
       futures: summarizeWatchlist(
         futuresRepository.getSnapshot(),
         futuresProvider.displayName,
-        (symbol) => futuresQuotes.get(symbol)?.state,
+        (symbol) => futuresQuotes.get(symbol),
         futuresRefreshState,
         futuresRefreshAt,
         futuresProvider.getNextAutomaticRetryAt()?.toISOString(),

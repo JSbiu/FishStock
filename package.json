@@ -2,7 +2,7 @@
   "name": "fish-stock",
   "displayName": "FishStock",
   "description": "轻量、安静、本地优先的股票、ETF 与期货自选行情插件",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "publisher": "jsbiu",
   "private": true,
   "author": {
@@ -580,7 +580,7 @@
           "default": 120,
           "minimum": 30,
           "maximum": 86400,
-          "description": "开市行情超过此时间未更新时标记为数据过期（秒）。"
+          "description": "交易时段内距最近一次成功获取行情超过此时间时标记为刷新超时（秒）。"
         },
         "fishStock.statusBar.rotationSeconds": {
           "type": "number",

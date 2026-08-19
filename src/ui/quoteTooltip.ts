@@ -63,6 +63,24 @@ function appendActionHint(tooltip: MarkdownString, actionHint: string | undefine
   tooltip.appendText(actionHint);
 }
 
+export function quoteStaleLabel(quote: Quote): string {
+  if (quote.staleReason === 'refresh-overdue') {
+    return '刷新超时';
+  }
+  if (quote.staleReason === 'quote-not-current') {
+    return quote.sessionPhase === 'closed'
+      ? '最近交易日行情缺失'
+      : '等待当日行情';
+  }
+  if (quote.staleReason === 'future-timestamp') {
+    return '行情时间异常';
+  }
+  if (quote.staleReason === 'session-uncovered') {
+    return '时段未收录';
+  }
+  return '数据过期';
+}
+
 function quoteStateText(quote: Quote): string {
   if (quote.state === 'live') {
     return quote.sessionLabel ? `开市 · ${quote.sessionLabel}` : '开市';
@@ -71,7 +89,8 @@ function quoteStateText(quote: Quote): string {
     return quote.sessionLabel ?? '休市';
   }
   if (quote.state === 'stale') {
-    return quote.sessionLabel ? `数据过期 · ${quote.sessionLabel}` : '数据过期';
+    const label = quoteStaleLabel(quote);
+    return quote.sessionLabel ? `${label} · ${quote.sessionLabel}` : label;
   }
   return quote.sessionLabel ? `暂不可用 · ${quote.sessionLabel}` : '暂不可用';
 }
@@ -139,7 +158,10 @@ export function createQuoteTooltip(
   tooltip.appendMarkdown('\n\n');
   tooltip.appendMarkdown(quoteTable(stock, quote, state));
   tooltip.appendMarkdown('\n\n');
-  tooltip.appendText(`更新时间：${timestamp} · 数据源：${providerName}`);
+  const fetchedAt = quote.lastSuccessfulFetchAt !== undefined
+    ? formatMarketTime(quote.lastSuccessfulFetchAt)
+    : '无';
+  tooltip.appendText(`行情时间：${timestamp} · 最近获取：${fetchedAt} · 数据源：${providerName}`);
   if (quote.nextOpenAt && quote.state !== 'live') {
     tooltip.appendMarkdown('\n\n');
     tooltip.appendText(`下次计划开市：${formatMarketTime(quote.nextOpenAt)}`);

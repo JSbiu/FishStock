@@ -70,7 +70,7 @@ test('merges concurrent requests for the same normalized symbol set', async () =
   assert.equal(requests, 1);
 });
 
-test('marks an open cached quote stale without changing its source timestamp', async () => {
+test('keeps an unchanged source quote live after a successful refetch', async () => {
   let now = 1_000_000;
   const provider: QuoteDataProvider = {
     id: 'test',
@@ -84,19 +84,38 @@ test('marks an open cached quote stale without changing its source timestamp', a
   await service.refresh([symbol]);
   assert.equal(service.get(symbol.symbol)?.state, 'live');
   now += 120_001;
+  await service.refresh([symbol], true);
+  const quote = service.get(symbol.symbol);
+  assert.equal(quote?.state, 'live');
+  assert.equal(quote?.asOf, 1_000_000);
+  assert.equal(quote?.lastSuccessfulFetchAt, now);
+});
+
+test('marks a trading quote stale when successful requests stop', async () => {
+  let now = 1_000_000;
+  const provider: QuoteDataProvider = {
+    id: 'test',
+    displayName: '测试行情',
+    async fetchQuotes() {
+      return [rawQuote(1_000_000)];
+    },
+  };
+  const service = new QuoteService(provider, 10_000, 120_000, () => now);
+
+  await service.refresh([symbol]);
+  now += 120_001;
   const stale = service.get(symbol.symbol);
   assert.equal(stale?.state, 'stale');
-  assert.equal(stale?.asOf, 1_000_000);
+  assert.equal(stale?.staleReason, 'refresh-overdue');
 });
 
 test('derives live and closed states from the current market session', async () => {
   let now = 1_000_000;
   let session: MarketSession = {
     phase: 'trading',
-    label: '上午交易',
+    label: '下午交易',
     exact: true,
-    currentSessionStartedAt: 900_000,
-    lastSessionStartedAt: 900_000,
+    quoteValidSince: 900_000,
   };
   const provider: QuoteDataProvider = {
     id: 'test',
@@ -116,14 +135,14 @@ test('derives live and closed states from the current market session', async () 
   await service.refresh([symbol]);
   assert.deepEqual(
     [service.get(symbol.symbol)?.state, service.get(symbol.symbol)?.sessionLabel],
-    ['live', '上午交易'],
+    ['live', '下午交易'],
   );
 
   session = {
     phase: 'break',
     label: '午休',
     exact: true,
-    lastSessionStartedAt: 900_000,
+    quoteValidSince: 900_000,
     nextOpenAt: 1_100_000,
   };
   assert.deepEqual(
@@ -159,7 +178,7 @@ test('keeps valid closed data closed when a manual refresh fails', async () => {
       phase: 'closed',
       label: '已收盘',
       exact: true,
-      lastSessionStartedAt: 900_000,
+      quoteValidSince: 900_000,
     }),
   );
 
@@ -172,7 +191,8 @@ test('keeps valid closed data closed when a manual refresh fails', async () => {
   assert.match(quote?.message ?? '', /最近刷新失败/);
 });
 
-test('marks cached data stale while trading after a refresh failure', async () => {
+test('keeps cached data live during the refresh failure grace period', async () => {
+  let now = 1_000_000;
   let fail = false;
   const provider: QuoteDataProvider = {
     id: 'test',
@@ -188,21 +208,30 @@ test('marks cached data stale while trading after a refresh failure', async () =
     provider,
     10_000,
     120_000,
-    () => 1_000_000,
+    () => now,
     () => ({
       phase: 'trading',
       label: '上午交易',
       exact: true,
-      currentSessionStartedAt: 900_000,
+      quoteValidSince: 900_000,
     }),
   );
   await service.refresh([symbol]);
   fail = true;
+  now += 60_000;
   await service.refresh([symbol], true);
-  assert.equal(service.get(symbol.symbol)?.state, 'stale');
+  const warning = service.get(symbol.symbol);
+  assert.equal(warning?.state, 'live');
+  assert.match(warning?.message ?? '', /最近刷新失败/);
+
+  now += 60_001;
+  const stale = service.get(symbol.symbol);
+  assert.equal(stale?.state, 'stale');
+  assert.equal(stale?.staleReason, 'refresh-overdue');
 });
 
 test('keeps cached data when a successful batch omits one requested symbol', async () => {
+  let now = 1_000_000;
   let omit = false;
   const provider: QuoteDataProvider = {
     id: 'test',
@@ -215,12 +244,12 @@ test('keeps cached data when a successful batch omits one requested symbol', asy
     provider,
     10_000,
     120_000,
-    () => 1_000_000,
+    () => now,
     () => ({
       phase: 'trading',
       label: '上午交易',
       exact: true,
-      currentSessionStartedAt: 900_000,
+      quoteValidSince: 900_000,
     }),
   );
   await service.refresh([symbol]);
@@ -229,8 +258,12 @@ test('keeps cached data when a successful batch omits one requested symbol', asy
 
   assert.equal(result.error, '数据源未返回 1 个标的');
   assert.equal(service.get(symbol.symbol)?.price, 1500);
-  assert.equal(service.get(symbol.symbol)?.state, 'stale');
+  assert.equal(service.get(symbol.symbol)?.state, 'live');
   assert.match(service.get(symbol.symbol)?.message ?? '', /数据源未返回该标的/);
+
+  now += 120_001;
+  assert.equal(service.get(symbol.symbol)?.state, 'stale');
+  assert.equal(service.get(symbol.symbol)?.staleReason, 'refresh-overdue');
 });
 
 test('marks data stale when it misses the most recent closed session', async () => {
@@ -250,12 +283,81 @@ test('marks data stale when it misses the most recent closed session', async () 
       phase: 'closed',
       label: '已收盘',
       exact: true,
-      lastSessionStartedAt: 900_000,
+      quoteValidSince: 900_000,
     }),
   );
   await service.refresh([symbol]);
   assert.equal(service.get(symbol.symbol)?.state, 'stale');
-  assert.match(service.get(symbol.symbol)?.message ?? '', /最近交易时段/);
+  assert.equal(service.get(symbol.symbol)?.staleReason, 'quote-not-current');
+  assert.match(service.get(symbol.symbol)?.message ?? '', /最近交易日/);
+});
+
+test('marks a previous trading-day quote stale while trading', async () => {
+  const provider: QuoteDataProvider = {
+    id: 'test',
+    displayName: '测试行情',
+    async fetchQuotes() {
+      return [rawQuote(800_000)];
+    },
+  };
+  const service = new QuoteService(
+    provider,
+    10_000,
+    120_000,
+    () => 1_000_000,
+    () => ({
+      phase: 'trading',
+      label: '上午交易',
+      exact: true,
+      quoteValidSince: 900_000,
+    }),
+  );
+
+  await service.refresh([symbol]);
+  assert.equal(service.get(symbol.symbol)?.state, 'stale');
+  assert.equal(service.get(symbol.symbol)?.staleReason, 'quote-not-current');
+});
+
+test('marks a quote from the future stale even while closed', async () => {
+  const provider: QuoteDataProvider = {
+    id: 'test',
+    displayName: '测试行情',
+    async fetchQuotes() {
+      return [rawQuote(1_300_001)];
+    },
+  };
+  const service = new QuoteService(
+    provider,
+    10_000,
+    120_000,
+    () => 1_000_000,
+    () => ({ phase: 'closed', label: '已收盘', exact: true }),
+  );
+
+  await service.refresh([symbol]);
+  assert.equal(service.get(symbol.symbol)?.state, 'stale');
+  assert.equal(service.get(symbol.symbol)?.staleReason, 'future-timestamp');
+});
+
+test('uses a specific stale reason for an uncovered session', async () => {
+  const provider: QuoteDataProvider = {
+    id: 'test',
+    displayName: '测试行情',
+    async fetchQuotes() {
+      return [rawQuote(990_000)];
+    },
+  };
+  const service = new QuoteService(
+    provider,
+    10_000,
+    120_000,
+    () => 1_000_000,
+    () => ({ phase: 'unknown', label: '交易时段未收录', exact: false }),
+  );
+
+  await service.refresh([symbol]);
+  assert.equal(service.get(symbol.symbol)?.state, 'stale');
+  assert.equal(service.get(symbol.symbol)?.staleReason, 'session-uncovered');
 });
 
 test('exposes the exact time when a live quote will become stale', async () => {
@@ -268,6 +370,6 @@ test('exposes the exact time when a live quote will become stale', async () => {
   };
   const service = new QuoteService(provider, 10_000, 120_000, () => 1_010_000);
   await service.refresh([symbol]);
-  assert.equal(service.nextStateChangeAt(symbol.symbol, 1_010_000), 1_120_001);
-  assert.equal(service.nextStateChangeAt(symbol.symbol, 1_120_001), undefined);
+  assert.equal(service.nextStateChangeAt(symbol.symbol, 1_010_000), 1_130_001);
+  assert.equal(service.nextStateChangeAt(symbol.symbol, 1_130_001), undefined);
 });

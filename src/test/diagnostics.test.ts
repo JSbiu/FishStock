@@ -22,7 +22,7 @@ test('summarizes watchlist counts without carrying private labels or symbols', (
   const summary = summarizeWatchlist(
     state,
     '测试行情源',
-    (symbol) => symbol === '600519.SH' ? 'live' : undefined,
+    (symbol) => symbol === '600519.SH' ? { state: 'live' } : undefined,
     'success',
     '2026-08-03T10:00:00.000Z',
   );
@@ -32,6 +32,13 @@ test('summarizes watchlist counts without carrying private labels or symbols', (
     collapsedGroupCount: 1,
     itemCount: 2,
     quoteStates: { live: 1, closed: 0, stale: 0, error: 0, missing: 1 },
+    staleReasons: {
+      'refresh-overdue': 0,
+      'quote-not-current': 0,
+      'future-timestamp': 0,
+      'session-uncovered': 0,
+      unspecified: 0,
+    },
     lastRefreshState: 'success',
     lastRefreshAt: '2026-08-03T10:00:00.000Z',
   });
@@ -43,7 +50,9 @@ test('formats a copyable diagnostic report with an explicit privacy statement', 
   const summary = summarizeWatchlist(
     state,
     '测试行情源',
-    () => 'closed',
+    (symbol) => symbol === '600519.SH'
+      ? { state: 'stale', staleReason: 'refresh-overdue' }
+      : { state: 'stale', staleReason: 'quote-not-current' },
     'error',
     '2026-08-03T10:00:00.000Z',
     '2026-08-03T10:15:00.000Z',
@@ -77,6 +86,7 @@ test('formats a copyable diagnostic report with an explicit privacy statement', 
   assert.match(report, /已收录 64 个品种，未覆盖自选 1 个/);
   assert.match(report, /Stock=default, Fund=gainDesc, Futures=upOnly/);
   assert.match(report, /Fund:/);
+  assert.match(report, /refresh-overdue=1, quote-not-current=1/);
   assert.match(report, /下次自动探测：2026-08-03T10:15:00\.000Z/);
   assert.match(report, /手动刷新可立即探测/);
   assert.match(report, /本报告不包含自选名称、证券代码、文件路径或工作区信息/);

@@ -4,6 +4,12 @@ export type InstrumentKind = 'stock' | 'index' | 'fund' | 'future';
 
 export type QuoteState = 'live' | 'closed' | 'stale' | 'error';
 
+export type QuoteStaleReason =
+  | 'refresh-overdue'
+  | 'quote-not-current'
+  | 'future-timestamp'
+  | 'session-uncovered';
+
 export type MarketSessionPhase = 'trading' | 'break' | 'closed' | 'unknown';
 
 export type VolumeUnit = 'lot' | 'share';
@@ -83,9 +89,11 @@ export interface Quote {
   changePercent: number | null;
   asOf: number;
   state: QuoteState;
+  staleReason?: QuoteStaleReason;
   sessionPhase?: MarketSessionPhase;
   sessionLabel?: string;
   nextOpenAt?: number;
+  lastSuccessfulFetchAt?: number;
   lastRefreshError?: string;
   message?: string;
 }
@@ -95,8 +103,7 @@ export interface MarketSession {
   label: string;
   exact: boolean;
   tradingDate?: string;
-  currentSessionStartedAt?: number;
-  lastSessionStartedAt?: number;
+  quoteValidSince?: number;
   nextOpenAt?: number;
   nextTransitionAt?: number;
 }

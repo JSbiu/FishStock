@@ -42,6 +42,18 @@ test('models A-share auctions, breaks, lunch and close', () => {
   );
 });
 
+test('accepts any quote from the current A-share trading day across sections', () => {
+  const expected = at('2026-08-12T09:15:00').getTime();
+  assert.deepEqual(
+    [
+      '2026-08-12T11:45:00',
+      '2026-08-12T14:00:00',
+      '2026-08-12T15:00:00',
+    ].map((value) => marketSessionFor(A_SHARE, at(value)).quoteValidSince),
+    [expected, expected, expected],
+  );
+});
+
 test('models Hong Kong full-day and closing-auction sessions', () => {
   assert.deepEqual(
     [
@@ -127,6 +139,18 @@ test('assigns Friday night and Saturday early hours to Monday trading', () => {
   assert.deepEqual([friday.phase, friday.tradingDate], ['trading', '2026-08-17']);
   assert.deepEqual([saturday.phase, saturday.tradingDate], ['trading', '2026-08-17']);
   assert.equal(marketSessionFor(AU, at('2026-08-16T21:30:00')).phase, 'closed');
+});
+
+test('uses the prior natural-day night session as the futures trading-day quote floor', () => {
+  const expected = at('2026-08-12T21:00:00').getTime();
+  assert.deepEqual(
+    [
+      '2026-08-13T03:00:00',
+      '2026-08-13T10:00:00',
+      '2026-08-13T15:00:00',
+    ].map((value) => marketSessionFor(AU, at(value)).quoteValidSince),
+    [expected, expected, expected],
+  );
 });
 
 test('suppresses futures night trading before a public holiday', () => {

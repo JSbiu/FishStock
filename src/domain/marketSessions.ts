@@ -151,6 +151,15 @@ function windowsAround(symbol: NormalizedSymbol, dateString: string): SessionWin
   return windows.sort((left, right) => left.start - right.start);
 }
 
+function quoteValidSince(
+  windows: readonly SessionWindow[],
+  tradingDate: string | undefined,
+): number | undefined {
+  return tradingDate === undefined
+    ? undefined
+    : windows.find((window) => window.tradingDate === tradingDate)?.start;
+}
+
 function breakLabel(symbol: NormalizedSymbol, now: Date): string {
   const dateString = shanghaiDateString(now);
   const minutes = localMinutes(now);
@@ -214,8 +223,7 @@ export function marketSessionFor(
       label: current.label,
       exact: current.label !== '夜盘' || futuresSessionRule(symbol.symbol) !== undefined,
       tradingDate: current.tradingDate,
-      currentSessionStartedAt: current.start,
-      lastSessionStartedAt: current.start,
+      quoteValidSince: quoteValidSince(windows, current.tradingDate),
       nextTransitionAt: current.end,
       ...(next ? { nextOpenAt: next.start } : {}),
     };
@@ -226,7 +234,6 @@ export function marketSessionFor(
       phase: 'unknown',
       label: '交易时段未收录',
       exact: false,
-      ...(previous ? { lastSessionStartedAt: previous.start } : {}),
       ...(next ? { nextOpenAt: next.start, nextTransitionAt: next.start } : {}),
     };
   }
@@ -240,11 +247,17 @@ export function marketSessionFor(
       : localMinutes(now) < 9 * 60
         ? '盘前'
         : '已收盘';
+  const tradingDate = previous?.tradingDate;
   return {
     phase,
     label: label || closedLabel,
     exact: true,
-    ...(previous ? { lastSessionStartedAt: previous.start } : {}),
+    ...(tradingDate
+      ? {
+          tradingDate,
+          quoteValidSince: quoteValidSince(windows, tradingDate),
+        }
+      : {}),
     ...(next ? { nextOpenAt: next.start, nextTransitionAt: next.start } : {}),
   };
 }

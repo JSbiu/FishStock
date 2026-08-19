@@ -15,6 +15,7 @@ function errorMessage(error: unknown): string {
 
 interface QuoteCacheEntry {
   quote: Quote;
+  lastSuccessfulFetchAt?: number;
   lastRefreshError?: string;
 }
 
@@ -53,7 +54,11 @@ export class QuoteService {
 
   public nextStateChangeAt(symbol: string, at = this.now()): number | undefined {
     const entry = this.cache.get(symbol);
-    if (!entry || entry.quote.state === 'error' || entry.lastRefreshError) {
+    if (!entry || entry.lastSuccessfulFetchAt === undefined) {
+      return undefined;
+    }
+    const quote = this.withFreshness(entry, at);
+    if (quote.state !== 'live') {
       return undefined;
     }
     const session = this.sessionFor(
@@ -63,7 +68,7 @@ export class QuoteService {
     if (session.phase !== 'trading') {
       return undefined;
     }
-    const staleAt = entry.quote.asOf + this.staleAfterMs + 1;
+    const staleAt = entry.lastSuccessfulFetchAt + this.staleAfterMs + 1;
     return staleAt > at ? staleAt : undefined;
   }
 
@@ -112,12 +117,16 @@ export class QuoteService {
           return [parsed.symbol, parsed] as const;
         }),
       );
+      const receivedAt = this.now();
 
       let missingCount = 0;
       for (const requested of symbols) {
         const quote = parsedBySymbol.get(requested.symbol);
         if (quote) {
-          this.cache.set(requested.symbol, { quote });
+          this.cache.set(requested.symbol, {
+            quote,
+            lastSuccessfulFetchAt: receivedAt,
+          });
         } else {
           missingCount += 1;
           const cached = this.cache.get(requested.symbol);
@@ -130,7 +139,7 @@ export class QuoteService {
                 },
           );
         }
-        this.fetchedAt.set(requested.symbol, this.now());
+        this.fetchedAt.set(requested.symbol, receivedAt);
       }
       return {
         ...this.resultFor(symbols),
@@ -167,8 +176,7 @@ export class QuoteService {
     };
   }
 
-  private withFreshness(entry: QuoteCacheEntry): Quote {
-    const now = this.now();
+  private withFreshness(entry: QuoteCacheEntry, now = this.now()): Quote {
     const quote = entry.quote;
     const session = this.sessionFor(
       { symbol: quote.symbol, market: quote.market },
@@ -178,6 +186,9 @@ export class QuoteService {
       sessionPhase: session.phase,
       sessionLabel: session.label,
       ...(session.nextOpenAt ? { nextOpenAt: session.nextOpenAt } : {}),
+      ...(entry.lastSuccessfulFetchAt !== undefined
+        ? { lastSuccessfulFetchAt: entry.lastSuccessfulFetchAt }
+        : {}),
       ...(entry.lastRefreshError
         ? { lastRefreshError: entry.lastRefreshError }
         : {}),
@@ -189,49 +200,72 @@ export class QuoteService {
     const refreshFailure = entry.lastRefreshError
       ? `最近刷新失败：${entry.lastRefreshError}`
       : undefined;
+    const fromFuture = quote.asOf - now > 5 * 60 * 1_000;
+    if (fromFuture) {
+      return {
+        ...quote,
+        ...sessionFields,
+        state: 'stale',
+        staleReason: 'future-timestamp',
+        message: ['行情时间晚于本机时间', refreshFailure]
+          .filter(Boolean)
+          .join('；'),
+      };
+    }
     if (session.phase === 'unknown') {
       return {
         ...quote,
         ...sessionFields,
         state: 'stale',
+        staleReason: 'session-uncovered',
         message: [session.label, refreshFailure].filter(Boolean).join('；'),
       };
     }
 
     if (session.phase === 'trading') {
-      const tooOld = now - quote.asOf > this.staleAfterMs;
-      const beforeSession =
-        session.currentSessionStartedAt !== undefined &&
-        quote.asOf < session.currentSessionStartedAt;
-      const fromFuture = quote.asOf - now > 5 * 60 * 1_000;
-      if (tooOld || beforeSession || fromFuture || refreshFailure) {
-        const reason = fromFuture
-          ? '行情时间晚于本机时间'
-          : beforeSession
-            ? '等待当前交易时段行情'
-            : tooOld
-              ? '行情更新时间超过过期阈值'
-              : undefined;
+      const refreshOverdue =
+        entry.lastSuccessfulFetchAt === undefined ||
+        now - entry.lastSuccessfulFetchAt > this.staleAfterMs;
+      const quoteNotCurrent =
+        session.quoteValidSince !== undefined &&
+        quote.asOf < session.quoteValidSince;
+      if (quoteNotCurrent || refreshOverdue) {
+        const reason = quoteNotCurrent
+          ? '未取得当前交易日行情'
+          : '行情刷新超过过期阈值';
+        const staleReason = quoteNotCurrent
+          ? 'quote-not-current'
+          : 'refresh-overdue';
         return {
           ...quote,
           ...sessionFields,
           state: 'stale',
+          staleReason,
           message: [reason, refreshFailure].filter(Boolean).join('；'),
         };
       }
-      return { ...quote, ...sessionFields, state: 'live', message: undefined };
+      return {
+        ...quote,
+        ...sessionFields,
+        state: 'live',
+        staleReason: undefined,
+        message: refreshFailure,
+      };
     }
 
-    const missedLatestSession =
-      session.lastSessionStartedAt !== undefined &&
-      quote.asOf < session.lastSessionStartedAt;
-    if (missedLatestSession) {
+    const quoteNotCurrent =
+      session.quoteValidSince !== undefined &&
+      quote.asOf < session.quoteValidSince;
+    if (quoteNotCurrent) {
       return {
         ...quote,
         ...sessionFields,
         state: 'stale',
+        staleReason: 'quote-not-current',
         message: [
-          '未取得最近交易时段行情',
+          session.phase === 'break'
+            ? '未取得当前交易日行情'
+            : '未取得最近交易日行情',
           refreshFailure,
         ].filter(Boolean).join('；'),
       };
@@ -240,6 +274,7 @@ export class QuoteService {
       ...quote,
       ...sessionFields,
       state: 'closed',
+      staleReason: undefined,
       message: refreshFailure,
     };
   }

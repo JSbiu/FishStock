@@ -11,7 +11,12 @@ import type { Quote, Stock, WatchGroup } from '../domain/models';
 import { applyViewOptions, type ViewMode } from '../domain/viewOptions';
 import type { QuoteService } from '../data/quoteService';
 import type { WatchlistRepository } from '../storage/watchlistRepository';
-import { createQuoteTooltip, formatPercent, formatPrice } from './quoteTooltip';
+import {
+  createQuoteTooltip,
+  formatPercent,
+  formatPrice,
+  quoteStaleLabel,
+} from './quoteTooltip';
 
 export class GroupNode {
   public readonly kind = 'group';
@@ -44,7 +49,7 @@ function quoteDescription(stock: Stock, quote: Quote | undefined): string {
     quote.state === 'closed'
       ? ` · ${quote.sessionLabel ?? '休市'}`
       : quote.state === 'stale'
-        ? ' · 数据过期'
+        ? ` · ${quoteStaleLabel(quote)}`
         : quote.state === 'error'
           ? ' · 暂不可用'
           : '';

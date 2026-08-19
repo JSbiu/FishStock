@@ -1,12 +1,15 @@
 import type {
   Market,
   MarketSessionPhase,
+  Quote,
+  QuoteStaleReason,
   QuoteState,
   WatchlistState,
 } from './models';
 
 export type DiagnosticRefreshState = 'not-run' | 'success' | 'error';
 export type DiagnosticQuoteState = QuoteState | 'missing';
+export type DiagnosticStaleReason = QuoteStaleReason | 'unspecified';
 
 export interface DiagnosticWatchlistSummary {
   providerName: string;
@@ -14,6 +17,7 @@ export interface DiagnosticWatchlistSummary {
   collapsedGroupCount: number;
   itemCount: number;
   quoteStates: Readonly<Record<DiagnosticQuoteState, number>>;
+  staleReasons: Readonly<Record<DiagnosticStaleReason, number>>;
   lastRefreshState: DiagnosticRefreshState;
   lastRefreshAt?: string;
   nextRetryAt?: string;
@@ -56,10 +60,20 @@ const QUOTE_STATES: readonly DiagnosticQuoteState[] = [
   'missing',
 ];
 
+const STALE_REASONS: readonly DiagnosticStaleReason[] = [
+  'refresh-overdue',
+  'quote-not-current',
+  'future-timestamp',
+  'session-uncovered',
+  'unspecified',
+];
+
 export function summarizeWatchlist(
   state: WatchlistState,
   providerName: string,
-  quoteStateOf: (symbol: string) => QuoteState | undefined,
+  quoteOf: (
+    symbol: string,
+  ) => Pick<Quote, 'state' | 'staleReason'> | undefined,
   lastRefreshState: DiagnosticRefreshState,
   lastRefreshAt?: string,
   nextRetryAt?: string,
@@ -71,11 +85,22 @@ export function summarizeWatchlist(
     error: 0,
     missing: 0,
   };
+  const staleReasons: Record<DiagnosticStaleReason, number> = {
+    'refresh-overdue': 0,
+    'quote-not-current': 0,
+    'future-timestamp': 0,
+    'session-uncovered': 0,
+    unspecified: 0,
+  };
   let itemCount = 0;
   for (const group of state.groups) {
     for (const item of group.stocks) {
       itemCount += 1;
-      quoteStates[quoteStateOf(item.symbol) ?? 'missing'] += 1;
+      const quote = quoteOf(item.symbol);
+      quoteStates[quote?.state ?? 'missing'] += 1;
+      if (quote?.state === 'stale') {
+        staleReasons[quote.staleReason ?? 'unspecified'] += 1;
+      }
     }
   }
   return {
@@ -84,6 +109,7 @@ export function summarizeWatchlist(
     collapsedGroupCount: state.groups.filter((group) => group.collapsed).length,
     itemCount,
     quoteStates,
+    staleReasons,
     lastRefreshState,
     ...(lastRefreshAt ? { lastRefreshAt } : {}),
     ...(nextRetryAt ? { nextRetryAt } : {}),
@@ -102,12 +128,18 @@ function formatWatchlist(label: string, summary: DiagnosticWatchlistSummary): st
   const quoteStates = QUOTE_STATES.map(
     (state) => `${state}=${summary.quoteStates[state]}`,
   ).join(', ');
+  const staleReasons = STALE_REASONS.map(
+    (reason) => `${reason}=${summary.staleReasons[reason]}`,
+  ).join(', ');
   return [
     `${label}:`,
     `- 行情源：${summary.providerName}`,
     `- 分组：${summary.groupCount}（折叠 ${summary.collapsedGroupCount}）`,
     `- 条目：${summary.itemCount}`,
     `- 行情状态：${quoteStates}`,
+    ...(summary.quoteStates.stale > 0
+      ? [`- 过期原因：${staleReasons}`]
+      : []),
     `- 最近刷新：${formatRefresh(summary)}`,
     ...(summary.nextRetryAt
       ? [`- 下次自动探测：${summary.nextRetryAt}（手动刷新可立即探测）`]
