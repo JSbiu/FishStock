@@ -2,6 +2,10 @@ export type Market = 'CN' | 'HK' | 'US' | 'CNF';
 
 export type InstrumentKind = 'stock' | 'index' | 'fund' | 'future';
 
+export type HoldingInstrumentKind = 'stock' | 'fund';
+
+export type HoldingCurrency = 'CNY' | 'HKD';
+
 export type QuoteState = 'live' | 'closed' | 'stale' | 'error';
 
 export type QuoteStaleReason =
@@ -30,6 +34,21 @@ export interface WatchGroup {
 export interface WatchlistState {
   version: 1;
   groups: WatchGroup[];
+}
+
+export interface Holding {
+  id: string;
+  symbol: string;
+  market: 'CN' | 'HK';
+  kind: HoldingInstrumentKind;
+  name?: string;
+  quantity: number;
+  averageCost: number;
+}
+
+export interface HoldingsState {
+  version: 1;
+  holdings: Holding[];
 }
 
 export interface NormalizedSymbol {

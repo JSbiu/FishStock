@@ -4,9 +4,18 @@ import {
   type Disposable,
   type StatusBarItem,
 } from 'vscode';
-import type { Quote, Stock, WatchlistState } from '../domain/models';
+import { calculateHoldingMetrics } from '../domain/holdings';
+import type {
+  Holding,
+  HoldingsState,
+  Quote,
+  Stock,
+  WatchlistState,
+} from '../domain/models';
 import type { QuoteService } from '../data/quoteService';
+import type { StatusBarDisplayMode } from '../storage/statusBarDisplayStore';
 import type { StatusBarGroupKind } from '../storage/statusBarRotationStore';
+import { createHoldingTooltip } from './holdingTooltip';
 import { createQuoteTooltip, formatPrice } from './quoteTooltip';
 
 const SELECT_GROUPS_COMMAND = 'fishStock.selectStatusBarGroups';
@@ -29,18 +38,44 @@ function displayText(stock: Stock, quote: Quote | undefined): string {
   return `$(pulse) ${name} ${formatPrice(quote.price)} ${change}`;
 }
 
+function holdingDisplayText(holding: Holding, quote: Quote | undefined): string {
+  const name = holding.name ?? quote?.name ?? holding.symbol;
+  const metrics = calculateHoldingMetrics(holding, quote);
+  if (!metrics) {
+    return `$(warning) ${name} --`;
+  }
+  const profit = `${metrics.profit >= 0 ? '+' : ''}${metrics.profit.toLocaleString('zh-CN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} ${metrics.currency}`;
+  const percent = `${metrics.returnPercent >= 0 ? '+' : ''}${metrics.returnPercent.toFixed(2)}%`;
+  if (quote?.state === 'closed') {
+    return `$(clock) ${name} ${profit} (${percent})`;
+  }
+  if (quote?.state === 'stale') {
+    return `$(history) ${name} ${profit} (${percent})`;
+  }
+  if (quote?.state === 'error') {
+    return `$(warning) ${name} --`;
+  }
+  return `$(pulse) ${name} ${profit} (${percent})`;
+}
+
 export class StatusBarController implements Disposable {
   private readonly item: StatusBarItem;
-  private entries: StatusBarEntry[] = [];
-  private index = 0;
+  private quoteEntries: QuoteStatusBarEntry[] = [];
+  private holdingEntries: HoldingStatusBarEntry[] = [];
+  private quoteIndex = 0;
+  private holdingIndex = 0;
   private timer: NodeJS.Timeout | undefined;
-  private hasIncludedGroups = true;
+  private hasIncludedQuoteGroups = true;
 
   public constructor(
     private rotationIntervalMs: number,
+    private mode: StatusBarDisplayMode = 'quotes',
   ) {
     this.item = window.createStatusBarItem(StatusBarAlignment.Left, 10);
-    this.item.name = 'FishStock 行情';
+    this.item.name = 'FishStock 行情与持仓';
     this.item.command = 'fishStock.openWatchlist';
     this.item.show();
     this.restartTimer();
@@ -48,9 +83,9 @@ export class StatusBarController implements Disposable {
   }
 
   public setSources(sources: readonly StatusBarSource[]): void {
-    const currentKey = this.entries[this.index]?.key;
+    const currentKey = this.quoteEntries[this.quoteIndex]?.key;
     let includedGroupCount = 0;
-    this.entries = sources.flatMap((source) =>
+    this.quoteEntries = sources.flatMap((source) =>
       source.state.groups.flatMap((group) => {
         if (!source.isGroupIncluded(group.id)) {
           return [];
@@ -65,15 +100,40 @@ export class StatusBarController implements Disposable {
         }));
       }),
     );
-    this.hasIncludedGroups = includedGroupCount > 0;
+    this.hasIncludedQuoteGroups = includedGroupCount > 0;
     const currentIndex = currentKey
-      ? this.entries.findIndex((entry) => entry.key === currentKey)
+      ? this.quoteEntries.findIndex((entry) => entry.key === currentKey)
       : -1;
     if (currentIndex >= 0) {
-      this.index = currentIndex;
-    } else if (this.index >= this.entries.length) {
-      this.index = 0;
+      this.quoteIndex = currentIndex;
+    } else if (this.quoteIndex >= this.quoteEntries.length) {
+      this.quoteIndex = 0;
     }
+    this.render();
+  }
+
+  public setHoldingSource(source: HoldingStatusBarSource): void {
+    const currentKey = this.holdingEntries[this.holdingIndex]?.key;
+    this.holdingEntries = source.state.holdings.map((holding) => ({
+      key: `holding:${holding.id}`,
+      holding,
+      quoteOf: source.quoteOf,
+      providerNameOf: source.providerNameOf,
+      openCommand: source.openCommand,
+    }));
+    const currentIndex = currentKey
+      ? this.holdingEntries.findIndex((entry) => entry.key === currentKey)
+      : -1;
+    if (currentIndex >= 0) {
+      this.holdingIndex = currentIndex;
+    } else if (this.holdingIndex >= this.holdingEntries.length) {
+      this.holdingIndex = 0;
+    }
+    this.render();
+  }
+
+  public setMode(mode: StatusBarDisplayMode): void {
+    this.mode = mode;
     this.render();
   }
 
@@ -95,20 +155,32 @@ export class StatusBarController implements Disposable {
       clearInterval(this.timer);
     }
     this.timer = setInterval(() => {
-      if (this.entries.length > 0) {
-        this.index = (this.index + 1) % this.entries.length;
+      if (this.mode === 'holdings') {
+        if (this.holdingEntries.length > 0) {
+          this.holdingIndex = (this.holdingIndex + 1) % this.holdingEntries.length;
+        }
+      } else if (this.quoteEntries.length > 0) {
+        this.quoteIndex = (this.quoteIndex + 1) % this.quoteEntries.length;
       }
       this.render();
     }, this.rotationIntervalMs);
   }
 
   private render(): void {
-    const entry = this.entries[this.index];
+    if (this.mode === 'holdings') {
+      this.renderHolding();
+      return;
+    }
+    this.renderQuote();
+  }
+
+  private renderQuote(): void {
+    const entry = this.quoteEntries[this.quoteIndex];
     if (!entry) {
-      this.item.text = this.hasIncludedGroups
+      this.item.text = this.hasIncludedQuoteGroups
         ? '$(pulse) FishStock'
         : '$(debug-pause) FishStock';
-      this.item.tooltip = this.hasIncludedGroups
+      this.item.tooltip = this.hasIncludedQuoteGroups
         ? '已选择的轮播分组暂无自选行情。点击重新选择轮播分组。'
         : '状态栏轮播已关闭。点击选择参与轮播的分组。';
       this.item.command = SELECT_GROUPS_COMMAND;
@@ -124,6 +196,25 @@ export class StatusBarController implements Disposable {
     );
     this.item.command = entry.openCommand;
   }
+
+  private renderHolding(): void {
+    const entry = this.holdingEntries[this.holdingIndex];
+    if (!entry) {
+      this.item.text = '$(briefcase) FishStock';
+      this.item.tooltip = '暂无持仓。点击打开 Holdings 添加持仓。';
+      this.item.command = 'fishStock.openHoldings';
+      return;
+    }
+    const quote = entry.quoteOf(entry.holding);
+    this.item.text = holdingDisplayText(entry.holding, quote);
+    this.item.tooltip = createHoldingTooltip(
+      entry.holding,
+      quote,
+      entry.providerNameOf(entry.holding),
+      '点击打开持仓列表',
+    );
+    this.item.command = entry.openCommand;
+  }
 }
 
 export interface StatusBarSource {
@@ -135,10 +226,25 @@ export interface StatusBarSource {
   isGroupIncluded(groupId: string): boolean;
 }
 
-interface StatusBarEntry {
+export interface HoldingStatusBarSource {
+  state: HoldingsState;
+  quoteOf(holding: Holding): Quote | undefined;
+  providerNameOf(holding: Holding): string;
+  openCommand: string;
+}
+
+interface QuoteStatusBarEntry {
   key: string;
   stock: Stock;
   quotes: QuoteService;
   providerName: string;
+  openCommand: string;
+}
+
+interface HoldingStatusBarEntry {
+  key: string;
+  holding: Holding;
+  quoteOf(holding: Holding): Quote | undefined;
+  providerNameOf(holding: Holding): string;
   openCommand: string;
 }

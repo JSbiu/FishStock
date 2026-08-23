@@ -18,6 +18,12 @@ const REQUIRED_COMMANDS = [
   'fishStock.expandAllFundGroups',
   'fishStock.copyDiagnostics',
   'fishStock.selectStatusBarGroups',
+  'fishStock.addHolding',
+  'fishStock.editHolding',
+  'fishStock.removeHolding',
+  'fishStock.refreshHoldings',
+  'fishStock.openHoldings',
+  'fishStock.selectStatusBarMode',
 ] as const;
 
 export async function run(): Promise<void> {
@@ -38,4 +44,5 @@ export async function run(): Promise<void> {
   await commands.executeCommand('fishStock.openFutures');
   await commands.executeCommand('fishStock.futures.focus');
   await commands.executeCommand('fishStock.expandAllFuturesGroups');
+  await commands.executeCommand('fishStock.openHoldings');
 }

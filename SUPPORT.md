@@ -1,11 +1,11 @@
 # FishStock 支持说明
 
-FishStock 0.5.1 是公开预览版本。问题反馈和功能建议统一使用 [GitHub Issues](https://github.com/JSbiu/FishStock/issues)。
+FishStock 是公开预览产品。问题反馈和功能建议统一使用 [GitHub Issues](https://github.com/JSbiu/FishStock/issues)。
 
 ## 反馈问题前
 
 1. 确认 VS Code 版本不低于 1.90。
-2. 在对应的 Stock、Fund 或 Futures 视图中执行一次手动刷新。
+2. 在对应的 Stock、Fund、Futures 或 Holdings 视图中执行一次手动刷新。
 3. 从命令面板执行 `FishStock: 复制运行诊断信息`。
 4. 打开“查看 → 输出”，在右侧下拉框选择 `FishStock`，查看刷新错误。
 
@@ -20,7 +20,9 @@ FishStock 0.5.1 是公开预览版本。问题反馈和功能建议统一使用 
 ## 已知限制
 
 - 股票、ETF 和期货依赖第三方公开网页行情端点，没有面向 FishStock 的正式服务保证。HTTP 403、地区限制、临时不可用或字段变化不一定能由扩展立即修复。
-- Stock、Fund 与 Futures 是 VS Code 原生同级视图。VS Code 会恢复工作区保存的视图高度；必要时请拖动或双击视图之间的分隔线重新分配空间。
+- Stock、Fund、Futures 与 Holdings 是 VS Code 原生同级视图。VS Code 会恢复工作区保存的视图高度；必要时请拖动或双击视图之间的分隔线重新分配空间。
+- Holdings 的浮动盈亏只根据用户保存的数量、平均成本和最近有效行情计算。人民币与港币不合并，结果不包含费用、税费、分红、公司行动或汇率影响，也不代表账户或券商结算结果。
+- 复制诊断信息不会包含证券代码、持仓数量、平均成本、市值或盈亏；FishStock 输出日志可能包含行情请求错误，分享前仍应自行检查。
 - FishStock 仅提供行情辅助展示，不提供投资建议，也不保证行情实时、完整或准确。
 
 安全或隐私问题请只在公开 Issue 中描述影响和复现入口，不要公开令牌、账号或个人数据；维护者会再协调适合的后续沟通方式。

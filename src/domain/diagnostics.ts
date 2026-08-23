@@ -1,4 +1,7 @@
 import type {
+  Holding,
+  HoldingCurrency,
+  HoldingsState,
   Market,
   MarketSessionPhase,
   Quote,
@@ -23,6 +26,12 @@ export interface DiagnosticWatchlistSummary {
   nextRetryAt?: string;
 }
 
+export interface DiagnosticHoldingsSummary {
+  itemCount: number;
+  currencies: Readonly<Record<HoldingCurrency, number>>;
+  quoteStates: Readonly<Record<DiagnosticQuoteState, number>>;
+}
+
 export interface DiagnosticReport {
   generatedAt: string;
   extensionVersion: string;
@@ -39,6 +48,7 @@ export interface DiagnosticReport {
     fund: string;
     futures: string;
   };
+  statusBarMode?: string;
   tradingDays: Readonly<Partial<Record<Market, boolean>>>;
   sessionPhases?: Readonly<Record<MarketSessionPhase, number>>;
   nextAutomaticRefreshAt?: string;
@@ -50,6 +60,7 @@ export interface DiagnosticReport {
   stock: DiagnosticWatchlistSummary;
   fund: DiagnosticWatchlistSummary;
   futures: DiagnosticWatchlistSummary;
+  holdings?: DiagnosticHoldingsSummary;
 }
 
 const QUOTE_STATES: readonly DiagnosticQuoteState[] = [
@@ -116,6 +127,27 @@ export function summarizeWatchlist(
   };
 }
 
+export function summarizeHoldings(
+  state: HoldingsState,
+  quoteOf: (
+    holding: Holding,
+  ) => Pick<Quote, 'state' | 'staleReason'> | undefined,
+): DiagnosticHoldingsSummary {
+  const quoteStates: Record<DiagnosticQuoteState, number> = {
+    live: 0,
+    closed: 0,
+    stale: 0,
+    error: 0,
+    missing: 0,
+  };
+  const currencies: Record<HoldingCurrency, number> = { CNY: 0, HKD: 0 };
+  for (const holding of state.holdings) {
+    currencies[holding.market === 'HK' ? 'HKD' : 'CNY'] += 1;
+    quoteStates[quoteOf(holding)?.state ?? 'missing'] += 1;
+  }
+  return { itemCount: state.holdings.length, currencies, quoteStates };
+}
+
 function formatRefresh(summary: DiagnosticWatchlistSummary): string {
   if (summary.lastRefreshState === 'not-run') {
     return '尚未执行';
@@ -164,6 +196,9 @@ export function formatDiagnosticReport(report: DiagnosticReport): string {
     `- 状态栏轮播：${report.config.rotationSeconds} 秒`,
     `- 涨跌颜色：${report.config.colorConvention}`,
     `- 视图模式：Stock=${report.viewModes.stock}, Fund=${report.viewModes.fund}, Futures=${report.viewModes.futures}`,
+    ...(report.statusBarMode
+      ? [`- 状态栏模式：${report.statusBarMode}`]
+      : []),
     `- 当日交易判断：${tradingDays || '无自选市场'}`,
     ...(report.sessionPhases
       ? [
@@ -191,8 +226,17 @@ export function formatDiagnosticReport(report: DiagnosticReport): string {
     ...formatWatchlist('Fund', report.fund),
     '',
     ...formatWatchlist('Futures', report.futures),
+    ...(report.holdings
+      ? [
+          '',
+          'Holdings:',
+          `- 条目：${report.holdings.itemCount}`,
+          `- 币种：CNY=${report.holdings.currencies.CNY}, HKD=${report.holdings.currencies.HKD}`,
+          `- 行情状态：${QUOTE_STATES.map((state) => `${state}=${report.holdings?.quoteStates[state] ?? 0}`).join(', ')}`,
+        ]
+      : []),
     '',
-    '隐私：本报告不包含自选名称、证券代码、文件路径或工作区信息。',
+    '隐私：本报告不包含自选名称、证券代码、持仓数量、成本、盈亏、文件路径或工作区信息。',
     '刷新错误详情请在 FishStock 输出日志中查看。',
   ].join('\n');
 }

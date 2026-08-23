@@ -38,6 +38,14 @@ test('every registered command id is declared in package.json', () => {
     'fishStock.openQuote',
     'fishStock.copyDiagnostics',
     'fishStock.selectStatusBarGroups',
+    'fishStock.addHolding',
+    'fishStock.editHolding',
+    'fishStock.removeHolding',
+    'fishStock.refreshHoldings',
+    'fishStock.clearHoldings',
+    'fishStock.openHoldings',
+    'fishStock.openHoldingQuote',
+    'fishStock.selectStatusBarMode',
   ];
   for (const id of ids) {
     assert.equal(declared.has(id), true, `${id} 未在 package.json 声明`);
@@ -78,9 +86,14 @@ test('every contributed view declares an icon', () => {
   }
 });
 
-test('manifest contributes Stock, Fund and Futures views', () => {
+test('manifest contributes Stock, Fund, Futures and Holdings views', () => {
   assert.deepEqual(
     contributedViews().map((view) => view.id),
-    ['fishStock.stock', 'fishStock.fund', 'fishStock.futures'],
+    [
+      'fishStock.stock',
+      'fishStock.fund',
+      'fishStock.futures',
+      'fishStock.holdings',
+    ],
   );
 });

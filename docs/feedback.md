@@ -6,7 +6,7 @@
 
 - 当时想完成什么操作。
 - 实际发生了什么，以及期望结果。
-- 使用 Stock、Fund 还是 Futures。
+- 使用 Stock、Fund、Futures 还是 Holdings；如涉及持仓，公开反馈前请隐藏数量、成本和盈亏。
 - 是否能稳定复现。
 - FishStock 与 VS Code 版本。
 - 必要时执行 `FishStock: 复制运行诊断信息`，确认内容后附上。
