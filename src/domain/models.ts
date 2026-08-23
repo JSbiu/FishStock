@@ -63,6 +63,11 @@ export interface StockSearchResult extends NormalizedSymbol {
   venue?: string;
 }
 
+export type HoldingSearchResult = StockSearchResult & {
+  kind: HoldingInstrumentKind;
+  market: 'CN' | 'HK';
+};
+
 export interface RawMarketQuote {
   symbol: string;
   market: Market;

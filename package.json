@@ -2,7 +2,7 @@
   "name": "fish-stock",
   "displayName": "FishStock",
   "description": "轻量、安静、本地优先的股票、ETF、期货与持仓行情插件",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "publisher": "jsbiu",
   "private": true,
   "author": {
@@ -318,6 +318,11 @@
         "icon": "$(add)"
       },
       {
+        "command": "fishStock.manageHoldings",
+        "title": "FishStock: 管理持仓",
+        "icon": "$(edit)"
+      },
+      {
         "command": "fishStock.editHolding",
         "title": "FishStock: 编辑持仓",
         "icon": "$(edit)"
@@ -511,6 +516,11 @@
           "command": "fishStock.addHolding",
           "when": "view == fishStock.holdings",
           "group": "navigation@2"
+        },
+        {
+          "command": "fishStock.manageHoldings",
+          "when": "view == fishStock.holdings",
+          "group": "navigation@3"
         },
         {
           "command": "fishStock.selectStatusBarMode",

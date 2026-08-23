@@ -178,6 +178,10 @@ export class HoldingsRepository {
     await this.save(emptyState());
   }
 
+  public async replaceHoldings(holdings: readonly Holding[]): Promise<void> {
+    await this.save({ version: 1, holdings: [...holdings] });
+  }
+
   private requireHolding(state: HoldingsState, holdingId: string): Holding {
     const holding = state.holdings.find((item) => item.id === holdingId);
     if (!holding) {
@@ -187,8 +191,9 @@ export class HoldingsRepository {
   }
 
   private async save(state: HoldingsState): Promise<void> {
-    this.state = parseHoldingsState(state);
-    await this.persist();
+    const parsed = parseHoldingsState(state);
+    await this.store.update(STORAGE_KEY, parsed);
+    this.state = parsed;
   }
 
   private async persist(): Promise<void> {

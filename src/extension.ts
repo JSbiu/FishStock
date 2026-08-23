@@ -14,10 +14,7 @@ import {
   buildFuturesCommandSet,
   buildStockCommandSet,
 } from './commands/commandSets';
-import {
-  registerHoldingsCommands,
-  type HoldingSearchResult,
-} from './commands/registerHoldingsCommands';
+import { registerHoldingsCommands } from './commands/registerHoldingsCommands';
 import { registerWatchlistCommands } from './commands/registerWatchlistCommands';
 import { readConfig } from './config';
 import { BseSecurityDirectory } from './data/bseSecurityDirectory';
@@ -33,6 +30,7 @@ import {
 import type {
   Holding,
   HoldingInstrumentKind,
+  HoldingSearchResult,
   Market,
   MarketSession,
   NormalizedSymbol,
@@ -68,6 +66,7 @@ import {
 import { StatusBarController } from './ui/statusBarController';
 import { refreshTreeWhenVisible } from './ui/refreshTreeWhenVisible';
 import { HoldingsTreeProvider } from './ui/holdingsTreeProvider';
+import { HoldingsManagerPanel } from './ui/holdingsManagerPanel';
 
 const MIN_FETCH_INTERVAL_MS = 10_000;
 const SELECT_STATUS_BAR_GROUPS_COMMAND = 'fishStock.selectStatusBarGroups';
@@ -222,11 +221,11 @@ export async function activate(context: ExtensionContext): Promise<void> {
     Date.now,
     marketSessionFor,
   );
-  const holdingQuote = (holding: Holding) =>
+  const holdingQuote = (holding: Pick<Holding, 'symbol' | 'kind'>) =>
     holding.kind === 'fund'
       ? fundQuotes.get(holding.symbol)
       : stockQuotes.get(holding.symbol);
-  const holdingProviderName = (holding: Holding): string =>
+  const holdingProviderName = (holding: Pick<Holding, 'kind'>): string =>
     holding.kind === 'fund'
       ? fundProvider.displayName
       : stockProvider.displayName;
@@ -312,6 +311,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
     fund?: MarketSessionMonitor;
     futures?: MarketSessionMonitor;
   } = {};
+  const holdingsManagerRef: { current?: HoldingsManagerPanel } = {};
   const trackedStockSymbols = (): NormalizedSymbol[] => mergeSymbols(
     watchlistSymbols(stockRepository),
     holdingsSymbols(holdingsRepository, 'stock'),
@@ -358,6 +358,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
       providerNameOf: holdingProviderName,
       openCommand: 'fishStock.openHoldings',
     });
+    holdingsManagerRef.current?.updateQuotes();
   };
 
   const refreshFunds = async (
@@ -688,10 +689,13 @@ export async function activate(context: ExtensionContext): Promise<void> {
     logSessionMonitorError,
   );
 
-  const searchHoldings = async (query: string): Promise<HoldingSearchResult[]> => {
+  const searchHoldings = async (
+    query: string,
+    signal?: AbortSignal,
+  ): Promise<HoldingSearchResult[]> => {
     const [stocks, funds] = await Promise.all([
-      stockProvider.searchStocks(query),
-      fundProvider.searchFunds(query),
+      stockProvider.searchStocks(query, signal),
+      fundProvider.searchFunds(query, signal),
     ]);
     const accepted = [...stocks, ...funds].filter(
       (result): result is HoldingSearchResult =>
@@ -702,22 +706,42 @@ export async function activate(context: ExtensionContext): Promise<void> {
       ...new Map(accepted.map((result) => [result.symbol, result])).values(),
     ];
   };
-  const afterHoldingsChange = async (added?: Holding): Promise<void> => {
+  const afterHoldingsChange = async (
+    added: readonly Holding[] = [],
+  ): Promise<void> => {
     updateHoldingsMessage();
     holdingsTreeRefresh.requestRefresh();
     updateStatusBar();
+    holdingsManagerRef.current?.repositoryChanged();
     sessionMonitors.stock?.refresh();
     sessionMonitors.fund?.refresh();
-    if (!added) {
+    if (added.length === 0) {
       return;
     }
-    const symbol = [{ symbol: added.symbol, market: added.market }];
-    if (added.kind === 'fund') {
-      await refreshFunds(true, true, symbol, false);
-    } else {
-      await refreshStocks(true, true, symbol, false);
-    }
+    const stockSymbols = added
+      .filter((holding) => holding.kind === 'stock')
+      .map((holding) => ({ symbol: holding.symbol, market: holding.market }));
+    const fundSymbols = added
+      .filter((holding) => holding.kind === 'fund')
+      .map((holding) => ({ symbol: holding.symbol, market: holding.market }));
+    await Promise.all([
+      stockSymbols.length > 0
+        ? refreshStocks(true, true, stockSymbols, false)
+        : Promise.resolve(undefined),
+      fundSymbols.length > 0
+        ? refreshFunds(true, true, fundSymbols, false)
+        : Promise.resolve(undefined),
+    ]);
   };
+  const holdingsManager = new HoldingsManagerPanel({
+    repository: holdingsRepository,
+    search: searchHoldings,
+    quoteOf: holdingQuote,
+    refresh: () => refreshHoldings(true),
+    afterSave: afterHoldingsChange,
+    colorConvention: () => config.colorConvention,
+  });
+  holdingsManagerRef.current = holdingsManager;
 
   context.subscriptions.push(
     output,
@@ -731,6 +755,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
     fundTreeRefresh,
     futuresTreeRefresh,
     holdingsTreeRefresh,
+    holdingsManager,
     sessionMonitors.stock,
     sessionMonitors.fund,
     sessionMonitors.futures,
@@ -818,7 +843,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
     }),
     ...registerHoldingsCommands({
       repository: holdingsRepository,
-      search: searchHoldings,
+      openManager: (focus) => holdingsManager.show(focus),
       refresh: refreshHoldings,
       afterChange: afterHoldingsChange,
     }),

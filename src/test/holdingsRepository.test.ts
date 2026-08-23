@@ -11,6 +11,7 @@ import type { StateStore } from '../storage/watchlistRepository';
 class MemoryStateStore implements StateStore {
   private readonly values = new Map<string, unknown>();
   public updateCount = 0;
+  public failUpdates = false;
 
   public constructor(initial?: unknown) {
     if (initial !== undefined) {
@@ -23,6 +24,9 @@ class MemoryStateStore implements StateStore {
   }
 
   public async update(key: string, value: unknown): Promise<void> {
+    if (this.failUpdates) {
+      throw new Error('storage failed');
+    }
     this.updateCount += 1;
     this.values.set(key, structuredClone(value));
   }
@@ -63,6 +67,27 @@ test('loads valid state without a redundant storage write', async () => {
   const repository = new HoldingsRepository(backing);
   await repository.load();
   assert.equal(backing.updateCount, 0);
+});
+
+test('replaces multiple holdings atomically and keeps memory unchanged on storage failure', async () => {
+  const backing = new MemoryStateStore({ version: 1, holdings: [holding] });
+  const repository = new HoldingsRepository(backing);
+  await repository.load();
+  const replacement: Holding = {
+    id: 'two',
+    symbol: '510300.SH',
+    market: 'CN',
+    kind: 'fund',
+    name: '沪深300ETF',
+    quantity: 1_000,
+    averageCost: 3.82,
+  };
+  await repository.replaceHoldings([holding, replacement]);
+  assert.deepEqual(repository.getSnapshot().holdings, [holding, replacement]);
+
+  backing.failUpdates = true;
+  await assert.rejects(repository.replaceHoldings([replacement]), /storage failed/);
+  assert.deepEqual(repository.getSnapshot().holdings, [holding, replacement]);
 });
 
 test('rejects duplicate, unsupported and invalid positions', async () => {

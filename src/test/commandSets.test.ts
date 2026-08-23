@@ -39,6 +39,7 @@ test('every registered command id is declared in package.json', () => {
     'fishStock.copyDiagnostics',
     'fishStock.selectStatusBarGroups',
     'fishStock.addHolding',
+    'fishStock.manageHoldings',
     'fishStock.editHolding',
     'fishStock.removeHolding',
     'fishStock.refreshHoldings',
