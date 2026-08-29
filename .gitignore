@@ -7,3 +7,4 @@ dist/
 coverage/
 docs/decisions.md
 .claude/
+.workbuddy/
