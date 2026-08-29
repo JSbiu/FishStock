@@ -11,6 +11,11 @@ import {
   materializeHoldingDraft,
   type HoldingDraftInput,
 } from '../domain/holdingDraft';
+import {
+  applyHoldingAdjustment,
+  type AdjustmentDirection,
+  type HoldingAdjustmentResult,
+} from '../domain/holdingAdjustment';
 import type {
   Holding,
   HoldingCurrency,
@@ -60,12 +65,86 @@ interface ManagerSearchResult extends ManagerQuoteFields {
   abbreviation?: string;
 }
 
+interface AdjustmentPayload {
+  symbol: string;
+  direction: AdjustmentDirection;
+  quantity: number;
+  price: number;
+}
+
+interface AdjustmentBaseline {
+  quantity: number;
+  averageCost: number;
+}
+
+interface AdjustmentOutcome {
+  before: AdjustmentBaseline;
+  result: HoldingAdjustmentResult;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : '操作失败';
+}
+
+function formatQuantityValue(value: number): string {
+  return value.toLocaleString('zh-CN');
+}
+
+function formatPriceValue(value: number): string {
+  return value.toLocaleString('zh-CN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  });
+}
+
+function formatAmountValue(value: number): string {
+  return value.toLocaleString('zh-CN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function formatSignedAmount(value: number): string {
+  return `${value >= 0 ? '+' : '-'}${formatAmountValue(Math.abs(value))}`;
+}
+
+function adjustmentMessage(
+  payload: AdjustmentPayload,
+  before: AdjustmentBaseline,
+  result: HoldingAdjustmentResult,
+): string {
+  const traded = `${formatQuantityValue(payload.quantity)} @ ${formatPriceValue(payload.price)}`;
+  if (payload.direction === 'buy') {
+    return `已加仓 ${traded}：平均成本 ${formatPriceValue(before.averageCost)} → ${formatPriceValue(result.averageCost)}`;
+  }
+  const realized = `已实现盈亏 ${formatSignedAmount(result.realizedProfit)} 不计入`;
+  if (result.cleared) {
+    return `已清仓 ${traded}：保存后移除该持仓，${realized}`;
+  }
+  return `已减仓 ${traded}：平均成本保持 ${formatPriceValue(result.averageCost)}，${realized}`;
+}
+
+function readAdjustmentPayload(
+  message: Record<string, unknown>,
+): AdjustmentPayload | undefined {
+  const symbol = typeof message.symbol === 'string' ? message.symbol.trim() : '';
+  const direction: AdjustmentDirection | undefined =
+    message.direction === 'buy' || message.direction === 'sell'
+      ? message.direction
+      : undefined;
+  if (!symbol || direction === undefined) {
+    return undefined;
+  }
+  return {
+    symbol,
+    direction,
+    quantity: Number(message.quantity),
+    price: Number(message.price),
+  };
 }
 
 function readDraftInputs(value: unknown): HoldingDraftInput[] | undefined {
@@ -295,6 +374,12 @@ export class HoldingsManagerPanel implements Disposable {
       case 'search':
         await this.search(message);
         return;
+      case 'adjustPreview':
+        await this.adjustPreview(message);
+        return;
+      case 'adjustApply':
+        await this.adjustApply(message);
+        return;
       case 'refresh':
         await this.refreshQuotes();
         return;
@@ -367,6 +452,97 @@ export class HoldingsManagerPanel implements Disposable {
     } finally {
       void this.panel?.webview.postMessage({ type: 'busy', value: false });
     }
+  }
+
+  private computeAdjustment(
+    payload: AdjustmentPayload,
+  ): AdjustmentOutcome | { error: string } {
+    const row = this.currentDraft().find((input) => input.symbol === payload.symbol);
+    if (!row) {
+      return { error: '草稿中找不到该持仓' };
+    }
+    const before: AdjustmentBaseline = {
+      quantity: Number(row.quantity),
+      averageCost: Number(row.averageCost),
+    };
+    try {
+      return {
+        before,
+        result: applyHoldingAdjustment(before, {
+          direction: payload.direction,
+          quantity: payload.quantity,
+          price: payload.price,
+        }),
+      };
+    } catch (error: unknown) {
+      return { error: messageOf(error) };
+    }
+  }
+
+  private async adjustPreview(message: Record<string, unknown>): Promise<void> {
+    if (typeof message.requestId !== 'number') {
+      return;
+    }
+    const payload = readAdjustmentPayload(message);
+    if (!payload) {
+      return;
+    }
+    const base = {
+      type: 'adjustPreviewResult',
+      requestId: message.requestId,
+      symbol: payload.symbol,
+    };
+    const outcome = this.computeAdjustment(payload);
+    if ('error' in outcome) {
+      void this.panel?.webview.postMessage({
+        ...base,
+        ok: false,
+        message: outcome.error,
+      });
+      return;
+    }
+    void this.panel?.webview.postMessage({
+      ...base,
+      ok: true,
+      quantity: outcome.result.quantity,
+      averageCost: outcome.result.averageCost,
+      previousAverageCost: outcome.before.averageCost,
+      realizedProfit: outcome.result.realizedProfit,
+      cleared: outcome.result.cleared,
+    });
+  }
+
+  private async adjustApply(message: Record<string, unknown>): Promise<void> {
+    const payload = readAdjustmentPayload(message);
+    if (!payload) {
+      return;
+    }
+    const outcome = this.computeAdjustment(payload);
+    if ('error' in outcome) {
+      void this.panel?.webview.postMessage({
+        type: 'operationError',
+        message: outcome.error,
+      });
+      return;
+    }
+    const draft = [...this.currentDraft()];
+    const index = draft.findIndex((row) => row.symbol === payload.symbol);
+    if (index === -1) {
+      return;
+    }
+    const { before, result } = outcome;
+    if (result.cleared) {
+      draft.splice(index, 1);
+    } else {
+      draft[index] = {
+        ...draft[index],
+        quantity: String(result.quantity),
+        averageCost: String(result.averageCost),
+      };
+    }
+    this.draft = draft;
+    this.dirty = true;
+    this.postState(adjustmentMessage(payload, before, result));
   }
 
   private async saveCurrentDraft(notifyPanel: boolean): Promise<boolean> {
@@ -493,7 +669,7 @@ export class HoldingsManagerPanel implements Disposable {
     #dirtyBadge { color: var(--vscode-descriptionForeground); }
     #dirtyBadge.dirty { color: var(--vscode-notificationsWarningIcon-foreground); }
     .table-wrap { overflow-x: auto; }
-    table { width: 100%; min-width: 980px; border-collapse: collapse; }
+    table { width: 100%; min-width: 1080px; border-collapse: collapse; }
     th, td { padding: 9px 10px; border-bottom: 1px solid var(--vscode-panel-border); text-align: right; vertical-align: middle; }
     th { position: sticky; top: 0; z-index: 1; color: var(--vscode-descriptionForeground); background: var(--vscode-sideBar-background); font-size: 12px; font-weight: 500; }
     th:first-child, td:first-child { width: 38px; text-align: center; }
@@ -509,6 +685,19 @@ export class HoldingsManagerPanel implements Disposable {
     .down { color: var(--vscode-charts-green); }
     body.international .up { color: var(--vscode-charts-green); }
     body.international .down { color: var(--vscode-charts-red); }
+    .row-action { padding: 3px 9px; font-size: 12px; }
+    .adjust-row > td { padding: 0 10px 14px; background: var(--vscode-editor-background); }
+    .adjust-panel { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 14px; padding: 12px 14px; border: 1px solid var(--vscode-panel-border); border-radius: 4px; }
+    .adjust-field { display: flex; flex-direction: column; gap: 4px; min-width: 92px; }
+    .adjust-field > span { color: var(--vscode-descriptionForeground); font-size: 12px; }
+    .adjust-field input, .adjust-field select { color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); border-radius: 3px; padding: 5px 8px; outline: none; }
+    .adjust-field input:focus, .adjust-field select:focus { border-color: var(--vscode-focusBorder); }
+    .adjust-field input.invalid { border-color: var(--vscode-inputValidation-errorBorder); background: var(--vscode-inputValidation-errorBackground); }
+    .adjust-preview { flex: 1 1 260px; color: var(--vscode-descriptionForeground); font-size: 12px; line-height: 1.7; }
+    .adjust-preview strong { color: var(--vscode-foreground); font-weight: 500; }
+    .adjust-preview.is-error { color: var(--vscode-errorForeground); }
+    .adjust-hint { flex: 1 1 100%; color: var(--vscode-descriptionForeground); font-size: 12px; line-height: 1.7; }
+    .adjust-actions { display: flex; gap: 8px; }
     .empty { padding: 42px 20px; text-align: center; color: var(--vscode-descriptionForeground); }
     .notice { min-height: 22px; padding: 0 14px 10px; color: var(--vscode-descriptionForeground); }
     .notice.error { color: var(--vscode-errorForeground); }
@@ -560,6 +749,7 @@ export class HoldingsManagerPanel implements Disposable {
             <th>浮动盈亏</th>
             <th>收益率</th>
             <th>状态</th>
+            <th>操作</th>
           </tr>
         </thead>
         <tbody id="rows"></tbody>
@@ -569,7 +759,7 @@ export class HoldingsManagerPanel implements Disposable {
     <div id="notice" class="notice"></div>
   </section>
 
-  <footer>人民币与港币分别计算，不进行汇率换算。浮动盈亏未计入手续费、税费、分红或公司行动影响；休市或过期行情会保留状态标识。</footer>
+  <footer>人民币与港币分别计算，不进行汇率换算。浮动盈亏未计入手续费、税费、分红或公司行动影响；休市或过期行情会保留状态标识。调仓按移动加权平均成本计算：加仓摊薄成本，减仓只改数量且成本不变。</footer>
 
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
@@ -599,9 +789,168 @@ export class HoldingsManagerPanel implements Disposable {
     let latestRequestId = 0;
     let searchTimer;
     let colorConvention = 'china';
+    let openAdjustSymbol = '';
+    let adjustState = null;
+    let adjustCanApply = false;
+    let adjustPreviewId = 0;
+    let latestAdjustPreviewId = 0;
+    let adjustTimer;
 
     function rowKey(row) {
       return row.id ? 'id:' + row.id : 'new:' + row.symbol;
+    }
+
+    function closeAdjustPanel() {
+      clearTimeout(adjustTimer);
+      openAdjustSymbol = '';
+      adjustState = null;
+      adjustCanApply = false;
+    }
+
+    function adjustPreviewText(message) {
+      if (!message.ok) return message.message || '无法计算';
+      const quantity = formatNumber(message.quantity, 0, 0);
+      if (adjustState && adjustState.direction === 'sell') {
+        const realized = '已实现盈亏 ' + (message.realizedProfit >= 0 ? '+' : '-') + formatNumber(Math.abs(message.realizedProfit), 2, 2) + ' 不计入';
+        if (message.cleared) return '新数量 0 · 保存后移除该持仓 · ' + realized;
+        return '新数量 ' + quantity + ' · 平均成本保持 ' + formatNumber(message.averageCost, 2, 4) + ' · ' + realized;
+      }
+      return '新数量 ' + quantity + ' · 平均成本 ' + formatNumber(message.previousAverageCost, 2, 4) + ' → ' + formatNumber(message.averageCost, 2, 4);
+    }
+
+    function requestAdjustPreview() {
+      if (!adjustState) return;
+      adjustPreviewId += 1;
+      latestAdjustPreviewId = adjustPreviewId;
+      vscode.postMessage({
+        type: 'adjustPreview',
+        requestId: adjustPreviewId,
+        symbol: adjustState.symbol,
+        direction: adjustState.direction,
+        quantity: adjustState.quantity,
+        price: adjustState.price
+      });
+    }
+
+    function scheduleAdjustPreview() {
+      clearTimeout(adjustTimer);
+      adjustTimer = setTimeout(requestAdjustPreview, 150);
+    }
+
+    function buildAdjustRow(row) {
+      const tr = document.createElement('tr');
+      tr.className = 'adjust-row';
+      const td = document.createElement('td');
+      td.colSpan = 11;
+      const panel = document.createElement('div');
+      panel.className = 'adjust-panel';
+
+      const directionField = document.createElement('div');
+      directionField.className = 'adjust-field';
+      const directionLabel = document.createElement('span');
+      directionLabel.textContent = '方向';
+      const directionSelect = document.createElement('select');
+      const buyOption = document.createElement('option');
+      buyOption.value = 'buy';
+      buyOption.textContent = '买入';
+      const sellOption = document.createElement('option');
+      sellOption.value = 'sell';
+      sellOption.textContent = '卖出';
+      directionSelect.append(buyOption, sellOption);
+      directionSelect.value = adjustState.direction;
+      directionSelect.setAttribute('aria-label', row.name + ' 调仓方向');
+      directionSelect.addEventListener('change', function () {
+        adjustState.direction = directionSelect.value;
+        requestAdjustPreview();
+      });
+      directionField.append(directionLabel, directionSelect);
+
+      const quantityField = document.createElement('div');
+      quantityField.className = 'adjust-field';
+      const quantityLabel = document.createElement('span');
+      quantityLabel.textContent = '变动数量';
+      const quantityInput = document.createElement('input');
+      quantityInput.type = 'number';
+      quantityInput.min = '1';
+      quantityInput.step = '1';
+      quantityInput.value = adjustState.quantity;
+      quantityInput.setAttribute('aria-label', row.name + ' 调仓变动数量');
+      quantityInput.addEventListener('input', function () {
+        adjustState.quantity = quantityInput.value;
+        scheduleAdjustPreview();
+      });
+      quantityField.append(quantityLabel, quantityInput);
+
+      const priceField = document.createElement('div');
+      priceField.className = 'adjust-field';
+      const priceLabel = document.createElement('span');
+      priceLabel.textContent = '成交价';
+      const priceInput = document.createElement('input');
+      priceInput.type = 'number';
+      priceInput.min = '0';
+      priceInput.step = 'any';
+      priceInput.value = adjustState.price;
+      priceInput.setAttribute('aria-label', row.name + ' 调仓成交价');
+      priceInput.addEventListener('input', function () {
+        adjustState.price = priceInput.value;
+        scheduleAdjustPreview();
+      });
+      priceField.append(priceLabel, priceInput);
+
+      const preview = document.createElement('div');
+      preview.className = 'adjust-preview';
+      preview.dataset.role = 'adjustPreview';
+      preview.textContent = '填写变动数量和成交价后显示新的数量与平均成本。';
+
+      const actions = document.createElement('div');
+      actions.className = 'adjust-actions';
+      const applyButton = document.createElement('button');
+      applyButton.type = 'button';
+      applyButton.textContent = '应用';
+      applyButton.disabled = !adjustCanApply || busy;
+      applyButton.addEventListener('click', function () {
+        if (!adjustState) return;
+        vscode.postMessage({
+          type: 'adjustApply',
+          symbol: adjustState.symbol,
+          direction: adjustState.direction,
+          quantity: adjustState.quantity,
+          price: adjustState.price
+        });
+      });
+      const cancelButton = document.createElement('button');
+      cancelButton.type = 'button';
+      cancelButton.className = 'secondary';
+      cancelButton.textContent = '取消';
+      cancelButton.addEventListener('click', function () {
+        closeAdjustPanel();
+        renderRows();
+      });
+      actions.append(applyButton, cancelButton);
+
+      const hint = document.createElement('div');
+      hint.className = 'adjust-hint';
+      hint.textContent = '加仓按数量加权摊薄平均成本；减仓只改数量、平均成本不变。已实现盈亏不计入，FishStock 不记录交易流水。';
+
+      const panelKeyDown = function (event) {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          if (!applyButton.disabled) applyButton.click();
+        } else if (event.key === 'Escape') {
+          event.preventDefault();
+          cancelButton.click();
+        }
+      };
+      quantityInput.addEventListener('keydown', panelKeyDown);
+      priceInput.addEventListener('keydown', panelKeyDown);
+
+      panel.append(directionField, quantityField, priceField, preview, actions, hint);
+      td.appendChild(panel);
+      tr.appendChild(td);
+      if (adjustState.quantity !== '' && adjustState.price !== '') {
+        scheduleAdjustPreview();
+      }
+      return tr;
     }
 
     function formatNumber(value, minimumFractionDigits, maximumFractionDigits) {
@@ -814,7 +1163,32 @@ export class HoldingsManagerPanel implements Disposable {
         stateCell.appendChild(state);
         tr.appendChild(stateCell);
 
+        const actionCell = document.createElement('td');
+        const adjustButton = document.createElement('button');
+        adjustButton.type = 'button';
+        adjustButton.className = 'secondary row-action';
+        adjustButton.textContent = '调仓';
+        const rowReady = parseQuantity(row.quantity) !== null && parseCost(row.averageCost) !== null;
+        adjustButton.disabled = !rowReady || busy;
+        adjustButton.title = rowReady
+          ? '记录一次买入或卖出，并重算平均成本'
+          : '请先填写有效的数量和平均成本';
+        adjustButton.addEventListener('click', function () {
+          const alreadyOpen = openAdjustSymbol === row.symbol;
+          closeAdjustPanel();
+          if (!alreadyOpen) {
+            openAdjustSymbol = row.symbol;
+            adjustState = { symbol: row.symbol, direction: 'buy', quantity: '', price: '' };
+          }
+          renderRows();
+        });
+        actionCell.appendChild(adjustButton);
+        tr.appendChild(actionCell);
+
         rowsElement.appendChild(tr);
+        if (openAdjustSymbol === row.symbol && adjustState) {
+          rowsElement.appendChild(buildAdjustRow(row));
+        }
         quantityInput.classList.toggle('invalid', parseQuantity(row.quantity) === null);
         costInput.classList.toggle('invalid', parseCost(row.averageCost) === null);
         updateQuoteCells(row, tr);
@@ -929,6 +1303,7 @@ export class HoldingsManagerPanel implements Disposable {
       const deleted = selectedRows.size;
       rows = rows.filter(function (row) { return !selectedRows.has(rowKey(row)); });
       selectedRows.clear();
+      closeAdjustPanel();
       markDirty();
       renderRows();
       renderSearchResults();
@@ -950,6 +1325,7 @@ export class HoldingsManagerPanel implements Disposable {
       const message = event.data;
       if (!message || typeof message.type !== 'string') return;
       if (message.type === 'state') {
+        closeAdjustPanel();
         rows = Array.isArray(message.rows) ? message.rows : [];
         dirty = Boolean(message.dirty);
         if (message.clearSearch) {
@@ -965,6 +1341,18 @@ export class HoldingsManagerPanel implements Disposable {
         renderSearchResults();
         setNotice(message.message || '', false);
         if (message.focus && message.focus.type === 'search') searchInput.focus();
+        return;
+      }
+      if (message.type === 'adjustPreviewResult') {
+        if (!adjustState || message.symbol !== adjustState.symbol) return;
+        if (message.requestId !== latestAdjustPreviewId) return;
+        const preview = rowsElement.querySelector('[data-role="adjustPreview"]');
+        if (!preview) return;
+        adjustCanApply = Boolean(message.ok);
+        preview.classList.toggle('is-error', !message.ok);
+        preview.textContent = adjustPreviewText(message);
+        const applyButton = preview.parentElement.querySelector('.adjust-actions button');
+        if (applyButton) applyButton.disabled = !message.ok || busy;
         return;
       }
       if (message.type === 'searchResults' && message.requestId === latestRequestId) {
