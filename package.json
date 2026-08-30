@@ -2,7 +2,7 @@
   "name": "fish-stock",
   "displayName": "FishStock",
   "description": "轻量、安静、本地优先的股票、ETF、期货与持仓行情插件",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "publisher": "jsbiu",
   "private": true,
   "author": {
