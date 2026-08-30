@@ -41,6 +41,7 @@ import {
   supportedFuturesProductCount,
 } from './domain/futuresSessions';
 import { marketSessionFor, shouldAutoRefreshSymbol } from './domain/marketSessions';
+import { holdingCandidatesFromWatchlists } from './domain/holdingCandidates';
 import { calendarCoverageEnd, isTradingDay } from './domain/tradingCalendar';
 import { startBackgroundRefresh } from './services/backgroundRefresh';
 import { MarketSessionMonitor } from './services/marketSessionMonitor';
@@ -736,6 +737,10 @@ export async function activate(context: ExtensionContext): Promise<void> {
   const holdingsManager = new HoldingsManagerPanel({
     repository: holdingsRepository,
     search: searchHoldings,
+    watchlistEntries: () => holdingCandidatesFromWatchlists(
+      stockRepository.getSnapshot(),
+      fundRepository.getSnapshot(),
+    ),
     quoteOf: holdingQuote,
     refresh: () => refreshHoldings(true),
     afterSave: afterHoldingsChange,

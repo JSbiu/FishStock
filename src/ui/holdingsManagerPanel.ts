@@ -34,6 +34,7 @@ export type HoldingsManagerFocus =
 export interface HoldingsManagerOptions {
   repository: HoldingsRepository;
   search(query: string, signal?: AbortSignal): Promise<HoldingSearchResult[]>;
+  watchlistEntries(): HoldingSearchResult[];
   quoteOf(holding: Pick<Holding, 'symbol' | 'market' | 'kind'>): Quote | undefined;
   refresh(): Promise<void>;
   afterSave(added: readonly Holding[]): Promise<void>;
@@ -319,6 +320,20 @@ export class HoldingsManagerPanel implements Disposable {
     });
   }
 
+  private watchlistSnapshot(): ManagerSearchResult[] {
+    const entries = this.options.watchlistEntries();
+    for (const entry of entries) {
+      this.allowedNewInstruments.set(entry.symbol, entry);
+    }
+    return entries.map((entry) => ({
+      symbol: entry.symbol,
+      market: entry.market,
+      kind: entry.kind,
+      name: entry.name,
+      ...quoteFields(entry, this.options.quoteOf),
+    }));
+  }
+
   private postState(message?: string, clearSearch = false): void {
     const panel = this.panel;
     if (!panel || !this.webviewReady) {
@@ -332,6 +347,7 @@ export class HoldingsManagerPanel implements Disposable {
       dirty: this.dirty,
       colorConvention: this.options.colorConvention(),
       clearSearch,
+      watchlistEntries: this.watchlistSnapshot(),
       ...(focus ? { focus } : {}),
       ...(message ? { message } : {}),
     });
@@ -373,6 +389,12 @@ export class HoldingsManagerPanel implements Disposable {
       }
       case 'search':
         await this.search(message);
+        return;
+      case 'watchlist':
+        void this.panel?.webview.postMessage({
+          type: 'watchlistEntries',
+          entries: this.watchlistSnapshot(),
+        });
         return;
       case 'adjustPreview':
         await this.adjustPreview(message);
@@ -655,6 +677,10 @@ export class HoldingsManagerPanel implements Disposable {
     .summary { white-space: nowrap; padding-top: 5px; color: var(--vscode-descriptionForeground); }
     .card { border: 1px solid var(--vscode-panel-border); border-radius: 6px; background: var(--vscode-sideBar-background); margin-bottom: 18px; }
     .search-card { padding: 16px; }
+    .add-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+    .tab { padding: 5px 14px; font-size: 12px; }
+    .tab:not(.active) { color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); }
+    .tab:not(.active):hover:not(:disabled) { background: var(--vscode-button-secondaryHoverBackground); }
     .search-row { display: flex; gap: 8px; }
     #searchInput { flex: 1; min-width: 180px; }
     #searchStatus { min-height: 20px; margin-top: 8px; color: var(--vscode-descriptionForeground); }
@@ -715,14 +741,28 @@ export class HoldingsManagerPanel implements Disposable {
   </header>
 
   <section class="card search-card" aria-label="添加持仓">
-    <div class="search-row">
-      <input id="searchInput" type="search" autocomplete="off" placeholder="搜索 A 股、港股或境内 ETF 的名称、简称或代码">
-      <button id="searchButton" type="button">搜索</button>
+    <div class="add-tabs" role="tablist" aria-label="添加方式">
+      <button id="tabSearch" class="tab active" type="button" role="tab" aria-selected="true">搜索标的</button>
+      <button id="tabWatchlist" class="tab" type="button" role="tab" aria-selected="false">从自选股添加</button>
     </div>
-    <div id="searchStatus">可连续搜索并勾选多个结果，再统一填写数量与平均成本。</div>
-    <div id="searchResults" class="search-results"></div>
-    <div id="searchActions" class="search-actions" hidden>
-      <button id="addSelectedButton" type="button" disabled>添加所选标的</button>
+    <div id="searchPane">
+      <div class="search-row">
+        <input id="searchInput" type="search" autocomplete="off" placeholder="搜索 A 股、港股或境内 ETF 的名称、简称或代码">
+        <button id="searchButton" type="button">搜索</button>
+      </div>
+      <div id="searchStatus">可连续搜索并勾选多个结果，再统一填写数量与平均成本。</div>
+      <div id="searchResults" class="search-results"></div>
+      <div id="searchActions" class="search-actions" hidden>
+        <button id="addSelectedButton" type="button" disabled>添加所选标的</button>
+      </div>
+    </div>
+    <div id="watchlistPane" hidden>
+      <div id="watchlistStatus">从股票与 ETF 自选中勾选标的，批量加入下方表格。</div>
+      <div id="watchlistResults" class="search-results"></div>
+      <div id="watchlistActions" class="search-actions" hidden>
+        <button id="watchlistSelectAllButton" class="secondary" type="button">全选</button>
+        <button id="addWatchlistButton" type="button" disabled>添加所选标的</button>
+      </div>
     </div>
   </section>
 
@@ -754,7 +794,7 @@ export class HoldingsManagerPanel implements Disposable {
         </thead>
         <tbody id="rows"></tbody>
       </table>
-      <div id="emptyState" class="empty">暂无持仓。请先搜索并添加标的。</div>
+      <div id="emptyState" class="empty">暂无持仓。请搜索标的或从自选股批量添加。</div>
     </div>
     <div id="notice" class="notice"></div>
   </section>
@@ -774,6 +814,15 @@ export class HoldingsManagerPanel implements Disposable {
     const searchResultsElement = document.getElementById('searchResults');
     const searchActions = document.getElementById('searchActions');
     const addSelectedButton = document.getElementById('addSelectedButton');
+    const tabSearch = document.getElementById('tabSearch');
+    const tabWatchlist = document.getElementById('tabWatchlist');
+    const searchPane = document.getElementById('searchPane');
+    const watchlistPane = document.getElementById('watchlistPane');
+    const watchlistStatus = document.getElementById('watchlistStatus');
+    const watchlistResultsElement = document.getElementById('watchlistResults');
+    const watchlistActions = document.getElementById('watchlistActions');
+    const watchlistSelectAllButton = document.getElementById('watchlistSelectAllButton');
+    const addWatchlistButton = document.getElementById('addWatchlistButton');
     const refreshButton = document.getElementById('refreshButton');
     const discardButton = document.getElementById('discardButton');
     const deleteButton = document.getElementById('deleteButton');
@@ -781,8 +830,11 @@ export class HoldingsManagerPanel implements Disposable {
     const selectAll = document.getElementById('selectAll');
     const selectedRows = new Set();
     const selectedResults = new Set();
+    const selectedWatchlist = new Set();
     let rows = [];
     let searchResults = [];
+    let watchlistEntries = [];
+    let activePane = 'search';
     let dirty = false;
     let busy = false;
     let requestId = 0;
@@ -1271,25 +1323,126 @@ export class HoldingsManagerPanel implements Disposable {
     });
     searchButton.addEventListener('click', runSearch);
 
-    addSelectedButton.addEventListener('click', function () {
+    function addInstruments(entries, selected) {
       const existingSymbols = new Set(rows.map(function (row) { return row.symbol; }));
-      const added = searchResults.filter(function (result) {
-        return selectedResults.has(result.symbol) && !existingSymbols.has(result.symbol);
+      const added = entries.filter(function (entry) {
+        return selected.has(entry.symbol) && !existingSymbols.has(entry.symbol);
       });
-      added.forEach(function (result) {
-        rows.push(Object.assign({}, result, { quantity: '', averageCost: '' }));
+      added.forEach(function (entry) {
+        rows.push(Object.assign({}, entry, { quantity: '', averageCost: '' }));
       });
-      selectedResults.clear();
+      selected.clear();
       if (added.length > 0) {
         markDirty();
         renderRows();
-        renderSearchResults();
         setNotice('已加入 ' + added.length + ' 项，请填写数量和平均成本后保存。', false);
         const first = rows.find(function (row) { return row.symbol === added[0].symbol; });
         const tr = first && rowsElement.querySelector('[data-key="' + CSS.escape(rowKey(first)) + '"]');
         const input = tr && tr.querySelector('[data-role="quantity"]');
         if (input) input.focus();
       }
+      return added.length;
+    }
+
+    addSelectedButton.addEventListener('click', function () {
+      if (addInstruments(searchResults, selectedResults) > 0) renderSearchResults();
+    });
+
+    function watchlistSelectable() {
+      const existingSymbols = new Set(rows.map(function (row) { return row.symbol; }));
+      return watchlistEntries.filter(function (entry) {
+        return !existingSymbols.has(entry.symbol);
+      });
+    }
+
+    function updateWatchlistControls() {
+      const selectable = watchlistSelectable();
+      const allSelected = selectable.length > 0 && selectable.every(function (entry) {
+        return selectedWatchlist.has(entry.symbol);
+      });
+      watchlistSelectAllButton.textContent = allSelected ? '全不选' : '全选';
+      watchlistSelectAllButton.disabled = selectable.length === 0 || busy;
+      addWatchlistButton.disabled = selectedWatchlist.size === 0 || busy;
+    }
+
+    function renderWatchlistEntries() {
+      watchlistResultsElement.replaceChildren();
+      watchlistStatus.textContent = watchlistEntries.length === 0
+        ? '股票与 ETF 自选中暂无可入持仓的标的；指数、期货与美股不在持仓范围。'
+        : '共 ' + watchlistEntries.length + ' 项可添加，勾选后加入下方表格并填写数量与平均成本。';
+      const existingSymbols = new Set(rows.map(function (row) { return row.symbol; }));
+      watchlistEntries.forEach(function (entry) {
+        const alreadyAdded = existingSymbols.has(entry.symbol);
+        const label = document.createElement('label');
+        label.className = 'search-result' + (alreadyAdded ? ' disabled' : '');
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.disabled = alreadyAdded;
+        checkbox.checked = selectedWatchlist.has(entry.symbol) && !alreadyAdded;
+        checkbox.addEventListener('change', function () {
+          if (checkbox.checked) selectedWatchlist.add(entry.symbol);
+          else selectedWatchlist.delete(entry.symbol);
+          updateWatchlistControls();
+        });
+        const title = document.createElement('div');
+        const strong = document.createElement('strong');
+        strong.textContent = entry.name;
+        const meta = document.createElement('div');
+        meta.className = 'result-meta';
+        meta.textContent = entry.symbol + ' · ' + (entry.kind === 'fund' ? 'ETF' : '股票') + ' · ' + (entry.market === 'HK' ? '港股' : 'A 股');
+        title.append(strong, meta);
+        const status = document.createElement('span');
+        status.className = 'muted';
+        status.textContent = alreadyAdded
+          ? '已在表格中'
+          : (Number.isFinite(entry.currentPrice) ? formatNumber(entry.currentPrice, 2, 4) + ' ' + entry.currency : entry.quoteStateLabel);
+        label.append(checkbox, title, status);
+        watchlistResultsElement.appendChild(label);
+      });
+      watchlistActions.hidden = watchlistEntries.length === 0;
+      updateWatchlistControls();
+    }
+
+    function activatePane(pane) {
+      activePane = pane === 'watchlist' ? 'watchlist' : 'search';
+      const isSearch = activePane === 'search';
+      tabSearch.classList.toggle('active', isSearch);
+      tabWatchlist.classList.toggle('active', !isSearch);
+      tabSearch.setAttribute('aria-selected', String(isSearch));
+      tabWatchlist.setAttribute('aria-selected', String(!isSearch));
+      searchPane.hidden = !isSearch;
+      watchlistPane.hidden = isSearch;
+      if (isSearch) searchInput.focus();
+      else renderWatchlistEntries();
+    }
+
+    tabSearch.addEventListener('click', function () { activatePane('search'); });
+    tabWatchlist.addEventListener('click', function () {
+      activatePane('watchlist');
+      vscode.postMessage({ type: 'watchlist' });
+    });
+
+    function pruneWatchlistSelection(validSymbols) {
+      Array.from(selectedWatchlist).forEach(function (symbol) {
+        if (!validSymbols.has(symbol)) selectedWatchlist.delete(symbol);
+      });
+    }
+
+    watchlistSelectAllButton.addEventListener('click', function () {
+      const selectable = watchlistSelectable();
+      const allSelected = selectable.length > 0 && selectable.every(function (entry) {
+        return selectedWatchlist.has(entry.symbol);
+      });
+      if (allSelected) {
+        selectable.forEach(function (entry) { selectedWatchlist.delete(entry.symbol); });
+      } else {
+        selectable.forEach(function (entry) { selectedWatchlist.add(entry.symbol); });
+      }
+      renderWatchlistEntries();
+    });
+
+    addWatchlistButton.addEventListener('click', function () {
+      if (addInstruments(watchlistEntries, selectedWatchlist) > 0) renderWatchlistEntries();
     });
 
     selectAll.addEventListener('change', function () {
@@ -1334,13 +1487,16 @@ export class HoldingsManagerPanel implements Disposable {
           selectedResults.clear();
           searchStatus.textContent = '可连续搜索并勾选多个结果，再统一填写数量与平均成本。';
         }
+        watchlistEntries = Array.isArray(message.watchlistEntries) ? message.watchlistEntries : [];
+        selectedWatchlist.clear();
         colorConvention = message.colorConvention === 'international' ? 'international' : 'china';
         document.body.classList.toggle('international', colorConvention === 'international');
         selectedRows.clear();
         renderRows(message.focus);
         renderSearchResults();
+        if (activePane === 'watchlist') renderWatchlistEntries();
         setNotice(message.message || '', false);
-        if (message.focus && message.focus.type === 'search') searchInput.focus();
+        if (message.focus && message.focus.type === 'search') activatePane('search');
         return;
       }
       if (message.type === 'adjustPreviewResult') {
@@ -1360,6 +1516,12 @@ export class HoldingsManagerPanel implements Disposable {
         selectedResults.clear();
         searchStatus.textContent = searchResults.length > 0 ? '找到 ' + searchResults.length + ' 项，可多选添加。' : '未找到匹配的股票或境内 ETF。';
         renderSearchResults();
+        return;
+      }
+      if (message.type === 'watchlistEntries' && Array.isArray(message.entries)) {
+        watchlistEntries = message.entries;
+        pruneWatchlistSelection(new Set(watchlistEntries.map(function (entry) { return entry.symbol; })));
+        if (activePane === 'watchlist') renderWatchlistEntries();
         return;
       }
       if (message.type === 'quoteUpdate' && Array.isArray(message.quotes)) {
@@ -1387,6 +1549,7 @@ export class HoldingsManagerPanel implements Disposable {
       if (message.type === 'busy') {
         busy = Boolean(message.value);
         updateControls();
+        updateWatchlistControls();
         return;
       }
       if (message.type === 'saveError' || message.type === 'operationError') {

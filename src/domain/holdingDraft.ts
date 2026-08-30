@@ -77,7 +77,7 @@ export function materializeHoldingDraft(
     } else {
       const instrument = allowedNewInstruments.get(symbol);
       if (!instrument) {
-        throw new HoldingDraftValidationError(`第 ${rowNumber} 行不是已确认的搜索结果`);
+        throw new HoldingDraftValidationError(`第 ${rowNumber} 行不是已确认的标的`);
       }
       holding = {
         id: createId(),
