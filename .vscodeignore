@@ -4,6 +4,7 @@ AGENTS.md
 .pnpm-store/**
 .gitignore
 .vscode/**
+.workbuddy/**
 docs/decisions.md
 docs/release-checklist.md
 scripts/**
