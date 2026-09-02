@@ -29,6 +29,26 @@ FishStock 是 TypeScript 编写的 VS Code 扩展。`src/extension.ts` 负责扩
 
 在 VS Code 中按 `F5` 启动 Extension Development Host。
 
+### 本机实际执行方式（优先）
+
+Git Bash 里没有 pnpm，PowerShell 工具不回显 stdout，因此统一用**托管 node 绝对路径**直接调 `node_modules` 里的 bin：
+
+```
+N=C:/Users/18085/.workbuddy/binaries/node/versions/22.22.2-2/node.exe
+"$N" ./node_modules/typescript/bin/tsc -p tsconfig.json
+"$N" ./node_modules/eslint/bin/eslint.js .
+"$N" --test out/test/*.test.js
+"$N" scripts/run-smoke-tests.mjs      # Extension Host 冒烟：成功时静默无输出，exit 0 即通过
+"$N" scripts/verify-release.mjs       # 版本一致性 + Marketplace 元数据 + 包内容校验
+```
+
+打包 VSIX（Git Bash 无 pnpm）：
+
+```
+node node_modules/@vscode/vsce/vsce package --no-dependencies
+node scripts/verify-release.mjs --packaged --channel=stable
+```
+
 ## 编码风格与命名
 
 遵循现有 TypeScript 风格：两空格缩进、使用分号和单引号。函数及变量使用 `camelCase`，类和类型使用 `PascalCase`。模块边界应使用明确类型，纯类型导入使用 `import type`。禁止使用 `any`。供应商字段必须限制在数据适配器内；优先使用 VS Code 原生组件，不随意引入 Webview、框架或复杂抽象。
@@ -43,9 +63,25 @@ FishStock 是 TypeScript 编写的 VS Code 扩展。`src/extension.ts` 负责扩
 
 版本号采用 `主版本.次版本.修订版本`。规划中的功能里程碑滚动次版本号；交互优化、性能优化、缺陷修复和文档修正只滚动第三位修订版本号。
 
+**版本与 tag**：**v1.0 之前不打 git tag**（2026-08-29 用户决定）。历史 tag 停在 `v0.3.9`，0.4.0 之后一直没打过。版本以 `package.json` 的 `version` + `CHANGELOG.md` 最新条目为准，由 `scripts/verify-release.mjs` 校验一致。README 的版本声明有硬格式：必须包含 `X.Y.Z 是` 这一段，否则 `verify-release.mjs` 直接失败。
+
+**提交拆分惯例**：一个版本通常拆两个提交——功能提交（`feat`/`fix`/`perf`，只含源码）+ `chore: 完成了 X 发布准备`（CHANGELOG / README / docs / `package.json`）。不提交：密钥、用户自选数据、生成的 VSIX、`out/`、`docs/decisions.md`。
+
 用户和开发者可以随时提出反馈，但不参与固定版本流程。维护者必须独立完成 `docs/release-checklist.md`，并以 `pnpm run release:check` 通过作为版本完成的必要条件。
 
 Pull Request 应说明变更范围、验证命令及数据源或存储影响。涉及 Tree View、浮窗等可见变化时附截图。不要提交密钥、用户自选数据、生成的 VSIX 或无关文件。
+
+## 产品边界（改动前先确认）
+
+以下均明确不做，不在 `docs/product.md` 目标范围内：汇率换算与多币种合计、已实现收益持久化、交易流水、税费与手续费、K 线盘口、资产曲线、提醒与下单、账户与自有服务器、遥测、持仓自定义分组。
+
+持仓只支持 A 股、港股、境内 ETF；期货持仓不在范围内。
+
+## 项目上下文文件
+
+- 第二层（项目规则）：本文件 `AGENTS.md`。
+- 第三层（项目本地记忆）：`.local/memory.md` —— 决策编年史、本机环境坑、发布历史。
+- 历史工作日志：`.local/archive/`。
 
 ## 安全与产品边界
 
