@@ -116,6 +116,8 @@ export interface Quote {
   staleReason?: QuoteStaleReason;
   sessionPhase?: MarketSessionPhase;
   sessionLabel?: string;
+  tradingDate?: string;
+  quoteValidSince?: number;
   nextOpenAt?: number;
   lastSuccessfulFetchAt?: number;
   lastRefreshError?: string;

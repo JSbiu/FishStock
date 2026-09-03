@@ -185,6 +185,10 @@ export class QuoteService {
     const sessionFields = {
       sessionPhase: session.phase,
       sessionLabel: session.label,
+      ...(session.tradingDate ? { tradingDate: session.tradingDate } : {}),
+      ...(session.quoteValidSince !== undefined
+        ? { quoteValidSince: session.quoteValidSince }
+        : {}),
       ...(session.nextOpenAt ? { nextOpenAt: session.nextOpenAt } : {}),
       ...(entry.lastSuccessfulFetchAt !== undefined
         ? { lastSuccessfulFetchAt: entry.lastSuccessfulFetchAt }

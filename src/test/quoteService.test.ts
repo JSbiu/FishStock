@@ -115,6 +115,7 @@ test('derives live and closed states from the current market session', async () 
     phase: 'trading',
     label: '下午交易',
     exact: true,
+    tradingDate: '2026-09-03',
     quoteValidSince: 900_000,
   };
   const provider: QuoteDataProvider = {
@@ -134,14 +135,20 @@ test('derives live and closed states from the current market session', async () 
 
   await service.refresh([symbol]);
   assert.deepEqual(
-    [service.get(symbol.symbol)?.state, service.get(symbol.symbol)?.sessionLabel],
-    ['live', '下午交易'],
+    [
+      service.get(symbol.symbol)?.state,
+      service.get(symbol.symbol)?.sessionLabel,
+      service.get(symbol.symbol)?.tradingDate,
+      service.get(symbol.symbol)?.quoteValidSince,
+    ],
+    ['live', '下午交易', '2026-09-03', 900_000],
   );
 
   session = {
     phase: 'break',
     label: '午休',
     exact: true,
+    tradingDate: '2026-09-03',
     quoteValidSince: 900_000,
     nextOpenAt: 1_100_000,
   };

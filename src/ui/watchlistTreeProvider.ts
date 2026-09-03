@@ -4,6 +4,7 @@ import {
   ThemeIcon,
   TreeItem,
   TreeItemCollapsibleState,
+  Uri,
   type TreeDataProvider,
 } from 'vscode';
 import type { ColorConvention } from '../config';
@@ -11,6 +12,7 @@ import type { Quote, Stock, WatchGroup } from '../domain/models';
 import { applyViewOptions, type ViewMode } from '../domain/viewOptions';
 import type { QuoteService } from '../data/quoteService';
 import type { WatchlistRepository } from '../storage/watchlistRepository';
+import { HOLDING_DECORATION_SCHEME } from './holdingFileDecorationProvider';
 import {
   createQuoteTooltip,
   formatPercent,
@@ -35,6 +37,8 @@ export class StockNode {
 }
 
 export type FishTreeNode = GroupNode | StockNode;
+
+const NO_HOLDING_KEYS: ReadonlySet<string> = new Set();
 
 export interface WatchlistTreeOptions {
   groupContextValue?: string;
@@ -95,10 +99,16 @@ export class WatchlistTreeProvider implements TreeDataProvider<FishTreeNode> {
     private readonly providerName: string,
     private readonly options: WatchlistTreeOptions = {},
     private viewMode: ViewMode = 'default',
+    private holdingKeys: () => ReadonlySet<string> = () => NO_HOLDING_KEYS,
   ) {}
 
   public setColorConvention(value: ColorConvention): void {
     this.colorConvention = value;
+    this.refresh();
+  }
+
+  public setHoldingKeys(resolver: () => ReadonlySet<string>): void {
+    this.holdingKeys = resolver;
     this.refresh();
   }
 
@@ -140,8 +150,12 @@ export class WatchlistTreeProvider implements TreeDataProvider<FishTreeNode> {
       return item;
     }
 
-    const item = new TreeItem(element.stock.name ?? element.quote?.name ?? element.stock.symbol);
+    const name = element.stock.name ?? element.quote?.name ?? element.stock.symbol;
+    const item = new TreeItem(name);
     item.id = `stock:${element.stock.id}`;
+    if (this.holdingKeys().has(element.stock.symbol)) {
+      item.resourceUri = Uri.parse(`${HOLDING_DECORATION_SCHEME}:${element.stock.symbol}`);
+    }
     item.contextValue = this.options.itemContextValue ?? 'fishStock.stock';
     item.description = quoteDescription(element.stock, element.quote);
     item.tooltip = createQuoteTooltip(element.stock, element.quote, this.providerName);

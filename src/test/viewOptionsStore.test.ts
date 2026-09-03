@@ -31,6 +31,7 @@ test('defaults all view modes when nothing is stored', async () => {
     stock: 'default',
     fund: 'default',
     futures: 'default',
+    holdings: 'default',
   });
 });
 
@@ -41,6 +42,7 @@ test('persists view modes per kind and reloads them', async () => {
   await store.setViewMode('stock', 'gainDesc');
   await store.setViewMode('fund', 'lossDesc');
   await store.setViewMode('futures', 'upOnly');
+  await store.setViewMode('holdings', 'downOnly');
 
   const reloaded = new ViewOptionsStore(backing);
   await reloaded.load();
@@ -49,13 +51,25 @@ test('persists view modes per kind and reloads them', async () => {
     stock: 'gainDesc',
     fund: 'lossDesc',
     futures: 'upOnly',
+    holdings: 'downOnly',
   });
+});
+
+test('defaults the holdings mode for state stored before it existed', async () => {
+  const store = new ViewOptionsStore(
+    new MemoryStateStore({
+      'fishStock.viewOptions.v1': { version: 1, stock: 'gainDesc', fund: 'default', futures: 'default' },
+    }),
+  );
+  await store.load();
+  assert.equal(store.getSnapshot().stock, 'gainDesc');
+  assert.equal(store.getSnapshot().holdings, 'default');
 });
 
 test('falls back to default for invalid stored modes', async () => {
   const store = new ViewOptionsStore(
     new MemoryStateStore({
-      'fishStock.viewOptions.v1': { version: 1, stock: 'bogus', futures: 42 },
+      'fishStock.viewOptions.v1': { version: 1, stock: 'bogus', futures: 42, holdings: null },
     }),
   );
   await store.load();
@@ -64,6 +78,7 @@ test('falls back to default for invalid stored modes', async () => {
     stock: 'default',
     fund: 'default',
     futures: 'default',
+    holdings: 'default',
   });
 });
 
@@ -73,11 +88,13 @@ test('parses non-record stored values as defaults', () => {
     stock: 'default',
     fund: 'default',
     futures: 'default',
+    holdings: 'default',
   });
   assert.deepEqual(parseViewOptionsState('garbage'), {
     version: 1,
     stock: 'default',
     fund: 'default',
     futures: 'default',
+    holdings: 'default',
   });
 });

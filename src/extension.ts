@@ -68,6 +68,7 @@ import { StatusBarController } from './ui/statusBarController';
 import { refreshTreeWhenVisible } from './ui/refreshTreeWhenVisible';
 import { HoldingsTreeProvider } from './ui/holdingsTreeProvider';
 import { HoldingsManagerPanel } from './ui/holdingsManagerPanel';
+import { HoldingFileDecorationProvider } from './ui/holdingFileDecorationProvider';
 
 const MIN_FETCH_INTERVAL_MS = 10_000;
 const SELECT_STATUS_BAR_GROUPS_COMMAND = 'fishStock.selectStatusBarGroups';
@@ -96,6 +97,7 @@ function watchlistSymbols(repository: WatchlistRepository): NormalizedSymbol[] {
   );
 }
 
+/** 用于行情刷新：需要 symbol + market 成对。 */
 function holdingsSymbols(
   repository: HoldingsRepository,
   kind: HoldingInstrumentKind,
@@ -104,6 +106,19 @@ function holdingsSymbols(
     .getSnapshot()
     .holdings.filter((holding) => holding.kind === kind)
     .map((holding) => ({ symbol: holding.symbol, market: holding.market }));
+}
+
+/** 用于自选重叠判定：只要代码，按集合查。 */
+function holdingSymbolSetOf(
+  repository: HoldingsRepository,
+  kind: HoldingInstrumentKind,
+): ReadonlySet<string> {
+  return new Set(
+    repository
+      .getSnapshot()
+      .holdings.filter((holding) => holding.kind === kind)
+      .map((holding) => holding.symbol),
+  );
 }
 
 function mergeSymbols(
@@ -260,6 +275,11 @@ export async function activate(context: ExtensionContext): Promise<void> {
     },
     viewOptions.getSnapshot().fund,
   );
+  const refreshHoldingDecorations = (): void => {
+    stockTreeProvider.setHoldingKeys(() => holdingSymbolSetOf(holdingsRepository, 'stock'));
+    fundTreeProvider.setHoldingKeys(() => holdingSymbolSetOf(holdingsRepository, 'fund'));
+  };
+  refreshHoldingDecorations();
   const holdingsTreeProvider = new HoldingsTreeProvider(
     holdingsRepository,
     {
@@ -267,6 +287,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
       providerNameOf: holdingProviderName,
     },
     config.colorConvention,
+    viewOptions.getSnapshot().holdings,
   );
   const stockTreeView = window.createTreeView('fishStock.stock', {
     treeDataProvider: stockTreeProvider,
@@ -282,6 +303,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
   });
   const holdingsTreeView = window.createTreeView('fishStock.holdings', {
     treeDataProvider: holdingsTreeProvider,
+    showCollapseAll: true,
   });
   const stockTreeRefresh = refreshTreeWhenVisible(stockTreeView, stockTreeProvider);
   const fundTreeRefresh = refreshTreeWhenVisible(fundTreeView, fundTreeProvider);
@@ -567,7 +589,12 @@ export async function activate(context: ExtensionContext): Promise<void> {
         rotationSeconds: config.rotationIntervalMs / 1000,
         colorConvention: config.colorConvention,
       },
-      viewModes: { stock: modes.stock, fund: modes.fund, futures: modes.futures },
+      viewModes: {
+        stock: modes.stock,
+        fund: modes.fund,
+        futures: modes.futures,
+        holdings: modes.holdings,
+      },
       statusBarMode: statusBarDisplay.getMode(),
       tradingDays,
       sessionPhases,
@@ -711,7 +738,10 @@ export async function activate(context: ExtensionContext): Promise<void> {
     added: readonly Holding[] = [],
   ): Promise<void> => {
     updateHoldingsMessage();
+    refreshHoldingDecorations();
     holdingsTreeRefresh.requestRefresh();
+    stockTreeRefresh.requestRefresh();
+    fundTreeRefresh.requestRefresh();
     updateStatusBar();
     holdingsManagerRef.current?.repositoryChanged();
     sessionMonitors.stock?.refresh();
@@ -754,6 +784,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
     fundTreeView,
     futuresTreeView,
     holdingsTreeView,
+    window.registerFileDecorationProvider(new HoldingFileDecorationProvider()),
     statusBar,
     scheduler,
     stockTreeRefresh,
@@ -851,6 +882,8 @@ export async function activate(context: ExtensionContext): Promise<void> {
       openManager: (focus) => holdingsManager.show(focus),
       refresh: refreshHoldings,
       afterChange: afterHoldingsChange,
+      viewOptions,
+      treeProvider: holdingsTreeProvider,
     }),
     ...registerWatchlistCommands({
       repository: stockRepository,

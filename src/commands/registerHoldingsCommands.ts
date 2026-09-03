@@ -7,21 +7,37 @@ import {
   type QuickPickItem,
 } from 'vscode';
 import type { Holding } from '../domain/models';
+import type { ViewMode } from '../domain/viewOptions';
 import { buildQuoteUrl } from '../domain/quoteUrl';
 import type { HoldingsRepository } from '../storage/holdingsRepository';
+import type { ViewOptionsStore } from '../storage/viewOptionsStore';
 import type { HoldingsManagerFocus } from '../ui/holdingsManagerPanel';
-import type { HoldingNode } from '../ui/holdingsTreeProvider';
+import type { HoldingsTreeProvider, HoldingNode } from '../ui/holdingsTreeProvider';
 
 export interface HoldingsCommandOptions {
   repository: HoldingsRepository;
   openManager(focus?: HoldingsManagerFocus): void;
   refresh(manual: boolean): Promise<void>;
   afterChange(added?: readonly Holding[]): Promise<void>;
+  viewOptions: ViewOptionsStore;
+  treeProvider: HoldingsTreeProvider;
 }
 
 interface HoldingPick extends QuickPickItem {
   holding: Holding;
 }
+
+const VIEW_MODE_PICKS: ReadonlyArray<{
+  label: string;
+  description: string;
+  mode: ViewMode;
+}> = [
+  { label: '默认顺序', description: '按添加顺序', mode: 'default' },
+  { label: '盈利优先', description: '按收益率从高到低', mode: 'gainDesc' },
+  { label: '亏损优先', description: '按收益率从低到高', mode: 'lossDesc' },
+  { label: '仅看盈利', description: '隐藏亏损条目', mode: 'upOnly' },
+  { label: '仅看亏损', description: '隐藏盈利条目', mode: 'downOnly' },
+];
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : '操作失败';
@@ -117,6 +133,25 @@ export function registerHoldingsCommands(
         await options.repository.clear();
         await options.afterChange();
         window.setStatusBarMessage('FishStock: 持仓已清空', 2_500);
+      });
+    }),
+
+    commands.registerCommand('fishStock.selectHoldingsViewMode', async () => {
+      const current = options.viewOptions.getSnapshot().holdings;
+      const picked = await window.showQuickPick(
+        VIEW_MODE_PICKS.map((pick) => ({
+          label: pick.label,
+          description: `${pick.description}${pick.mode === current ? '（当前）' : ''}`,
+          mode: pick.mode,
+        })),
+        { placeHolder: '选择持仓展示方式' },
+      );
+      if (!picked || picked.mode === current) {
+        return;
+      }
+      await handle(async () => {
+        await options.viewOptions.setViewMode('holdings', picked.mode);
+        options.treeProvider.setViewMode(picked.mode);
       });
     }),
 

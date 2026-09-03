@@ -11,6 +11,7 @@ import {
   materializeHoldingDraft,
   type HoldingDraftInput,
 } from '../domain/holdingDraft';
+import { holdingDayChange } from '../domain/holdings';
 import {
   applyHoldingAdjustment,
   type AdjustmentDirection,
@@ -46,6 +47,7 @@ interface ManagerQuoteFields {
   currency: HoldingCurrency;
   quoteState: Quote['state'] | 'missing';
   quoteStateLabel: string;
+  dayChange: number | null;
 }
 
 interface ManagerRow extends ManagerQuoteFields {
@@ -186,30 +188,24 @@ function quoteFields(
       currency,
       quoteState: quote?.state ?? 'missing',
       quoteStateLabel: '暂不可用',
-    };
-  }
-  if (quote.state === 'stale') {
-    return {
-      currentPrice: quote.price,
-      currency,
-      quoteState: quote.state,
-      quoteStateLabel: quoteStaleLabel(quote),
-    };
-  }
-  if (quote.state === 'closed') {
-    return {
-      currentPrice: quote.price,
-      currency,
-      quoteState: quote.state,
-      quoteStateLabel: quote.sessionLabel ?? '休市',
+      dayChange: null,
     };
   }
   return {
     currentPrice: quote.price,
     currency,
     quoteState: quote.state,
-    quoteStateLabel: quote.sessionLabel ?? '实时',
+    quoteStateLabel: quoteStateLabelOf(quote),
+    dayChange: holdingDayChange(quote),
   };
+}
+
+function quoteStateLabelOf(quote: Quote): string {
+  if (quote.state === 'stale') {
+    return quoteStaleLabel(quote);
+  }
+  const fallback = quote.state === 'closed' ? '休市' : '实时';
+  return quote.sessionLabel ?? fallback;
 }
 
 export class HoldingsManagerPanel implements Disposable {
@@ -269,6 +265,7 @@ export class HoldingsManagerPanel implements Disposable {
           currency: row.currency,
           quoteState: row.quoteState,
           quoteStateLabel: row.quoteStateLabel,
+          dayChange: row.dayChange,
         })),
       });
     }
@@ -695,7 +692,7 @@ export class HoldingsManagerPanel implements Disposable {
     #dirtyBadge { color: var(--vscode-descriptionForeground); }
     #dirtyBadge.dirty { color: var(--vscode-notificationsWarningIcon-foreground); }
     .table-wrap { overflow-x: auto; }
-    table { width: 100%; min-width: 1080px; border-collapse: collapse; }
+    table { width: 100%; min-width: 1180px; border-collapse: collapse; }
     th, td { padding: 9px 10px; border-bottom: 1px solid var(--vscode-panel-border); text-align: right; vertical-align: middle; }
     th { position: sticky; top: 0; z-index: 1; color: var(--vscode-descriptionForeground); background: var(--vscode-sideBar-background); font-size: 12px; font-weight: 500; }
     th:first-child, td:first-child { width: 38px; text-align: center; }
@@ -706,6 +703,9 @@ export class HoldingsManagerPanel implements Disposable {
     .instrument:hover { text-decoration: underline; }
     .symbol { margin-top: 2px; color: var(--vscode-descriptionForeground); font-size: 12px; }
     .state { display: inline-block; border-radius: 10px; padding: 2px 8px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); white-space: nowrap; }
+    tfoot td { border-bottom: 0; border-top: 1px solid var(--vscode-panel-border); background: var(--vscode-sideBar-background); }
+    tfoot .total-label { font-weight: 500; }
+    tfoot .muted { font-size: 12px; }
     .state.stale, .state.error, .state.missing { color: var(--vscode-notificationsWarningIcon-foreground); background: transparent; border: 1px solid currentColor; }
     .up { color: var(--vscode-charts-red); }
     .down { color: var(--vscode-charts-green); }
@@ -788,22 +788,25 @@ export class HoldingsManagerPanel implements Disposable {
             <th>市值</th>
             <th>浮动盈亏</th>
             <th>收益率</th>
+            <th>当日盈亏</th>
             <th>状态</th>
             <th>操作</th>
           </tr>
         </thead>
         <tbody id="rows"></tbody>
+        <tfoot id="totals"></tfoot>
       </table>
       <div id="emptyState" class="empty">暂无持仓。请搜索标的或从自选股批量添加。</div>
     </div>
     <div id="notice" class="notice"></div>
   </section>
 
-  <footer>人民币与港币分别计算，不进行汇率换算。浮动盈亏未计入手续费、税费、分红或公司行动影响；休市或过期行情会保留状态标识。调仓按移动加权平均成本计算：加仓摊薄成本，减仓只改数量且成本不变。</footer>
+  <footer>人民币与港币分别计算，不进行汇率换算。浮动盈亏未计入手续费、税费、分红或公司行动影响；当日盈亏按表中当前数量估算，未计入当日交易与费用，非交易日或行情不属于当日时显示 —。休市或过期行情会保留状态标识。调仓按移动加权平均成本计算：加仓摊薄成本，减仓只改数量且成本不变。</footer>
 
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     const rowsElement = document.getElementById('rows');
+    const totalsElement = document.getElementById('totals');
     const emptyState = document.getElementById('emptyState');
     const summary = document.getElementById('summary');
     const dirtyBadge = document.getElementById('dirtyBadge');
@@ -1082,12 +1085,15 @@ export class HoldingsManagerPanel implements Disposable {
       const marketValueCell = tr.querySelector('[data-field="marketValue"]');
       const profitCell = tr.querySelector('[data-field="profit"]');
       const returnCell = tr.querySelector('[data-field="return"]');
+      const dayProfitCell = tr.querySelector('[data-field="dayProfit"]');
       profitCell.classList.remove('up', 'down');
       returnCell.classList.remove('up', 'down');
+      dayProfitCell.classList.remove('up', 'down');
       if (!canCalculate) {
         marketValueCell.textContent = '—';
         profitCell.textContent = '—';
         returnCell.textContent = '—';
+        dayProfitCell.textContent = '—';
         return;
       }
       const costValue = quantity * cost;
@@ -1101,6 +1107,16 @@ export class HoldingsManagerPanel implements Disposable {
       if (className) {
         profitCell.classList.add(className);
         returnCell.classList.add(className);
+      }
+      const dayProfit = Number.isFinite(row.dayChange) ? quantity * row.dayChange : null;
+      if (dayProfit === null) {
+        dayProfitCell.textContent = '—';
+      } else {
+        dayProfitCell.textContent = (dayProfit >= 0 ? '+' : '') + formatNumber(dayProfit, 2, 2);
+        const dayClassName = dayProfit > 0 ? 'up' : dayProfit < 0 ? 'down' : '';
+        if (dayClassName) {
+          dayProfitCell.classList.add(dayClassName);
+        }
       }
     }
 
@@ -1117,6 +1133,106 @@ export class HoldingsManagerPanel implements Disposable {
       const td = document.createElement('td');
       td.textContent = text;
       return td;
+    }
+
+    function blankCell() {
+      return document.createElement('td');
+    }
+
+    function signedNumber(value) {
+      return (value >= 0 ? '+' : '') + formatNumber(value, 2, 2);
+    }
+
+    function signedPercent(value) {
+      return (value >= 0 ? '+' : '') + formatNumber(value, 2, 2) + '%';
+    }
+
+    function toneCell(text, value) {
+      const cell = createCell(text);
+      if (value > 0) cell.classList.add('up');
+      if (value < 0) cell.classList.add('down');
+      return cell;
+    }
+
+    function totalLabel(text) {
+      const span = document.createElement('span');
+      span.className = 'total-label';
+      span.textContent = text;
+      return span;
+    }
+
+    function mutedNote(text) {
+      const span = document.createElement('span');
+      span.className = 'muted';
+      span.textContent = text;
+      return span;
+    }
+
+    function renderTotals() {
+      totalsElement.replaceChildren();
+      const groups = new Map();
+      rows.forEach(function (row) {
+        const currency = row.currency === 'HKD' ? 'HKD' : 'CNY';
+        if (!groups.has(currency)) {
+          groups.set(currency, {
+            currency: currency,
+            itemCount: 0,
+            pending: 0,
+            costValue: 0,
+            marketValue: 0,
+            dayProfit: null,
+            dayCount: 0,
+          });
+        }
+        const group = groups.get(currency);
+        group.itemCount += 1;
+        const quantity = parseQuantity(row.quantity);
+        const cost = parseCost(row.averageCost);
+        const priced = Number.isFinite(row.currentPrice)
+          && row.currentPrice > 0
+          && row.quoteState !== 'error'
+          && row.quoteState !== 'missing';
+        if (quantity === null || cost === null || !priced) {
+          group.pending += 1;
+          return;
+        }
+        group.costValue += quantity * cost;
+        group.marketValue += quantity * row.currentPrice;
+        if (Number.isFinite(row.dayChange)) {
+          group.dayProfit = (group.dayProfit === null ? 0 : group.dayProfit) + quantity * row.dayChange;
+          group.dayCount += 1;
+        }
+      });
+      groups.forEach(function (group) {
+        const priced = group.costValue > 0;
+        const profit = group.marketValue - group.costValue;
+        const pricedCount = group.itemCount - group.pending;
+        const tr = document.createElement('tr');
+        tr.appendChild(blankCell());
+        const labelCell = document.createElement('td');
+        labelCell.appendChild(totalLabel('合计 ' + group.currency));
+        if (group.pending > 0) {
+          labelCell.appendChild(mutedNote(' · ' + group.pending + ' 项待填写'));
+        }
+        tr.appendChild(labelCell);
+        for (let index = 0; index < 4; index += 1) {
+          tr.appendChild(blankCell());
+        }
+        tr.appendChild(createCell(priced ? formatNumber(group.marketValue, 2, 2) + ' ' + group.currency : '—'));
+        tr.appendChild(toneCell(priced ? signedNumber(profit) : '—', priced ? profit : 0));
+        tr.appendChild(toneCell(priced ? signedPercent(profit / group.costValue * 100) : '—', priced ? profit : 0));
+        const dayCell = toneCell(
+          group.dayProfit === null ? '—' : signedNumber(group.dayProfit),
+          group.dayProfit === null ? 0 : group.dayProfit,
+        );
+        if (group.dayProfit !== null && group.dayCount < pricedCount) {
+          dayCell.title = '仅 ' + group.dayCount + ' 项有当日行情';
+        }
+        tr.appendChild(dayCell);
+        tr.appendChild(blankCell());
+        tr.appendChild(blankCell());
+        totalsElement.appendChild(tr);
+      });
     }
 
     function renderRows(focus) {
@@ -1174,6 +1290,7 @@ export class HoldingsManagerPanel implements Disposable {
           quantityInput.title = parseQuantity(row.quantity) === null ? '请输入大于 0 的整数' : '';
           markDirty();
           updateMetrics(row, tr);
+          renderTotals();
         });
         quantityCell.appendChild(quantityInput);
         tr.appendChild(quantityCell);
@@ -1192,6 +1309,7 @@ export class HoldingsManagerPanel implements Disposable {
           costInput.title = parseCost(row.averageCost) === null ? '请输入大于 0 的数字' : '';
           markDirty();
           updateMetrics(row, tr);
+          renderTotals();
         });
         costCell.appendChild(costInput);
         tr.appendChild(costCell);
@@ -1208,6 +1326,9 @@ export class HoldingsManagerPanel implements Disposable {
         const returnCell = createCell('—');
         returnCell.dataset.field = 'return';
         tr.appendChild(returnCell);
+        const dayProfitCell = createCell('—');
+        dayProfitCell.dataset.field = 'dayProfit';
+        tr.appendChild(dayProfitCell);
         const stateCell = document.createElement('td');
         const state = document.createElement('span');
         state.className = 'state ' + row.quoteState;
@@ -1246,6 +1367,7 @@ export class HoldingsManagerPanel implements Disposable {
         updateQuoteCells(row, tr);
       });
 
+      renderTotals();
       updateControls();
       if (focus && focus.type === 'holding') {
         const target = rows.find(function (row) { return row.id === focus.holdingId; });
@@ -1535,9 +1657,11 @@ export class HoldingsManagerPanel implements Disposable {
           row.currency = quote.currency;
           row.quoteState = quote.quoteState;
           row.quoteStateLabel = quote.quoteStateLabel;
+          row.dayChange = quote.dayChange;
           const tr = rowsElement.querySelector('[data-key="' + CSS.escape(rowKey(row)) + '"]');
           if (tr) updateQuoteCells(row, tr);
         });
+        renderTotals();
         return;
       }
       if (message.type === 'searchError' && message.requestId === latestRequestId) {

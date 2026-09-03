@@ -12,13 +12,14 @@ import {
   holdingCurrency,
   summarizeHoldingCurrency,
 } from '../domain/holdings';
+import { applyHoldingViewOptions, type ViewMode } from '../domain/viewOptions';
 import type {
   Holding,
   HoldingCurrency,
   Quote,
 } from '../domain/models';
 import type { HoldingsRepository } from '../storage/holdingsRepository';
-import { formatPercent, quoteStaleLabel } from './quoteTooltip';
+import { quoteStaleLabel } from './quoteTooltip';
 import { createHoldingTooltip } from './holdingTooltip';
 
 const CURRENCIES: readonly HoldingCurrency[] = ['CNY', 'HKD'];
@@ -27,11 +28,47 @@ function currencyLabel(currency: HoldingCurrency): string {
   return currency === 'CNY' ? '人民币持仓' : '港币持仓';
 }
 
-function formatAmount(value: number): string {
-  return `${value >= 0 ? '+' : ''}${value.toLocaleString('zh-CN', {
+/** 市值用万 / 亿压缩，避免 Tree View 一行里出现一长串数字。 */
+function formatCompactValue(value: number): string {
+  const abs = Math.abs(value);
+  if (abs >= 100_000_000) {
+    return `${(value / 100_000_000).toLocaleString('zh-CN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}亿`;
+  }
+  if (abs >= 10_000) {
+    return `${(value / 10_000).toLocaleString('zh-CN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}万`;
+  }
+  return value.toLocaleString('zh-CN', { maximumFractionDigits: 0 });
+}
+
+/** 盈亏是要核对的金额，保持完整数字带千分位，压缩成“5万”会丢精度。 */
+function formatSignedAmount(value: number): string {
+  return `${value >= 0 ? '+' : '-'}${Math.abs(value).toLocaleString('zh-CN', {
+    maximumFractionDigits: 0,
+  })}`;
+}
+
+// 百分比只表示幅度，方向由金额的正负号表达，避免同一格里出现两个符号。
+function formatPercentMagnitude(value: number): string {
+  return `${Math.abs(value).toLocaleString('zh-CN', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  })}`;
+  })}%`;
+}
+
+function formatProfitCell(value: number, percent: number | null): string {
+  return percent === null
+    ? formatSignedAmount(value)
+    : `${formatSignedAmount(value)}(${formatPercentMagnitude(percent)})`;
+}
+
+function formatDayCell(value: number | null, percent: number | null): string {
+  return value === null ? '今日—' : `今日${formatProfitCell(value, percent)}`;
 }
 
 function stateSuffix(quote: Quote | undefined): string {
@@ -80,10 +117,16 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
     private readonly repository: HoldingsRepository,
     private readonly options: HoldingsTreeProviderOptions,
     private colorConvention: ColorConvention,
+    private viewMode: ViewMode = 'default',
   ) {}
 
   public setColorConvention(value: ColorConvention): void {
     this.colorConvention = value;
+    this.refresh();
+  }
+
+  public setViewMode(mode: ViewMode): void {
+    this.viewMode = mode;
     this.refresh();
   }
 
@@ -105,10 +148,10 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
         (holding) => this.options.quoteOf(holding),
       );
       if (summary.pricedItemCount === 0) {
-        item.description = `${summary.itemCount} 项 · 等待行情`;
+        item.description = '等待行情';
       } else {
-        const partial = summary.pricedItemCount < summary.itemCount ? '部分 ' : '';
-        item.description = `${summary.itemCount} 项 · ${partial}${formatAmount(summary.profit)} ${element.currency}${summary.returnPercent === null ? '' : ` (${formatPercent(summary.returnPercent)})`}`;
+        const partial = summary.pricedItemCount < summary.itemCount ? '部分 · ' : '';
+        item.description = `${partial}${formatCompactValue(summary.marketValue)} · ${formatProfitCell(summary.profit, summary.returnPercent)} · ${formatDayCell(summary.dayProfit, summary.dayProfitPercent)}`;
       }
       return item;
     }
@@ -119,7 +162,7 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
     item.id = `holding:${holding.id}`;
     item.contextValue = 'fishStock.holding';
     item.description = metrics
-      ? `${holding.quantity.toLocaleString('zh-CN')} ${holding.kind === 'fund' ? '份' : '股'} · ${formatAmount(metrics.profit)} ${metrics.currency} (${formatPercent(metrics.returnPercent)})${stateSuffix(element.quote)}`
+      ? `${holding.quantity.toLocaleString('zh-CN')} ${holding.kind === 'fund' ? '份' : '股'} · ${formatCompactValue(metrics.marketValue)} · ${formatProfitCell(metrics.profit, metrics.returnPercent)} · ${formatDayCell(metrics.dayProfit, metrics.dayProfitPercent)}`
       : `${holding.quantity.toLocaleString('zh-CN')} ${holding.kind === 'fund' ? '份' : '股'} · 等待行情${stateSuffix(element.quote)}`;
     item.tooltip = createHoldingTooltip(
       holding,
@@ -136,10 +179,9 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
   }
 
   public getChildren(element?: HoldingsTreeNode): HoldingsTreeNode[] {
-    const holdings = this.repository.getSnapshot().holdings;
     if (!element) {
       return CURRENCIES.flatMap((currency) => {
-        const matching = holdings.filter((holding) => holdingCurrency(holding) === currency);
+        const matching = this.visibleHoldings(currency);
         return matching.length > 0 ? [new HoldingCurrencyNode(currency, matching)] : [];
       });
     }
@@ -155,10 +197,16 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
       return undefined;
     }
     const currency = holdingCurrency(element.holding);
-    const holdings = this.repository
+    return new HoldingCurrencyNode(currency, this.visibleHoldings(currency));
+  }
+
+  private visibleHoldings(currency: HoldingCurrency): Holding[] {
+    const matching = this.repository
       .getSnapshot()
       .holdings.filter((holding) => holdingCurrency(holding) === currency);
-    return new HoldingCurrencyNode(currency, holdings);
+    return applyHoldingViewOptions(matching, this.viewMode, (holding) =>
+      this.options.quoteOf(holding),
+    );
   }
 
   private holdingIcon(

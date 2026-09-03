@@ -47,6 +47,7 @@ export interface DiagnosticReport {
     stock: string;
     fund: string;
     futures: string;
+    holdings: string;
   };
   statusBarMode?: string;
   tradingDays: Readonly<Partial<Record<Market, boolean>>>;
@@ -195,7 +196,7 @@ export function formatDiagnosticReport(report: DiagnosticReport): string {
     `- 过期阈值：${report.config.staleAfterSeconds} 秒`,
     `- 状态栏轮播：${report.config.rotationSeconds} 秒`,
     `- 涨跌颜色：${report.config.colorConvention}`,
-    `- 视图模式：Stock=${report.viewModes.stock}, Fund=${report.viewModes.fund}, Futures=${report.viewModes.futures}`,
+    `- 视图模式：Stock=${report.viewModes.stock}, Fund=${report.viewModes.fund}, Futures=${report.viewModes.futures}, Holdings=${report.viewModes.holdings}`,
     ...(report.statusBarMode
       ? [`- 状态栏模式：${report.statusBarMode}`]
       : []),

@@ -56,6 +56,11 @@ export function createHoldingTooltip(
   tooltip.appendText(`${name} (${holding.symbol}) · ${state}`);
   tooltip.appendMarkdown('\n\n');
   if (metrics) {
+    const dayProfitCell = metrics.dayProfit === null
+      ? '—'
+      : metrics.dayProfitPercent === null
+        ? formatProfit(metrics.dayProfit, metrics.currency)
+        : `${formatProfit(metrics.dayProfit, metrics.currency)} (${formatPercent(metrics.dayProfitPercent)})`;
     tooltip.appendMarkdown(
       `**${formatProfit(metrics.profit, metrics.currency)} · ${formatPercent(metrics.returnPercent)}**`,
     );
@@ -70,6 +75,7 @@ export function createHoldingTooltip(
       `| 当前市值 | ${formatAmount(metrics.marketValue, metrics.currency)} |`,
       `| 浮动盈亏 | ${formatProfit(metrics.profit, metrics.currency)} |`,
       `| 收益率 | ${formatPercent(metrics.returnPercent)} |`,
+      `| 当日盈亏 | ${dayProfitCell} |`,
     ].join('\n'));
   } else {
     tooltip.appendText('当前没有可用于计算收益的有效价格。');
@@ -87,7 +93,12 @@ export function createHoldingTooltip(
     tooltip.appendText(quote.message);
   }
   tooltip.appendMarkdown('\n\n');
-  tooltip.appendText('说明：浮动盈亏未计入手续费、税费、分红或汇率换算。');
+  tooltip.appendText(
+    '说明：浮动盈亏未计入手续费、税费、分红或汇率换算；'
+    + '当日盈亏按当前持仓数量估算，未计入当日交易与费用，'
+    + '其百分比以昨收市值为基准（收益率以持仓成本为基准），'
+    + '非交易日或行情不属于当日时显示 —。',
+  );
   appendActionHint(tooltip, actionHint);
   return tooltip;
 }
