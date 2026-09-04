@@ -42,6 +42,11 @@ import {
 } from './domain/futuresSessions';
 import { marketSessionFor, shouldAutoRefreshSymbol } from './domain/marketSessions';
 import { holdingCandidatesFromWatchlists } from './domain/holdingCandidates';
+import {
+  DEFAULT_HOLDING_DESCRIPTION_FIELDS,
+  ensureAtLeastOneField,
+  type HoldingDescriptionFields,
+} from './domain/holdings';
 import { calendarCoverageEnd, isTradingDay } from './domain/tradingCalendar';
 import { startBackgroundRefresh } from './services/backgroundRefresh';
 import { MarketSessionMonitor } from './services/marketSessionMonitor';
@@ -288,6 +293,9 @@ export async function activate(context: ExtensionContext): Promise<void> {
     },
     config.colorConvention,
     viewOptions.getSnapshot().holdings,
+    workspace
+      .getConfiguration('fishStock.holdings')
+      .get<HoldingDescriptionFields>('treeViewFields', DEFAULT_HOLDING_DESCRIPTION_FIELDS),
   );
   const stockTreeView = window.createTreeView('fishStock.stock', {
     treeDataProvider: stockTreeProvider,
@@ -978,6 +986,18 @@ export async function activate(context: ExtensionContext): Promise<void> {
       sessionMonitors.stock?.refresh();
       sessionMonitors.fund?.refresh();
       sessionMonitors.futures?.refresh();
+    }),
+    workspace.onDidChangeConfiguration((event) => {
+      if (!event.affectsConfiguration('fishStock.holdings.treeViewFields')) {
+        return;
+      }
+      const flags = workspace
+        .getConfiguration('fishStock.holdings')
+        .get<HoldingDescriptionFields>(
+          'treeViewFields',
+          DEFAULT_HOLDING_DESCRIPTION_FIELDS,
+        );
+      holdingsTreeProvider.setFieldFlags(ensureAtLeastOneField(flags));
     }),
   );
 

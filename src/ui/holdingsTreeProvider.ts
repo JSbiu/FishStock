@@ -8,9 +8,15 @@ import {
 } from 'vscode';
 import type { ColorConvention } from '../config';
 import {
+  buildCurrencySummarySegments,
+  buildHoldingDescriptionSegments,
   calculateHoldingMetrics,
+  DEFAULT_HOLDING_DESCRIPTION_FIELDS,
   holdingCurrency,
+  holdingIconKindOf,
   summarizeHoldingCurrency,
+  type HoldingDescriptionFields,
+  type HoldingIconKind,
 } from '../domain/holdings';
 import { applyHoldingViewOptions, type ViewMode } from '../domain/viewOptions';
 import type {
@@ -28,49 +34,6 @@ function currencyLabel(currency: HoldingCurrency): string {
   return currency === 'CNY' ? '人民币持仓' : '港币持仓';
 }
 
-/** 市值用万 / 亿压缩，避免 Tree View 一行里出现一长串数字。 */
-function formatCompactValue(value: number): string {
-  const abs = Math.abs(value);
-  if (abs >= 100_000_000) {
-    return `${(value / 100_000_000).toLocaleString('zh-CN', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })}亿`;
-  }
-  if (abs >= 10_000) {
-    return `${(value / 10_000).toLocaleString('zh-CN', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })}万`;
-  }
-  return value.toLocaleString('zh-CN', { maximumFractionDigits: 0 });
-}
-
-/** 盈亏是要核对的金额，保持完整数字带千分位，压缩成“5万”会丢精度。 */
-function formatSignedAmount(value: number): string {
-  return `${value >= 0 ? '+' : '-'}${Math.abs(value).toLocaleString('zh-CN', {
-    maximumFractionDigits: 0,
-  })}`;
-}
-
-// 百分比只表示幅度，方向由金额的正负号表达，避免同一格里出现两个符号。
-function formatPercentMagnitude(value: number): string {
-  return `${Math.abs(value).toLocaleString('zh-CN', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}%`;
-}
-
-function formatProfitCell(value: number, percent: number | null): string {
-  return percent === null
-    ? formatSignedAmount(value)
-    : `${formatSignedAmount(value)}(${formatPercentMagnitude(percent)})`;
-}
-
-function formatDayCell(value: number | null, percent: number | null): string {
-  return value === null ? '今日—' : `今日${formatProfitCell(value, percent)}`;
-}
-
 function stateSuffix(quote: Quote | undefined): string {
   if (!quote || quote.state === 'error') {
     return ' · 暂不可用';
@@ -82,6 +45,19 @@ function stateSuffix(quote: Quote | undefined): string {
     return ` · ${quote.sessionLabel ?? '休市'}`;
   }
   return '';
+}
+
+function buildPendingHoldingDescription(
+  holding: Holding,
+  fields: HoldingDescriptionFields,
+  suffix: string,
+): string {
+  const segments: string[] = [];
+  if (fields.quantity) {
+    segments.push(`${holding.quantity.toLocaleString('zh-CN')} ${holding.kind === 'fund' ? '份' : '股'}`);
+  }
+  segments.push(`等待行情${suffix}`);
+  return segments.join(' · ');
 }
 
 export class HoldingCurrencyNode {
@@ -118,6 +94,7 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
     private readonly options: HoldingsTreeProviderOptions,
     private colorConvention: ColorConvention,
     private viewMode: ViewMode = 'default',
+    private fieldFlags: HoldingDescriptionFields = DEFAULT_HOLDING_DESCRIPTION_FIELDS,
   ) {}
 
   public setColorConvention(value: ColorConvention): void {
@@ -127,6 +104,11 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
 
   public setViewMode(mode: ViewMode): void {
     this.viewMode = mode;
+    this.refresh();
+  }
+
+  public setFieldFlags(flags: HoldingDescriptionFields): void {
+    this.fieldFlags = flags;
     this.refresh();
   }
 
@@ -151,7 +133,7 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
         item.description = '等待行情';
       } else {
         const partial = summary.pricedItemCount < summary.itemCount ? '部分 · ' : '';
-        item.description = `${partial}${formatCompactValue(summary.marketValue)} · ${formatProfitCell(summary.profit, summary.returnPercent)} · ${formatDayCell(summary.dayProfit, summary.dayProfitPercent)}`;
+        item.description = `${partial}${buildCurrencySummarySegments(summary, this.fieldFlags).join(' · ')}`;
       }
       return item;
     }
@@ -162,14 +144,16 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
     item.id = `holding:${holding.id}`;
     item.contextValue = 'fishStock.holding';
     item.description = metrics
-      ? `${holding.quantity.toLocaleString('zh-CN')} ${holding.kind === 'fund' ? '份' : '股'} · ${formatCompactValue(metrics.marketValue)} · ${formatProfitCell(metrics.profit, metrics.returnPercent)} · ${formatDayCell(metrics.dayProfit, metrics.dayProfitPercent)}`
-      : `${holding.quantity.toLocaleString('zh-CN')} ${holding.kind === 'fund' ? '份' : '股'} · 等待行情${stateSuffix(element.quote)}`;
+      ? buildHoldingDescriptionSegments(holding, metrics, this.fieldFlags).join(' · ')
+      : buildPendingHoldingDescription(holding, this.fieldFlags, stateSuffix(element.quote));
     item.tooltip = createHoldingTooltip(
       holding,
       element.quote,
       this.options.providerNameOf(holding),
     );
-    item.iconPath = this.holdingIcon(metrics?.profit, element.quote);
+    item.iconPath = this.holdingIcon(
+      holdingIconKindOf(metrics?.dayProfit, element.quote),
+    );
     item.command = {
       command: 'fishStock.openHoldingQuote',
       title: '打开行情',
@@ -209,29 +193,26 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
     );
   }
 
-  private holdingIcon(
-    profit: number | undefined,
-    quote: Quote | undefined,
-  ): ThemeIcon {
-    if (!quote || quote.state === 'error' || profit === undefined) {
-      return new ThemeIcon('warning');
+  private holdingIcon(kind: HoldingIconKind): ThemeIcon {
+    switch (kind) {
+      case 'warning':
+        return new ThemeIcon('warning');
+      case 'stale':
+        return new ThemeIcon('history');
+      case 'unavailable':
+        return new ThemeIcon('circle-outline');
+      case 'flat':
+        return new ThemeIcon('dash');
+      case 'up':
+        return new ThemeIcon('arrow-up', new ThemeColor(this.changeColor(true)));
+      case 'down':
+        return new ThemeIcon('arrow-down', new ThemeColor(this.changeColor(false)));
     }
-    if (quote.state === 'stale') {
-      return new ThemeIcon('history');
-    }
-    if (quote.state === 'closed') {
-      return new ThemeIcon('clock');
-    }
-    if (profit === 0) {
-      return new ThemeIcon('dash');
-    }
-    const isUp = profit > 0;
-    const color = this.colorConvention === 'china'
-      ? isUp ? 'charts.red' : 'charts.green'
-      : isUp ? 'charts.green' : 'charts.red';
-    return new ThemeIcon(
-      isUp ? 'arrow-up' : 'arrow-down',
-      new ThemeColor(color),
-    );
+  }
+
+  private changeColor(isUp: boolean): string {
+    const up = this.colorConvention === 'china' ? 'charts.red' : 'charts.green';
+    const down = this.colorConvention === 'china' ? 'charts.green' : 'charts.red';
+    return isUp ? up : down;
   }
 }

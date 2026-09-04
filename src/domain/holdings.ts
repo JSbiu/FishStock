@@ -159,3 +159,164 @@ export function summarizeHoldingCurrency(
       dayProfit !== null && dayProfitBase > 0 ? (dayProfit / dayProfitBase) * 100 : null,
   };
 }
+
+/**
+ * Holdings Tree View 描述行的字段开关。详情始终在悬浮面板与编辑器管理器里，
+ * Tree View 只挑用户关心的几项——避免一行塞五个数据点。
+ */
+export interface HoldingDescriptionFields {
+  quantity: boolean;
+  marketValue: boolean;
+  /** 浮动盈亏金额（百分比合并在括号里，不需要单独勾选收益率）。 */
+  profit: boolean;
+  /** 当日盈亏金额（百分比合并在括号里）。 */
+  dayProfit: boolean;
+}
+
+export const DEFAULT_HOLDING_DESCRIPTION_FIELDS: HoldingDescriptionFields = {
+  quantity: true,
+  marketValue: true,
+  profit: true,
+  dayProfit: true,
+};
+
+/**
+ * 至少保留一个字段——否则 Tree View 的描述会是空的，不如强制保留市值作为兜底。
+ * （调用方需要在写入配置前用此函数校验。）
+ */
+export function ensureAtLeastOneField(
+  fields: HoldingDescriptionFields,
+): HoldingDescriptionFields {
+  if (fields.marketValue || fields.profit || fields.dayProfit || fields.quantity) {
+    return fields;
+  }
+  return { ...fields, marketValue: true };
+}
+
+/**
+ * Tree View 的展示规则放在领域层，UI 层只负责读配置和触发刷新——
+ * 字段选择、字段顺序、缺值 fallback 都是展示的契约，独立于 VS Code Tree API，
+ * 也能在单元测试里完整覆盖。
+ *
+ * 函数式拆分而不是拼成大字符串：每一段都是独立可测、可独立呈现的语义单元，
+ * UI 层拿到数组后 `join(' · ')` 即可。
+ */
+export function buildHoldingDescriptionSegments(
+  holding: Holding,
+  metrics: HoldingMetrics,
+  fields: HoldingDescriptionFields,
+): string[] {
+  const segments: string[] = [];
+  if (fields.quantity) {
+    segments.push(`${holding.quantity.toLocaleString('zh-CN')} ${holding.kind === 'fund' ? '份' : '股'}`);
+  }
+  if (fields.marketValue) {
+    segments.push(formatCompactMarketValue(metrics.marketValue));
+  }
+  if (fields.profit) {
+    segments.push(formatProfitCell(metrics.profit, metrics.returnPercent));
+  }
+  if (fields.dayProfit) {
+    segments.push(formatDayCell(metrics.dayProfit, metrics.dayProfitPercent));
+  }
+  return segments;
+}
+
+export function buildCurrencySummarySegments(
+  summary: HoldingCurrencySummary,
+  fields: HoldingDescriptionFields,
+): string[] {
+  const segments: string[] = [];
+  if (fields.marketValue) {
+    segments.push(formatCompactMarketValue(summary.marketValue));
+  }
+  if (fields.profit) {
+    segments.push(formatProfitCell(summary.profit, summary.returnPercent));
+  }
+  if (fields.dayProfit) {
+    segments.push(formatDayCell(summary.dayProfit, summary.dayProfitPercent));
+  }
+  return segments;
+}
+
+/** 市值用万 / 亿压缩，避免 Tree View 一行里出现一长串数字。 */
+export function formatCompactMarketValue(value: number): string {
+  const abs = Math.abs(value);
+  if (abs >= 100_000_000) {
+    return `${(value / 100_000_000).toLocaleString('zh-CN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}亿`;
+  }
+  if (abs >= 10_000) {
+    return `${(value / 10_000).toLocaleString('zh-CN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}万`;
+  }
+  return value.toLocaleString('zh-CN', { maximumFractionDigits: 0 });
+}
+
+/** 盈亏是要核对的金额，保持完整数字带千分位，压缩成“5万”会丢精度。 */
+export function formatSignedAmount(value: number): string {
+  return `${value >= 0 ? '+' : '-'}${Math.abs(value).toLocaleString('zh-CN', {
+    maximumFractionDigits: 0,
+  })}`;
+}
+
+// 百分比只表示幅度，方向由金额的正负号表达，避免同一格里出现两个符号。
+export function formatPercentMagnitude(value: number): string {
+  return `${Math.abs(value).toLocaleString('zh-CN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}%`;
+}
+
+export function formatProfitCell(value: number, percent: number | null): string {
+  return percent === null
+    ? formatSignedAmount(value)
+    : `${formatSignedAmount(value)}(${formatPercentMagnitude(percent)})`;
+}
+
+export function formatDayCell(value: number | null, percent: number | null): string {
+  return value === null ? '今日—' : `今日${formatProfitCell(value, percent)}`;
+}
+
+export type HoldingIconKind =
+  /** 无行情或行情错误。 */
+  | 'warning'
+  /** 刷新超时，行情可能已过期。 */
+  | 'stale'
+  /** 行情有效但不属于当日，无从判断当日方向。 */
+  | 'unavailable'
+  /** 当日持平。 */
+  | 'flat'
+  | 'up'
+  | 'down';
+
+/**
+ * 箭头方向跟随**当日盈亏**而不是浮动盈亏：Tree View 的图标回答的是"今天怎么样"，
+ * 而"总共赚了多少"已经由描述行里的浮动盈亏表达了。
+ *
+ * 数据不可靠时不给方向——`stale` 与 `error` 状态下当日盈亏可能来自过期行情，
+ * 画一个向上箭头会误导读数。注意休市（`closed`）不受此限：收盘价是确定事实，
+ * 收盘后的当日盈亏仍然可信，此时照常显示方向。
+ */
+export function holdingIconKindOf(
+  dayProfit: number | null | undefined,
+  quote: Quote | undefined,
+): HoldingIconKind {
+  if (!quote || quote.state === 'error') {
+    return 'warning';
+  }
+  if (quote.state === 'stale') {
+    return 'stale';
+  }
+  if (dayProfit === null || dayProfit === undefined) {
+    return 'unavailable';
+  }
+  if (dayProfit === 0) {
+    return 'flat';
+  }
+  return dayProfit > 0 ? 'up' : 'down';
+}

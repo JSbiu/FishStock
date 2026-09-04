@@ -1,9 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  buildCurrencySummarySegments,
+  buildHoldingDescriptionSegments,
   calculateHoldingMetrics,
+  DEFAULT_HOLDING_DESCRIPTION_FIELDS,
+  ensureAtLeastOneField,
   holdingDayChange,
+  holdingIconKindOf,
   summarizeHoldingCurrency,
+  type HoldingDescriptionFields,
 } from '../domain/holdings';
 import type { Holding, Quote } from '../domain/models';
 
@@ -204,4 +210,113 @@ test('bases the summarized day profit percentage only on same-day holdings', () 
   );
   assert.equal(summary.dayProfit, 2_000);
   assert.equal(summary.dayProfitPercent, (2_000 / 148_000) * 100);
+});
+
+test('defaults to showing every field', () => {
+  assert.deepEqual(DEFAULT_HOLDING_DESCRIPTION_FIELDS, {
+    quantity: true,
+    marketValue: true,
+    profit: true,
+    dayProfit: true,
+  });
+});
+
+test('ensureAtLeastOneField keeps market value when all flags are off', () => {
+  const empty: HoldingDescriptionFields = {
+    quantity: false,
+    marketValue: false,
+    profit: false,
+    dayProfit: false,
+  };
+  assert.deepEqual(ensureAtLeastOneField(empty), {
+    quantity: false,
+    marketValue: true,
+    profit: false,
+    dayProfit: false,
+  });
+});
+
+test('ensureAtLeastOneField returns the input as is when something is enabled', () => {
+  const partial: HoldingDescriptionFields = {
+    quantity: true,
+    marketValue: false,
+    profit: false,
+    dayProfit: false,
+  };
+  assert.deepEqual(ensureAtLeastOneField(partial), partial);
+});
+
+test('buildHoldingDescriptionSegments renders every enabled field in order', () => {
+  const metrics = calculateHoldingMetrics(holding, sameDayQuote(1_500, 'live'), NOW);
+  assert.ok(metrics);
+  assert.deepEqual(
+    buildHoldingDescriptionSegments(holding, metrics, DEFAULT_HOLDING_DESCRIPTION_FIELDS),
+    ['100 股', '15.00万', '+1,000(0.67%)', '今日+2,000(1.35%)'],
+  );
+});
+
+test('buildHoldingDescriptionSegments omits the quantity segment when disabled', () => {
+  const metrics = calculateHoldingMetrics(holding, sameDayQuote(1_500, 'live'), NOW);
+  assert.ok(metrics);
+  const flags: HoldingDescriptionFields = {
+    ...DEFAULT_HOLDING_DESCRIPTION_FIELDS,
+    quantity: false,
+  };
+  assert.deepEqual(
+    buildHoldingDescriptionSegments(holding, metrics, flags),
+    ['15.00万', '+1,000(0.67%)', '今日+2,000(1.35%)'],
+  );
+});
+
+test('buildHoldingDescriptionSegments falls back to a dash when day profit is unavailable', () => {
+  const metrics = calculateHoldingMetrics(holding, quote(1_500, 'live'), NOW);
+  assert.ok(metrics);
+  assert.deepEqual(
+    buildHoldingDescriptionSegments(holding, metrics, DEFAULT_HOLDING_DESCRIPTION_FIELDS),
+    ['100 股', '15.00万', '+1,000(0.67%)', '今日—'],
+  );
+});
+
+test('buildCurrencySummarySegments never includes quantity', () => {
+  const summary = summarizeHoldingCurrency('CNY', [holding], (item) =>
+    item.id === holding.id ? sameDayQuote(1_500, 'live') : undefined,
+    NOW,
+  );
+  assert.deepEqual(
+    buildCurrencySummarySegments(summary, {
+      quantity: true,
+      marketValue: true,
+      profit: true,
+      dayProfit: true,
+    }),
+    ['15.00万', '+1,000(0.67%)', '今日+2,000(1.35%)'],
+  );
+});
+
+test('holdingIconKindOf warns when the quote is missing or errored', () => {
+  assert.equal(holdingIconKindOf(undefined, undefined), 'warning');
+  assert.equal(holdingIconKindOf(2_000, quote(1_500, 'error')), 'warning');
+});
+
+test('holdingIconKindOf refuses to show a direction on stale quotes', () => {
+  assert.equal(holdingIconKindOf(2_000, sameDayQuote(1_500, 'stale')), 'stale');
+});
+
+test('holdingIconKindOf marks unavailable day profit as neutral', () => {
+  assert.equal(holdingIconKindOf(null, quote(1_500, 'live')), 'unavailable');
+});
+
+test('holdingIconKindOf follows the day profit direction', () => {
+  assert.equal(holdingIconKindOf(2_000, sameDayQuote(1_500, 'live')), 'up');
+  assert.equal(holdingIconKindOf(-2_000, sameDayQuote(1_460, 'live')), 'down');
+  assert.equal(holdingIconKindOf(0, sameDayQuote(1_480, 'live')), 'flat');
+});
+
+test('holdingIconKindOf keeps the direction after the market closes', () => {
+  assert.equal(holdingIconKindOf(2_000, sameDayQuote(1_500, 'closed')), 'up');
+});
+
+test('holdingIconKindOf ignores floating profit when choosing the direction', () => {
+  // 浮动盈亏为正、当日为负：图标必须跟当日走，不能跟浮盈走。
+  assert.equal(holdingIconKindOf(-2_000, sameDayQuote(1_460, 'live')), 'down');
 });

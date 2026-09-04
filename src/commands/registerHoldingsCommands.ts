@@ -1,13 +1,20 @@
 import {
   commands,
+  ConfigurationTarget,
   env,
   Uri,
   window,
+  workspace,
   type Disposable,
   type QuickPickItem,
 } from 'vscode';
 import type { Holding } from '../domain/models';
 import type { ViewMode } from '../domain/viewOptions';
+import {
+  DEFAULT_HOLDING_DESCRIPTION_FIELDS,
+  ensureAtLeastOneField,
+  type HoldingDescriptionFields,
+} from '../domain/holdings';
 import { buildQuoteUrl } from '../domain/quoteUrl';
 import type { HoldingsRepository } from '../storage/holdingsRepository';
 import type { ViewOptionsStore } from '../storage/viewOptionsStore';
@@ -37,6 +44,17 @@ const VIEW_MODE_PICKS: ReadonlyArray<{
   { label: '亏损优先', description: '按收益率从低到高', mode: 'lossDesc' },
   { label: '仅看盈利', description: '隐藏亏损条目', mode: 'upOnly' },
   { label: '仅看亏损', description: '隐藏盈利条目', mode: 'downOnly' },
+];
+
+const FIELD_PICKS: ReadonlyArray<{
+  label: string;
+  description: string;
+  key: keyof HoldingDescriptionFields;
+}> = [
+  { label: '数量', description: '持仓 /份数', key: 'quantity' },
+  { label: '市值', description: '按万 / 亿压缩', key: 'marketValue' },
+  { label: '浮动盈亏', description: '金额 + 相对成本收益率', key: 'profit' },
+  { label: '当日盈亏', description: '今日金额 + 相对昨收百分比', key: 'dayProfit' },
 ];
 
 function messageOf(error: unknown): string {
@@ -152,6 +170,60 @@ export function registerHoldingsCommands(
       await handle(async () => {
         await options.viewOptions.setViewMode('holdings', picked.mode);
         options.treeProvider.setViewMode(picked.mode);
+      });
+    }),
+
+    commands.registerCommand('fishStock.selectHoldingsTreeViewFields', async () => {
+      const config = workspace.getConfiguration('fishStock.holdings');
+      const current = config.get<HoldingDescriptionFields>(
+        'treeViewFields',
+        DEFAULT_HOLDING_DESCRIPTION_FIELDS,
+      );
+      const picker = window.createQuickPick<{ label: string; description: string; key: keyof HoldingDescriptionFields }>();
+      picker.placeholder = '选择 Holdings Tree View 描述行展示的字段（至少一项）';
+      picker.canSelectMany = true;
+      picker.items = FIELD_PICKS.map((pick) => ({
+        label: pick.label,
+        description: pick.description,
+        key: pick.key,
+      }));
+      picker.selectedItems = picker.items.filter((item) => current[item.key]);
+      const selected = await new Promise<ReadonlyArray<typeof picker.items[number]> | undefined>((resolve) => {
+        let settled = false;
+        const finish = (items: typeof picker.selectedItems): void => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          resolve(items);
+          picker.hide();
+          picker.dispose();
+        };
+        picker.onDidAccept(() => finish(picker.selectedItems));
+        picker.onDidHide(() => finish(picker.selectedItems));
+        picker.show();
+      });
+      if (!selected) {
+        return;
+      }
+      const next: HoldingDescriptionFields = {
+        quantity: selected.some((item) => item.key === 'quantity'),
+        marketValue: selected.some((item) => item.key === 'marketValue'),
+        profit: selected.some((item) => item.key === 'profit'),
+        dayProfit: selected.some((item) => item.key === 'dayProfit'),
+      };
+      const ensured = ensureAtLeastOneField(next);
+      const same =
+        ensured.quantity === current.quantity
+        && ensured.marketValue === current.marketValue
+        && ensured.profit === current.profit
+        && ensured.dayProfit === current.dayProfit;
+      if (same) {
+        return;
+      }
+      await handle(async () => {
+        await config.update('treeViewFields', ensured, ConfigurationTarget.Global);
+        options.treeProvider.setFieldFlags(ensured);
       });
     }),
 
