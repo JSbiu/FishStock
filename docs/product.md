@@ -207,3 +207,12 @@ FishStock 是面向开发者的轻量 VS Code 自选行情工具。它只解决�
 - 编辑器管理器表格新增按币种的合计行，汇总市值、浮动盈亏、收益率与当日盈亏；未填全或没有行情的条目不计入，并在标签后标注待填写数量。
 
 0.7.4 不增加表格列头排序、录入键盘流转、持仓导出与自选持仓双向联动。
+
+## 0.7.5 Holdings 描述行字段自定义
+
+- Holdings Tree View 描述行从「固定 4 字段」改为「用户可勾选」：默认展示全部四个字段（数量、市值、浮动盈亏（含收益率）、当日盈亏（含百分比）），可按需关掉不关心的字段来精简一行。关掉的字段仍完整保留在悬浮面板与编辑器管理器里，不会因此丢失信息。
+- 配置位于 `fishStock.holdings.treeViewFields`，作用域为 Global，至少保留一项（否则强制保留市值作为兜底，避免描述行变空）。
+- 入口：Holdings 标题栏 `2_view@2` 分组的命令，或 VS Code Settings UI 直接编辑 JSON。`onDidChangeConfiguration` 监听同一配置，从 Settings UI 改也即时生效。
+- 持仓展示规则（字段顺序、`今日—` fallback、汇总不含股数）放到 `domain/holdings.ts`，格式化函数与 `buildHoldingDescriptionSegments` / `buildCurrencySummarySegments` 是可独立测试的纯函数。
+
+0.7.5 不增加字段拖拽排序、字段宽度可调、按持仓分组的字段预设。

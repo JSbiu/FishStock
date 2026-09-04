@@ -2,6 +2,15 @@
 
 FishStock 使用 `主版本.次版本.修订版本` 记录版本里程碑。功能里程碑滚动次版本号，优化、修复和发布准备仅滚动修订版本号。
 
+## 0.7.5
+
+- Holdings Tree View 描述行的字段改为用户可勾选：默认展示全部四个字段（数量、市值、浮动盈亏（含收益率）、当日盈亏（含百分比）），可按需关掉不关心的字段来精简一行；关掉的字段仍完整保留在悬浮面板与编辑器管理器里。
+- 新增配置 `fishStock.holdings.treeViewFields`：四个 boolean 字段（`quantity` / `marketValue` / `profit` / `dayProfit`），至少保留一项，否则强制保留市值作为兜底，避免描述行变空。
+- 新增命令 `fishStock.selectHoldingsTreeViewFields`（标题栏 `2_view@2` 分组）：QuickPick 多选切换，写入 VS Code Configuration 的 Global 作用域，立即刷新 Tree View；`onDidChangeConfiguration` 监听同一配置，从 Settings UI 直接改也生效。
+- 持仓 Tree View 的条目图标改为跟随**当日盈亏**方向，而不是浮动盈亏：图标回答"今天怎么样"，"总共赚了多少"由描述行里的浮动盈亏表达。数据不可靠时（刷新超时、行情错误）不给方向，避免拿过期数据误导；休市是例外——收盘后的当日盈亏是确定事实，照常显示方向。
+- 持仓 Tree View 的展示规则（字段选择、字段顺序、`今日—` fallback、汇总不含股数）从 UI 层上提到 `domain/holdings.ts`，格式化函数（`formatCompactMarketValue` / `formatSignedAmount` / `formatPercentMagnitude` / `formatProfitCell` / `formatDayCell`）一并搬到领域层，新增 `buildHoldingDescriptionSegments` 与 `buildCurrencySummarySegments` 纯函数，便于单元测试。
+- 图标方向的判断抽成领域函数 `holdingIconKindOf`（返回 `warning` / `stale` / `unavailable` / `flat` / `up` / `down`），UI 层只负责映射到 `ThemeIcon`，判断逻辑可单元测试。
+
 ## 0.7.4
 
 - 新增当日盈亏：按行情归属交易日判定可用性，盘中、午休与收盘后照常显示，盘前、周末与节假日显示 `—`；刷新失败但数据仍属于当天时继续显示最后一次数值，避免刷新抖动导致数值在金额与占位符之间跳变。

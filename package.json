@@ -2,7 +2,7 @@
   "name": "fish-stock",
   "displayName": "FishStock",
   "description": "轻量、安静、本地优先的股票、ETF、期货与持仓行情插件",
-  "version": "0.7.4",
+  "version": "0.7.5",
   "publisher": "jsbiu",
   "private": true,
   "author": {
@@ -328,6 +328,11 @@
         "icon": "$(sort-precedence)"
       },
       {
+        "command": "fishStock.selectHoldingsTreeViewFields",
+        "title": "FishStock: 持仓字段展示选择",
+        "icon": "$(list-selection)"
+      },
+      {
         "command": "fishStock.editHolding",
         "title": "FishStock: 编辑持仓",
         "icon": "$(edit)"
@@ -533,6 +538,11 @@
           "group": "2_view@1"
         },
         {
+          "command": "fishStock.selectHoldingsTreeViewFields",
+          "when": "view == fishStock.holdings",
+          "group": "2_view@2"
+        },
+        {
           "command": "fishStock.selectStatusBarMode",
           "when": "view == fishStock.holdings",
           "group": "3_status@1"
@@ -722,6 +732,38 @@
           ],
           "default": "china",
           "description": "自选列表中的涨跌颜色习惯。状态栏不使用醒目背景色。"
+        },
+        "fishStock.holdings.treeViewFields": {
+          "type": "object",
+          "properties": {
+            "quantity": {
+              "type": "boolean",
+              "default": true,
+              "description": "数量（持仓 /份数）。"
+            },
+            "marketValue": {
+              "type": "boolean",
+              "default": true,
+              "description": "市值（按万 / 亿压缩）。"
+            },
+            "profit": {
+              "type": "boolean",
+              "default": true,
+              "description": "浮动盈亏（金额后括号内为相对成本的收益率）。"
+            },
+            "dayProfit": {
+              "type": "boolean",
+              "default": true,
+              "description": "当日盈亏（金额后括号内为相对昨昨收的百分比）。"
+            }
+          },
+          "default": {
+            "quantity": true,
+            "marketValue": true,
+            "profit": true,
+            "dayProfit": true
+          },
+          "description": "Holdings Tree View 描述行展示哪些字段。未勾选的字段在悬浮面板与编辑器管理器仍可见；至少保留一个字段，强制保留市值作为兜底。"
         }
       }
     }
