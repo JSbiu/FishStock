@@ -1,16 +1,23 @@
 import type { ViewMode } from '../domain/viewOptions';
+import {
+  DEFAULT_HOLDING_SORT,
+  type HoldingSortKey,
+  type HoldingSortState,
+} from '../domain/holdings';
 import type { StateStore } from './watchlistRepository';
 
 const STORAGE_KEY = 'fishStock.viewOptions.v1';
 
-export type ViewKind = 'stock' | 'fund' | 'futures' | 'holdings';
+/** 持仓的排序是「维度 + 升降序」两维，不再复用自选的单一 mode，因此不在此列。 */
+export type ViewKind = 'stock' | 'fund' | 'futures';
 
 export interface ViewOptionsState {
   version: 1;
   stock: ViewMode;
   fund: ViewMode;
   futures: ViewMode;
-  holdings: ViewMode;
+  holdingsSort: HoldingSortKey;
+  holdingsSortDesc: boolean;
 }
 
 function isViewMode(value: unknown): value is ViewMode {
@@ -23,15 +30,30 @@ function isViewMode(value: unknown): value is ViewMode {
   );
 }
 
+function isHoldingSortKey(value: unknown): value is HoldingSortKey {
+  return (
+    value === 'manual' ||
+    value === 'profitPercent' ||
+    value === 'profitAmount' ||
+    value === 'dayPercent' ||
+    value === 'dayAmount'
+  );
+}
+
+function defaultState(): ViewOptionsState {
+  return {
+    version: 1,
+    stock: 'default',
+    fund: 'default',
+    futures: 'default',
+    holdingsSort: DEFAULT_HOLDING_SORT.key,
+    holdingsSortDesc: DEFAULT_HOLDING_SORT.desc,
+  };
+}
+
 export function parseViewOptionsState(value: unknown): ViewOptionsState {
   if (typeof value !== 'object' || value === null) {
-    return {
-      version: 1,
-      stock: 'default',
-      fund: 'default',
-      futures: 'default',
-      holdings: 'default',
-    };
+    return defaultState();
   }
   const candidate = value as Partial<ViewOptionsState>;
   return {
@@ -39,7 +61,13 @@ export function parseViewOptionsState(value: unknown): ViewOptionsState {
     stock: isViewMode(candidate.stock) ? candidate.stock : 'default',
     fund: isViewMode(candidate.fund) ? candidate.fund : 'default',
     futures: isViewMode(candidate.futures) ? candidate.futures : 'default',
-    holdings: isViewMode(candidate.holdings) ? candidate.holdings : 'default',
+    // 旧版本只存过 holdings 这一个 mode 字段，这里缺字段即回退默认顺序，无需迁移。
+    holdingsSort: isHoldingSortKey(candidate.holdingsSort)
+      ? candidate.holdingsSort
+      : DEFAULT_HOLDING_SORT.key,
+    holdingsSortDesc: typeof candidate.holdingsSortDesc === 'boolean'
+      ? candidate.holdingsSortDesc
+      : DEFAULT_HOLDING_SORT.desc,
   };
 }
 
@@ -66,6 +94,14 @@ export class ViewOptionsStore {
   public async setViewMode(kind: ViewKind, mode: ViewMode): Promise<void> {
     const state = this.getSnapshot();
     state[kind] = mode;
+    this.state = state;
+    await this.store.update(STORAGE_KEY, this.state);
+  }
+
+  public async setHoldingSort(sort: HoldingSortState): Promise<void> {
+    const state = this.getSnapshot();
+    state.holdingsSort = sort.key;
+    state.holdingsSortDesc = sort.desc;
     this.state = state;
     await this.store.update(STORAGE_KEY, this.state);
   }

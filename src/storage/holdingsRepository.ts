@@ -1,3 +1,4 @@
+import { moveHoldingWithinCurrency } from '../domain/holdings';
 import type {
   Holding,
   HoldingsState,
@@ -165,6 +166,17 @@ export class HoldingsRepository {
     holding.quantity = quantity;
     holding.averageCost = averageCost;
     await this.save(state);
+  }
+
+  /**
+ * 调整手动顺序。只在同币种分组内生效，跨币种调用会原样返回。
+ * 走 `save()` 因此沿用整批校验，不会出现半成品顺序。
+ */
+  public async moveHolding(holdingId: string, delta: -1 | 1): Promise<void> {
+    const state = this.getSnapshot();
+    this.requireHolding(state, holdingId);
+    const next = moveHoldingWithinCurrency(state.holdings, holdingId, delta);
+    await this.save({ version: 1, holdings: next });
   }
 
   public async removeHolding(holdingId: string): Promise<void> {

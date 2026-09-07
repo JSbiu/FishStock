@@ -12,13 +12,15 @@ import {
   buildHoldingDescriptionSegments,
   calculateHoldingMetrics,
   DEFAULT_HOLDING_DESCRIPTION_FIELDS,
+  DEFAULT_HOLDING_SORT,
   holdingCurrency,
   holdingIconKindOf,
+  sortHoldings,
   summarizeHoldingCurrency,
   type HoldingDescriptionFields,
   type HoldingIconKind,
+  type HoldingSortState,
 } from '../domain/holdings';
-import { applyHoldingViewOptions, type ViewMode } from '../domain/viewOptions';
 import type {
   Holding,
   HoldingCurrency,
@@ -93,7 +95,7 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
     private readonly repository: HoldingsRepository,
     private readonly options: HoldingsTreeProviderOptions,
     private colorConvention: ColorConvention,
-    private viewMode: ViewMode = 'default',
+    private sort: HoldingSortState = DEFAULT_HOLDING_SORT,
     private fieldFlags: HoldingDescriptionFields = DEFAULT_HOLDING_DESCRIPTION_FIELDS,
   ) {}
 
@@ -102,8 +104,8 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
     this.refresh();
   }
 
-  public setViewMode(mode: ViewMode): void {
-    this.viewMode = mode;
+  public setSort(sort: HoldingSortState): void {
+    this.sort = sort;
     this.refresh();
   }
 
@@ -142,7 +144,11 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
     const metrics = calculateHoldingMetrics(holding, element.quote);
     const item = new TreeItem(holding.name ?? element.quote?.name ?? holding.symbol);
     item.id = `holding:${holding.id}`;
-    item.contextValue = 'fishStock.holding';
+    // 非默认顺序下换一个 contextValue，让「上移 / 下移」菜单项自动隐藏——
+// 那时手动顺序会被排序覆盖，摆出来只会让人点了没反应。
+    item.contextValue = this.sort.key === 'manual'
+      ? 'fishStock.holding'
+      : 'fishStock.holdingSorted';
     item.description = metrics
       ? buildHoldingDescriptionSegments(holding, metrics, this.fieldFlags).join(' · ')
       : buildPendingHoldingDescription(holding, this.fieldFlags, stateSuffix(element.quote));
@@ -188,7 +194,7 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
     const matching = this.repository
       .getSnapshot()
       .holdings.filter((holding) => holdingCurrency(holding) === currency);
-    return applyHoldingViewOptions(matching, this.viewMode, (holding) =>
+    return sortHoldings(matching, this.sort, (holding) =>
       this.options.quoteOf(holding),
     );
   }

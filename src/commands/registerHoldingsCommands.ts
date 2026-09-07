@@ -9,11 +9,13 @@ import {
   type QuickPickItem,
 } from 'vscode';
 import type { Holding } from '../domain/models';
-import type { ViewMode } from '../domain/viewOptions';
 import {
   DEFAULT_HOLDING_DESCRIPTION_FIELDS,
   ensureAtLeastOneField,
+  HOLDING_SORT_LABELS,
   type HoldingDescriptionFields,
+  type HoldingSortKey,
+  type HoldingSortState,
 } from '../domain/holdings';
 import { buildQuoteUrl } from '../domain/quoteUrl';
 import type { HoldingsRepository } from '../storage/holdingsRepository';
@@ -34,16 +36,15 @@ interface HoldingPick extends QuickPickItem {
   holding: Holding;
 }
 
-const VIEW_MODE_PICKS: ReadonlyArray<{
-  label: string;
+const SORT_PICKS: ReadonlyArray<{
   description: string;
-  mode: ViewMode;
+  key: HoldingSortKey;
 }> = [
-  { label: '默认顺序', description: '按添加顺序', mode: 'default' },
-  { label: '盈利优先', description: '按收益率从高到低', mode: 'gainDesc' },
-  { label: '亏损优先', description: '按收益率从低到高', mode: 'lossDesc' },
-  { label: '仅看盈利', description: '隐藏亏损条目', mode: 'upOnly' },
-  { label: '仅看亏损', description: '隐藏盈利条目', mode: 'downOnly' },
+  { description: '手动调整的顺序', key: 'manual' },
+  { description: '相对持仓成本', key: 'profitPercent' },
+  { description: '累计盈亏金额', key: 'profitAmount' },
+  { description: '相对昨收', key: 'dayPercent' },
+  { description: '今天的盈亏金额', key: 'dayAmount' },
 ];
 
 const FIELD_PICKS: ReadonlyArray<{
@@ -88,6 +89,28 @@ export function registerHoldingsCommands(
     } catch (error: unknown) {
       await window.showWarningMessage(`FishStock: ${messageOf(error)}`);
     }
+  };
+
+  // 手动顺序只在「默认顺序」下有意义：其他排序维度会把手动顺序覆盖掉，
+  // 此时调整不会有任何可见变化，因此直接挡掉而不是静默失败。
+  const moveHolding = async (
+    node: HoldingNode | undefined,
+    delta: -1 | 1,
+  ): Promise<void> => {
+    if (options.viewOptions.getSnapshot().holdingsSort !== 'manual') {
+      await window.showInformationMessage(
+        'FishStock: 手动调整顺序只在「默认顺序」下可用，请先切回默认顺序。',
+      );
+      return;
+    }
+    const holding = await chooseHolding(options.repository, node);
+    if (!holding) {
+      return;
+    }
+    await handle(async () => {
+      await options.repository.moveHolding(holding.id, delta);
+      await options.afterChange();
+    });
   };
 
   return [
@@ -154,23 +177,45 @@ export function registerHoldingsCommands(
       });
     }),
 
-    commands.registerCommand('fishStock.selectHoldingsViewMode', async () => {
-      const current = options.viewOptions.getSnapshot().holdings;
+    commands.registerCommand('fishStock.selectHoldingsSort', async () => {
+      const snapshot = options.viewOptions.getSnapshot();
+      const current: HoldingSortState = {
+        key: snapshot.holdingsSort,
+        desc: snapshot.holdingsSortDesc,
+      };
       const picked = await window.showQuickPick(
-        VIEW_MODE_PICKS.map((pick) => ({
-          label: pick.label,
-          description: `${pick.description}${pick.mode === current ? '（当前）' : ''}`,
-          mode: pick.mode,
+        SORT_PICKS.map((pick) => ({
+          label: HOLDING_SORT_LABELS[pick.key],
+          // 只在当前项上标方向，不再加「（当前）」这类括号备注——方向本身就是状态。
+          description: pick.key === current.key && pick.key !== 'manual'
+            ? (current.desc ? '从高到低' : '从低到高')
+            : pick.description,
+          key: pick.key,
         })),
-        { placeHolder: '选择持仓展示方式' },
+        { placeHolder: '选择持仓排序方式（再次选择同一项可切换升 / 降序）' },
       );
-      if (!picked || picked.mode === current) {
+      if (!picked) {
+        return;
+      }
+      // 再次选择同一项 = 切换方向；换一项 = 应用新维度并回到默认的「从高到低」。
+      const next: HoldingSortState = picked.key === current.key && picked.key !== 'manual'
+        ? { key: picked.key, desc: !current.desc }
+        : { key: picked.key, desc: true };
+      if (next.key === current.key && next.desc === current.desc) {
         return;
       }
       await handle(async () => {
-        await options.viewOptions.setViewMode('holdings', picked.mode);
-        options.treeProvider.setViewMode(picked.mode);
+        await options.viewOptions.setHoldingSort(next);
+        options.treeProvider.setSort(next);
       });
+    }),
+
+    commands.registerCommand('fishStock.moveHoldingUp', async (node?: HoldingNode) => {
+      await moveHolding(node, -1);
+    }),
+
+    commands.registerCommand('fishStock.moveHoldingDown', async (node?: HoldingNode) => {
+      await moveHolding(node, 1);
     }),
 
     commands.registerCommand('fishStock.selectHoldingsTreeViewFields', async () => {

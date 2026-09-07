@@ -320,3 +320,127 @@ export function holdingIconKindOf(
   }
   return dayProfit > 0 ? 'up' : 'down';
 }
+
+export type HoldingSortKey =
+  /** 用户在 Tree View 里手动排的顺序；从未调整过即等于添加顺序。 */
+  | 'manual'
+  /** 浮动盈亏收益率（相对成本）。 */
+  | 'profitPercent'
+  /** 浮动盈亏金额。 */
+  | 'profitAmount'
+  /** 当日盈亏百分比（相对昨收）。 */
+  | 'dayPercent'
+  /** 当日盈亏金额。 */
+  | 'dayAmount';
+
+export interface HoldingSortState {
+  key: HoldingSortKey;
+  desc: boolean;
+}
+
+export const DEFAULT_HOLDING_SORT: HoldingSortState = { key: 'manual', desc: true };
+
+/** 排序维度的中文名，命令面板与诊断报告共用，避免两处各写一份。 */
+export const HOLDING_SORT_LABELS: Readonly<Record<HoldingSortKey, string>> = {
+  manual: '默认顺序',
+  profitPercent: '浮动盈亏收益率',
+  profitAmount: '浮动盈亏金额',
+  dayPercent: '今日盈亏收益率',
+  dayAmount: '今日盈亏金额',
+};
+
+export function holdingSortLabel(sort: HoldingSortState): string {
+  return sort.key === 'manual'
+    ? HOLDING_SORT_LABELS.manual
+    : `${HOLDING_SORT_LABELS[sort.key]}${sort.desc ? '（从高到低）' : '（从低到高）'}`;
+}
+
+function sortValueOf(
+  metrics: HoldingMetrics,
+  key: Exclude<HoldingSortKey, 'manual'>,
+): number | null {
+  switch (key) {
+    case 'profitPercent':
+      return metrics.returnPercent;
+    case 'profitAmount':
+      return metrics.profit;
+    case 'dayPercent':
+      return metrics.dayProfitPercent;
+    case 'dayAmount':
+      return metrics.dayProfit;
+  }
+}
+
+/**
+ * 无有效数值的条目一律排末尾，与升降序无关——把"算不出来"混进"亏得最多"里会
+ * 误导排序结果。
+ *
+ * `Array.prototype.sort` 自 ES2019 起保证稳定，因此同值的条目保持手动顺序：
+ * 手动排序在排序模式下依然生效，作为同值时的 tie-break。
+ */
+export function sortHoldings(
+  holdings: readonly Holding[],
+  sort: HoldingSortState,
+  quoteOf: (holding: Holding) => Quote | undefined,
+  now: Date = new Date(),
+): Holding[] {
+  if (sort.key === 'manual') {
+    return [...holdings];
+  }
+  const key = sort.key;
+  const withValue = holdings.map((holding) => {
+    const metrics = calculateHoldingMetrics(holding, quoteOf(holding), now);
+    return { holding, value: metrics ? sortValueOf(metrics, key) : null };
+  });
+  const direction = sort.desc ? -1 : 1;
+  return withValue
+    .sort((left, right) => {
+      if (left.value === null && right.value === null) {
+        return 0;
+      }
+      if (left.value === null) {
+        return 1;
+      }
+      if (right.value === null) {
+        return -1;
+      }
+      return direction * (left.value - right.value);
+    })
+    .map((item) => item.holding);
+}
+
+/**
+ * 只在**同一币种分组内**移动。Holdings Tree View 按币种分组，跨币种移动没有意义——
+ * 那等于把条目挪进另一个分组，而分组由标的本身决定，不是用户能排的。
+ *
+ * 交换的是扁平数组里的两个绝对位置，因此其他币种的条目位置不受影响。
+ */
+export function moveHoldingWithinCurrency(
+  holdings: readonly Holding[],
+  holdingId: string,
+  delta: -1 | 1,
+): Holding[] {
+  const target = holdings.find((item) => item.id === holdingId);
+  if (!target) {
+    return [...holdings];
+  }
+  const currency = holdingCurrency(target);
+  const groupIndices: number[] = [];
+  holdings.forEach((item, index) => {
+    if (holdingCurrency(item) === currency) {
+      groupIndices.push(index);
+    }
+  });
+  const position = groupIndices.findIndex((index) => holdings[index].id === holdingId);
+  const next = position + delta;
+  if (position < 0 || next < 0 || next >= groupIndices.length) {
+    return [...holdings];
+  }
+  const result = [...holdings];
+  const from = groupIndices[position];
+  const to = groupIndices[next];
+  const moved = result[from];
+  result[from] = result[to];
+  result[to] = moved;
+  return result;
+}

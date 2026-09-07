@@ -5,9 +5,13 @@ import {
   buildHoldingDescriptionSegments,
   calculateHoldingMetrics,
   DEFAULT_HOLDING_DESCRIPTION_FIELDS,
+  DEFAULT_HOLDING_SORT,
   ensureAtLeastOneField,
   holdingDayChange,
   holdingIconKindOf,
+  holdingSortLabel,
+  moveHoldingWithinCurrency,
+  sortHoldings,
   summarizeHoldingCurrency,
   type HoldingDescriptionFields,
 } from '../domain/holdings';
@@ -319,4 +323,148 @@ test('holdingIconKindOf keeps the direction after the market closes', () => {
 test('holdingIconKindOf ignores floating profit when choosing the direction', () => {
   // 浮动盈亏为正、当日为负：图标必须跟当日走，不能跟浮盈走。
   assert.equal(holdingIconKindOf(-2_000, sameDayQuote(1_460, 'live')), 'down');
+});
+
+function sortFixture(
+  id: string,
+  quantity: number,
+  averageCost: number,
+): Holding {
+  return {
+    id,
+    symbol: `60000${id}.SH`,
+    market: 'CN',
+    kind: 'stock',
+    name: `持仓${id}`,
+    quantity,
+    averageCost,
+  };
+}
+
+function quoteAt(symbol: string, price: number, previousClose: number): Quote {
+  return {
+    ...quote(price),
+    symbol,
+    previousClose,
+    change: price - previousClose,
+    changePercent: ((price - previousClose) / previousClose) * 100,
+    tradingDate: TRADING_DAY,
+    quoteValidSince: SESSION_START,
+    asOf: SAME_DAY_QUOTE_AT,
+  };
+}
+
+// 成本与昨收刻意不同，让「浮盈」和「当日盈亏」排出不同的顺序。
+const sortList = [sortFixture('1', 100, 5), sortFixture('2', 100, 15), sortFixture('3', 100, 8)];
+const sortPrices: Record<string, number> = { '600001.SH': 12, '600002.SH': 13, '600003.SH': 9 };
+const sortQuoteOf = (item: Holding): Quote | undefined => {
+  const price = sortPrices[item.symbol];
+  return price === undefined ? undefined : quoteAt(item.symbol, price, 10);
+};
+
+test('sortHoldings keeps the manual order', () => {
+  assert.deepEqual(
+    sortHoldings(sortList, DEFAULT_HOLDING_SORT, sortQuoteOf, NOW).map((item) => item.id),
+    ['1', '2', '3'],
+  );
+});
+
+test('sortHoldings sorts by floating profit rate in both directions', () => {
+  // 1: +140%, 3: +12.5%, 2: -13.3%
+  assert.deepEqual(
+    sortHoldings(sortList, { key: 'profitPercent', desc: true }, sortQuoteOf, NOW).map((i) => i.id),
+    ['1', '3', '2'],
+  );
+  assert.deepEqual(
+    sortHoldings(sortList, { key: 'profitPercent', desc: false }, sortQuoteOf, NOW).map((i) => i.id),
+    ['2', '3', '1'],
+  );
+});
+
+test('sortHoldings sorts by day profit rate and yields a different order', () => {
+  // 2: +30%, 1: +20%, 3: -10% —— 与浮盈收益率的 [1,3,2] 明显不同
+  assert.deepEqual(
+    sortHoldings(sortList, { key: 'dayPercent', desc: true }, sortQuoteOf, NOW).map((i) => i.id),
+    ['2', '1', '3'],
+  );
+});
+
+test('sortHoldings sorts by amount rather than by rate', () => {
+  // 数量差异让金额顺序与收益率顺序相反：x 收益率高但金额小。
+  const list = [sortFixture('x', 10, 10), sortFixture('y', 1_000, 10)];
+  const prices: Record<string, number> = { '60000x.SH': 20, '60000y.SH': 10.5 };
+  const quoteOf = (item: Holding): Quote | undefined =>
+    quoteAt(item.symbol, prices[item.symbol], 10);
+  assert.deepEqual(
+    sortHoldings(list, { key: 'profitPercent', desc: true }, quoteOf, NOW).map((i) => i.id),
+    ['x', 'y'],
+  );
+  assert.deepEqual(
+    sortHoldings(list, { key: 'profitAmount', desc: true }, quoteOf, NOW).map((i) => i.id),
+    ['y', 'x'],
+  );
+});
+
+test('sortHoldings always puts unpriced holdings last', () => {
+  const withMissing = [...sortList, sortFixture('4', 100, 10)];
+  assert.deepEqual(
+    sortHoldings(withMissing, { key: 'profitPercent', desc: true }, sortQuoteOf, NOW).map((i) => i.id),
+    ['1', '3', '2', '4'],
+  );
+  assert.deepEqual(
+    sortHoldings(withMissing, { key: 'profitPercent', desc: false }, sortQuoteOf, NOW).map((i) => i.id),
+    ['2', '3', '1', '4'],
+  );
+});
+
+test('sortHoldings keeps the manual order for equal values', () => {
+  const list = [sortFixture('1', 100, 10), sortFixture('2', 100, 10), sortFixture('3', 100, 10)];
+  const prices: Record<string, number> = { '600001.SH': 12, '600002.SH': 12, '600003.SH': 12 };
+  const quoteOf = (item: Holding): Quote | undefined =>
+    quoteAt(item.symbol, prices[item.symbol], 10);
+  assert.deepEqual(
+    sortHoldings(list, { key: 'profitPercent', desc: true }, quoteOf, NOW).map((i) => i.id),
+    ['1', '2', '3'],
+  );
+});
+
+test('holdingSortLabel describes the key and the direction', () => {
+  assert.equal(holdingSortLabel({ key: 'manual', desc: true }), '默认顺序');
+  assert.equal(holdingSortLabel({ key: 'dayAmount', desc: true }), '今日盈亏金额（从高到低）');
+  assert.equal(holdingSortLabel({ key: 'dayAmount', desc: false }), '今日盈亏金额（从低到高）');
+});
+
+function hkHolding(id: string): Holding {
+  return {
+    id,
+    symbol: '00700.HK',
+    market: 'HK',
+    kind: 'stock',
+    name: '腾讯控股',
+    quantity: 100,
+    averageCost: 400,
+  };
+}
+
+test('moveHoldingWithinCurrency swaps entries inside one currency', () => {
+  const list = [sortFixture('1', 100, 10), sortFixture('2', 100, 10), sortFixture('3', 100, 10)];
+  assert.deepEqual(moveHoldingWithinCurrency(list, '2', -1).map((i) => i.id), ['2', '1', '3']);
+  assert.deepEqual(moveHoldingWithinCurrency(list, '2', 1).map((i) => i.id), ['1', '3', '2']);
+});
+
+test('moveHoldingWithinCurrency ignores moves past the group edge', () => {
+  const list = [sortFixture('1', 100, 10), sortFixture('2', 100, 10)];
+  assert.deepEqual(moveHoldingWithinCurrency(list, '1', -1).map((i) => i.id), ['1', '2']);
+  assert.deepEqual(moveHoldingWithinCurrency(list, '2', 1).map((i) => i.id), ['1', '2']);
+});
+
+test('moveHoldingWithinCurrency skips holdings of other currencies', () => {
+  // CNY 在索引 0 与 2，HKD 夹在中间：把 3 上移应跨过 HKD 与 1 交换，HKD 位置不变。
+  const list = [sortFixture('1', 100, 10), hkHolding('h'), sortFixture('3', 100, 10)];
+  assert.deepEqual(moveHoldingWithinCurrency(list, '3', -1).map((i) => i.id), ['3', 'h', '1']);
+});
+
+test('moveHoldingWithinCurrency leaves unknown ids untouched', () => {
+  const list = [sortFixture('1', 100, 10), sortFixture('2', 100, 10)];
+  assert.deepEqual(moveHoldingWithinCurrency(list, 'missing', -1).map((i) => i.id), ['1', '2']);
 });

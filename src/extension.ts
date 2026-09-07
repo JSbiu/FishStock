@@ -45,6 +45,7 @@ import { holdingCandidatesFromWatchlists } from './domain/holdingCandidates';
 import {
   DEFAULT_HOLDING_DESCRIPTION_FIELDS,
   ensureAtLeastOneField,
+  holdingSortLabel,
   type HoldingDescriptionFields,
 } from './domain/holdings';
 import { calendarCoverageEnd, isTradingDay } from './domain/tradingCalendar';
@@ -292,7 +293,10 @@ export async function activate(context: ExtensionContext): Promise<void> {
       providerNameOf: holdingProviderName,
     },
     config.colorConvention,
-    viewOptions.getSnapshot().holdings,
+    {
+      key: viewOptions.getSnapshot().holdingsSort,
+      desc: viewOptions.getSnapshot().holdingsSortDesc,
+    },
     workspace
       .getConfiguration('fishStock.holdings')
       .get<HoldingDescriptionFields>('treeViewFields', DEFAULT_HOLDING_DESCRIPTION_FIELDS),
@@ -601,7 +605,10 @@ export async function activate(context: ExtensionContext): Promise<void> {
         stock: modes.stock,
         fund: modes.fund,
         futures: modes.futures,
-        holdings: modes.holdings,
+        holdings: holdingSortLabel({
+          key: modes.holdingsSort,
+          desc: modes.holdingsSortDesc,
+        }),
       },
       statusBarMode: statusBarDisplay.getMode(),
       tradingDays,
