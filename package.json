@@ -2,7 +2,7 @@
   "name": "fish-stock",
   "displayName": "FishStock",
   "description": "轻量、安静、本地优先的股票、ETF、期货与持仓行情插件",
-  "version": "0.7.5",
+  "version": "0.7.6",
   "publisher": "jsbiu",
   "private": true,
   "author": {
@@ -323,9 +323,19 @@
         "icon": "$(edit)"
       },
       {
-        "command": "fishStock.selectHoldingsViewMode",
-        "title": "FishStock: 持仓视图排序与筛选",
+        "command": "fishStock.selectHoldingsSort",
+        "title": "FishStock: 持仓排序方式",
         "icon": "$(sort-precedence)"
+      },
+      {
+        "command": "fishStock.moveHoldingUp",
+        "title": "FishStock: 持仓条目上移",
+        "icon": "$(arrow-up)"
+      },
+      {
+        "command": "fishStock.moveHoldingDown",
+        "title": "FishStock: 持仓条目下移",
+        "icon": "$(arrow-down)"
       },
       {
         "command": "fishStock.selectHoldingsTreeViewFields",
@@ -533,7 +543,7 @@
           "group": "navigation@3"
         },
         {
-          "command": "fishStock.selectHoldingsViewMode",
+          "command": "fishStock.selectHoldingsSort",
           "when": "view == fishStock.holdings",
           "group": "2_view@1"
         },
@@ -688,6 +698,16 @@
           "command": "fishStock.editHolding",
           "when": "view == fishStock.holdings && viewItem == fishStock.holding",
           "group": "1_edit@1"
+        },
+        {
+          "command": "fishStock.moveHoldingUp",
+          "when": "view == fishStock.holdings && viewItem == fishStock.holding",
+          "group": "2_order@1"
+        },
+        {
+          "command": "fishStock.moveHoldingDown",
+          "when": "view == fishStock.holdings && viewItem == fishStock.holding",
+          "group": "2_order@2"
         },
         {
           "command": "fishStock.removeHolding",
