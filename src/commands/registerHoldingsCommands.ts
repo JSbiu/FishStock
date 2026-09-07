@@ -184,14 +184,18 @@ export function registerHoldingsCommands(
         desc: snapshot.holdingsSortDesc,
       };
       const picked = await window.showQuickPick(
-        SORT_PICKS.map((pick) => ({
-          label: HOLDING_SORT_LABELS[pick.key],
-          // 只在当前项上标方向，不再加「（当前）」这类括号备注——方向本身就是状态。
-          description: pick.key === current.key && pick.key !== 'manual'
+        SORT_PICKS.map((pick) => {
+          const isCurrent = pick.key === current.key;
+          // 当前项上给出方向（默认顺序没有方向），再用「（当前）」明确标出选中项。
+          const base = isCurrent && pick.key !== 'manual'
             ? (current.desc ? '从高到低' : '从低到高')
-            : pick.description,
-          key: pick.key,
-        })),
+            : pick.description;
+          return {
+            label: HOLDING_SORT_LABELS[pick.key],
+            description: isCurrent ? `${base}（当前）` : base,
+            key: pick.key,
+          };
+        }),
         { placeHolder: '选择持仓排序方式（再次选择同一项可切换升 / 降序）' },
       );
       if (!picked) {

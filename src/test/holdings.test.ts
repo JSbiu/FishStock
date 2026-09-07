@@ -255,7 +255,7 @@ test('buildHoldingDescriptionSegments renders every enabled field in order', () 
   assert.ok(metrics);
   assert.deepEqual(
     buildHoldingDescriptionSegments(holding, metrics, DEFAULT_HOLDING_DESCRIPTION_FIELDS),
-    ['100 股', '15.00万', '+1,000(0.67%)', '今日+2,000(1.35%)'],
+    ['100 股', '15.00万', '+1,000(+0.67%)', '今日+2,000(+1.35%)'],
   );
 });
 
@@ -268,7 +268,7 @@ test('buildHoldingDescriptionSegments omits the quantity segment when disabled',
   };
   assert.deepEqual(
     buildHoldingDescriptionSegments(holding, metrics, flags),
-    ['15.00万', '+1,000(0.67%)', '今日+2,000(1.35%)'],
+    ['15.00万', '+1,000(+0.67%)', '今日+2,000(+1.35%)'],
   );
 });
 
@@ -277,7 +277,7 @@ test('buildHoldingDescriptionSegments falls back to a dash when day profit is un
   assert.ok(metrics);
   assert.deepEqual(
     buildHoldingDescriptionSegments(holding, metrics, DEFAULT_HOLDING_DESCRIPTION_FIELDS),
-    ['100 股', '15.00万', '+1,000(0.67%)', '今日—'],
+    ['100 股', '15.00万', '+1,000(+0.67%)', '今日—'],
   );
 });
 
@@ -293,7 +293,7 @@ test('buildCurrencySummarySegments never includes quantity', () => {
       profit: true,
       dayProfit: true,
     }),
-    ['15.00万', '+1,000(0.67%)', '今日+2,000(1.35%)'],
+    ['15.00万', '+1,000(+0.67%)', '今日+2,000(+1.35%)'],
   );
 });
 
@@ -467,4 +467,14 @@ test('moveHoldingWithinCurrency skips holdings of other currencies', () => {
 test('moveHoldingWithinCurrency leaves unknown ids untouched', () => {
   const list = [sortFixture('1', 100, 10), sortFixture('2', 100, 10)];
   assert.deepEqual(moveHoldingWithinCurrency(list, 'missing', -1).map((i) => i.id), ['1', '2']);
+});
+
+test('buildHoldingDescriptionSegments keeps the sign on negative rates', () => {
+  // 现价 1460 低于成本 1490：金额与百分比都应带负号，否则排序后看不出谁在亏。
+  const metrics = calculateHoldingMetrics(holding, sameDayQuote(1_460, 'live'), NOW);
+  assert.ok(metrics);
+  assert.deepEqual(
+    buildHoldingDescriptionSegments(holding, metrics, DEFAULT_HOLDING_DESCRIPTION_FIELDS),
+    ['100 股', '14.60万', '-3,000(-2.01%)', '今日-2,000(-1.35%)'],
+  );
 });

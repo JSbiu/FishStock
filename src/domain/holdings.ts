@@ -264,9 +264,13 @@ export function formatSignedAmount(value: number): string {
   })}`;
 }
 
-// 百分比只表示幅度，方向由金额的正负号表达，避免同一格里出现两个符号。
-export function formatPercentMagnitude(value: number): string {
-  return `${Math.abs(value).toLocaleString('zh-CN', {
+/**
+ * 百分比**必须带正负号**。收益率本身有方向（赚 / 亏），抹掉符号后排序出来的
+ * 顺序虽然正确，读者却看不出谁赚谁亏，只能回头去数金额的正负——等于把排序
+ * 的意义又赔回去了。
+ */
+export function formatSignedPercent(value: number): string {
+  return `${value >= 0 ? '+' : '-'}${Math.abs(value).toLocaleString('zh-CN', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}%`;
@@ -275,7 +279,7 @@ export function formatPercentMagnitude(value: number): string {
 export function formatProfitCell(value: number, percent: number | null): string {
   return percent === null
     ? formatSignedAmount(value)
-    : `${formatSignedAmount(value)}(${formatPercentMagnitude(percent)})`;
+    : `${formatSignedAmount(value)}(${formatSignedPercent(percent)})`;
 }
 
 export function formatDayCell(value: number | null, percent: number | null): string {
