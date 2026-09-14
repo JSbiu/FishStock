@@ -1,5 +1,13 @@
 # 仓库贡献指南
 
+## 协作与文档分工
+
+- 开始工作时读取本文件及根目录 `.local/memory.md`（如存在），再按任务范围查阅 README 和相关文件。
+- 用户级 AGENTS.md 保存跨项目规则；本文件保存项目导航与技术约束；本机记忆不覆盖当前用户指令或适用的 AGENTS.md。
+- README 和项目文档保存已核验的共享知识；需求范围、进度、验收与待办放在对应需求或交付文档。本机记忆保留个人偏好、环境事实和必要入口。
+- 长任务按需使用 `.local/checkpoints/`，历史过程放 `.local/archive/`；先沉淀稳定知识，再收敛记忆。易变事实标明日期、范围与来源，旧验证不代表本轮验证。
+- Git 操作遵循当前用户级约定：提供本次精确文件的 add/commit 命令，由用户执行；不沿用历史记忆中的自动提交或推送授权。保留已有暂存、未暂存及未跟踪改动。
+
 ## 项目结构与模块划分
 
 FishStock 是 TypeScript 编写的 VS Code 扩展。`src/extension.ts` 负责扩展激活、模块装配和生命周期管理。各目录职责如下：
@@ -29,25 +37,7 @@ FishStock 是 TypeScript 编写的 VS Code 扩展。`src/extension.ts` 负责扩
 
 在 VS Code 中按 `F5` 启动 Extension Development Host。
 
-### 本机实际执行方式（优先）
-
-Git Bash 里没有 pnpm，PowerShell 工具不回显 stdout，因此统一用**托管 node 绝对路径**直接调 `node_modules` 里的 bin：
-
-```
-N=C:/Users/18085/.workbuddy/binaries/node/versions/22.22.2-2/node.exe
-"$N" ./node_modules/typescript/bin/tsc -p tsconfig.json
-"$N" ./node_modules/eslint/bin/eslint.js .
-"$N" --test out/test/*.test.js
-"$N" scripts/run-smoke-tests.mjs      # Extension Host 冒烟：成功时静默无输出，exit 0 即通过
-"$N" scripts/verify-release.mjs       # 版本一致性 + Marketplace 元数据 + 包内容校验
-```
-
-打包 VSIX（Git Bash 无 pnpm）：
-
-```
-node node_modules/@vscode/vsce/vsce package --no-dependencies
-node scripts/verify-release.mjs --packaged --channel=stable
-```
+本机运行时路径与历史环境故障见 `.local/memory.md`；共享构建命令使用上方项目脚本，不固定个人机器的 Node 路径。
 
 ## 编码风格与命名
 
@@ -73,9 +63,9 @@ Pull Request 应说明变更范围、验证命令及数据源或存储影响。�
 
 ## 产品边界（改动前先确认）
 
-以下均明确不做，不在 `docs/product.md` 目标范围内：汇率换算与多币种合计、已实现收益持久化、交易流水、税费与手续费、K 线盘口、资产曲线、提醒与下单、账户与自有服务器、遥测、持仓自定义分组。
+以下均明确不做，不在 `docs/product.md` 目标范围内：自动汇率获取与跨币种资产合计、已实现收益持久化、交易流水、税费与手续费、K 线盘口、资产曲线、提醒与下单、账户与自有服务器、遥测、持仓自定义分组。
 
-持仓只支持 A 股、港股、境内 ETF；期货持仓不在范围内。
+持仓只支持 A 股、港股、境内 ETF；期货持仓不在范围内。当前工作区已包含用户配置港币兑人民币汇率的金额展示转换；它不改变原币种存储或百分比，不等于自动取汇率、交易记账或跨币种资产合计。
 
 ## 项目上下文文件
 
@@ -86,3 +76,5 @@ Pull Request 应说明变更范围、验证命令及数据源或存储影响。�
 ## 安全与产品边界
 
 用户数据只通过 VS Code `globalState` 保存。未经明确批准，不得增加遥测、账户、FishStock 自有服务、许可证或 Marketplace 发布流程。新增行情端点时必须保留数据源适配器边界，并记录市场覆盖、认证方式、限频和使用限制。
+
+纯协作文件整理按文档变更验证；保留当前功能批次的版本和未提交内容，不把本轮整理当作一次扩展发布。具体版本交付仍按上方发布门槛执行。
