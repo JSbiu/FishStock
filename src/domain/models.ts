@@ -88,6 +88,7 @@ export interface RawMarketQuote {
   openInterest?: unknown;
   venue?: string;
   asOf: unknown;
+  suspended?: unknown;
 }
 
 export interface Quote {
@@ -113,6 +114,8 @@ export interface Quote {
   changePercent: number | null;
   asOf: number;
   state: QuoteState;
+  /** 停牌：当日无成交，价格沿用停牌前值，因此不能据此计算当日盈亏。 */
+  suspended?: boolean;
   staleReason?: QuoteStaleReason;
   sessionPhase?: MarketSessionPhase;
   sessionLabel?: string;

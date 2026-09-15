@@ -1,5 +1,5 @@
 import { MarkdownString } from 'vscode';
-import { calculateHoldingMetrics } from '../domain/holdings';
+import { calculateHoldingMetrics, toDisplayAmount } from '../domain/holdings';
 import type { Holding, Quote } from '../domain/models';
 import { formatPercent, formatPrice, quoteStaleLabel } from './quoteTooltip';
 
@@ -47,6 +47,7 @@ export function createHoldingTooltip(
   quote: Quote | undefined,
   providerName: string,
   actionHint?: string,
+  hkdRate: number | null = null,
 ): MarkdownString {
   const tooltip = new MarkdownString();
   tooltip.supportThemeIcons = true;
@@ -56,24 +57,29 @@ export function createHoldingTooltip(
   tooltip.appendText(`${name} (${holding.symbol}) · ${state}`);
   tooltip.appendMarkdown('\n\n');
   if (metrics) {
+    // 折算只作用于金额与单价；百分比是相对值，汇率在分子分母里约掉了。
+    const converted = metrics.currency === 'HKD' && hkdRate !== null && hkdRate > 0;
+    const unit = converted ? 'CNY' : metrics.currency;
+    const amount = (value: number): number =>
+      toDisplayAmount(value, metrics.currency, hkdRate);
     const dayProfitCell = metrics.dayProfit === null
       ? '—'
       : metrics.dayProfitPercent === null
-        ? formatProfit(metrics.dayProfit, metrics.currency)
-        : `${formatProfit(metrics.dayProfit, metrics.currency)} (${formatPercent(metrics.dayProfitPercent)})`;
+        ? formatProfit(amount(metrics.dayProfit), unit)
+        : `${formatProfit(amount(metrics.dayProfit), unit)} (${formatPercent(metrics.dayProfitPercent)})`;
     tooltip.appendMarkdown(
-      `**${formatProfit(metrics.profit, metrics.currency)} · ${formatPercent(metrics.returnPercent)}**`,
+      `**${formatProfit(amount(metrics.profit), unit)} · ${formatPercent(metrics.returnPercent)}**`,
     );
     tooltip.appendMarkdown('\n\n');
     tooltip.appendMarkdown([
       '| 指标 | 数值 |',
       '| :--- | ---: |',
       `| 持有数量 | ${holding.quantity.toLocaleString('zh-CN')} ${holding.kind === 'fund' ? '份' : '股'} |`,
-      `| 平均成本 | ${formatPrice(holding.averageCost)} ${metrics.currency} |`,
-      `| 当前价格 | ${formatPrice(metrics.currentPrice)} ${metrics.currency} |`,
-      `| 成本金额 | ${formatAmount(metrics.costValue, metrics.currency)} |`,
-      `| 当前市值 | ${formatAmount(metrics.marketValue, metrics.currency)} |`,
-      `| 浮动盈亏 | ${formatProfit(metrics.profit, metrics.currency)} |`,
+      `| 平均成本 | ${formatPrice(amount(holding.averageCost))} ${unit} |`,
+      `| 当前价格 | ${formatPrice(amount(metrics.currentPrice))} ${unit} |`,
+      `| 成本金额 | ${formatAmount(amount(metrics.costValue), unit)} |`,
+      `| 当前市值 | ${formatAmount(amount(metrics.marketValue), unit)} |`,
+      `| 浮动盈亏 | ${formatProfit(amount(metrics.profit), unit)} |`,
       `| 收益率 | ${formatPercent(metrics.returnPercent)} |`,
       `| 当日盈亏 | ${dayProfitCell} |`,
     ].join('\n'));
@@ -93,11 +99,18 @@ export function createHoldingTooltip(
     tooltip.appendText(quote.message);
   }
   tooltip.appendMarkdown('\n\n');
+  const conversionNote = metrics !== undefined
+    && metrics.currency === 'HKD'
+    && hkdRate !== null
+    && hkdRate > 0
+    ? `；港币已按 1 HKD = ${hkdRate} CNY 折算为人民币`
+    : '或汇率换算';
   tooltip.appendText(
-    '说明：浮动盈亏未计入手续费、税费、分红或汇率换算；'
+    `说明：浮动盈亏未计入手续费、税费、分红${conversionNote}；`
     + '当日盈亏按当前持仓数量估算，未计入当日交易与费用，'
     + '其百分比以昨收市值为基准（收益率以持仓成本为基准），'
-    + '非交易日或行情不属于当日时显示 —。',
+    + '非交易日或行情不属于当日时显示 —。'
+    + '数据来自第三方公开行情源，与券商对账可能存在差异，请以券商为准。',
   );
   appendActionHint(tooltip, actionHint);
   return tooltip;

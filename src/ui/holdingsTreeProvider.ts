@@ -97,6 +97,7 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
     private colorConvention: ColorConvention,
     private sort: HoldingSortState = DEFAULT_HOLDING_SORT,
     private fieldFlags: HoldingDescriptionFields = DEFAULT_HOLDING_DESCRIPTION_FIELDS,
+    private hkdRate: number | null = null,
   ) {}
 
   public setColorConvention(value: ColorConvention): void {
@@ -111,6 +112,11 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
 
   public setFieldFlags(flags: HoldingDescriptionFields): void {
     this.fieldFlags = flags;
+    this.refresh();
+  }
+
+  public setHkdRate(rate: number | null): void {
+    this.hkdRate = rate;
     this.refresh();
   }
 
@@ -135,7 +141,10 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
         item.description = '等待行情';
       } else {
         const partial = summary.pricedItemCount < summary.itemCount ? '部分 · ' : '';
-        item.description = `${partial}${buildCurrencySummarySegments(summary, this.fieldFlags).join(' · ')}`;
+        item.description = `${partial}${buildCurrencySummarySegments(summary, {
+          fields: this.fieldFlags,
+          hkdRate: this.hkdRate,
+        }).join(' · ')}`;
       }
       return item;
     }
@@ -150,12 +159,18 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
       ? 'fishStock.holding'
       : 'fishStock.holdingSorted';
     item.description = metrics
-      ? buildHoldingDescriptionSegments(holding, metrics, this.fieldFlags).join(' · ')
+      ? buildHoldingDescriptionSegments(holding, metrics, {
+          fields: this.fieldFlags,
+          hkdRate: this.hkdRate,
+          suspended: element.quote?.suspended === true,
+        }).join(' · ')
       : buildPendingHoldingDescription(holding, this.fieldFlags, stateSuffix(element.quote));
     item.tooltip = createHoldingTooltip(
       holding,
       element.quote,
       this.options.providerNameOf(holding),
+      undefined,
+      this.hkdRate,
     );
     item.iconPath = this.holdingIcon(
       holdingIconKindOf(metrics?.dayProfit, element.quote),
@@ -203,6 +218,8 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
     switch (kind) {
       case 'warning':
         return new ThemeIcon('warning');
+      case 'suspended':
+        return new ThemeIcon('debug-pause');
       case 'stale':
         return new ThemeIcon('history');
       case 'unavailable':

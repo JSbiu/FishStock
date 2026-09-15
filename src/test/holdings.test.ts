@@ -13,6 +13,7 @@ import {
   moveHoldingWithinCurrency,
   sortHoldings,
   summarizeHoldingCurrency,
+  toDisplayAmount,
   type HoldingDescriptionFields,
 } from '../domain/holdings';
 import type { Holding, Quote } from '../domain/models';
@@ -254,7 +255,7 @@ test('buildHoldingDescriptionSegments renders every enabled field in order', () 
   const metrics = calculateHoldingMetrics(holding, sameDayQuote(1_500, 'live'), NOW);
   assert.ok(metrics);
   assert.deepEqual(
-    buildHoldingDescriptionSegments(holding, metrics, DEFAULT_HOLDING_DESCRIPTION_FIELDS),
+    buildHoldingDescriptionSegments(holding, metrics, { fields: DEFAULT_HOLDING_DESCRIPTION_FIELDS }),
     ['100 股', '15.00万', '+1,000(+0.67%)', '今日+2,000(+1.35%)'],
   );
 });
@@ -267,7 +268,7 @@ test('buildHoldingDescriptionSegments omits the quantity segment when disabled',
     quantity: false,
   };
   assert.deepEqual(
-    buildHoldingDescriptionSegments(holding, metrics, flags),
+    buildHoldingDescriptionSegments(holding, metrics, { fields: flags }),
     ['15.00万', '+1,000(+0.67%)', '今日+2,000(+1.35%)'],
   );
 });
@@ -276,7 +277,7 @@ test('buildHoldingDescriptionSegments falls back to a dash when day profit is un
   const metrics = calculateHoldingMetrics(holding, quote(1_500, 'live'), NOW);
   assert.ok(metrics);
   assert.deepEqual(
-    buildHoldingDescriptionSegments(holding, metrics, DEFAULT_HOLDING_DESCRIPTION_FIELDS),
+    buildHoldingDescriptionSegments(holding, metrics, { fields: DEFAULT_HOLDING_DESCRIPTION_FIELDS }),
     ['100 股', '15.00万', '+1,000(+0.67%)', '今日—'],
   );
 });
@@ -288,10 +289,12 @@ test('buildCurrencySummarySegments never includes quantity', () => {
   );
   assert.deepEqual(
     buildCurrencySummarySegments(summary, {
-      quantity: true,
-      marketValue: true,
-      profit: true,
-      dayProfit: true,
+      fields: {
+        quantity: true,
+        marketValue: true,
+        profit: true,
+        dayProfit: true,
+      },
     }),
     ['15.00万', '+1,000(+0.67%)', '今日+2,000(+1.35%)'],
   );
@@ -469,12 +472,93 @@ test('moveHoldingWithinCurrency leaves unknown ids untouched', () => {
   assert.deepEqual(moveHoldingWithinCurrency(list, 'missing', -1).map((i) => i.id), ['1', '2']);
 });
 
+test('toDisplayAmount only converts HKD and only with a rate', () => {
+  // 100 * 0.8557 在浮点下不是精确的 85.57，用容差比对。
+  assert.ok(Math.abs(toDisplayAmount(100, 'HKD', 0.8557) - 85.57) < 1e-6);
+  assert.equal(toDisplayAmount(100, 'HKD', null), 100);
+  assert.equal(toDisplayAmount(100, 'CNY', 0.8557), 100);
+});
+
+test('buildHoldingDescriptionSegments converts HKD amounts but not rates', () => {
+  // 100 股 × 420 港币，成本 400，昨收 400：市值 42,000 港币、盈亏 +2,000 港币、+5.00%
+  const hkQuote = { ...quoteAt('00700.HK', 420, 400), market: 'HK' as const };
+  const metrics = calculateHoldingMetrics(hkHolding('h'), hkQuote, NOW);
+  assert.ok(metrics);
+  assert.equal(metrics.currency, 'HKD');
+  assert.deepEqual(
+    buildHoldingDescriptionSegments(hkHolding('h'), metrics, {
+      fields: DEFAULT_HOLDING_DESCRIPTION_FIELDS,
+      hkdRate: 0.8557,
+    }),
+    ['100 股', '3.59万', '+1,711(+5.00%)', '今日+1,711(+5.00%)'],
+  );
+  // 折算前后百分比必须一致：汇率在分子分母里约掉了。
+  assert.deepEqual(
+    buildHoldingDescriptionSegments(hkHolding('h'), metrics, {
+      fields: DEFAULT_HOLDING_DESCRIPTION_FIELDS,
+      hkdRate: null,
+    }),
+    ['100 股', '4.20万', '+2,000(+5.00%)', '今日+2,000(+5.00%)'],
+  );
+});
+
+test('buildCurrencySummarySegments converts the HKD group as a whole', () => {
+  const hkQuote = { ...quoteAt('00700.HK', 420, 400), market: 'HK' as const };
+  const summary = summarizeHoldingCurrency('HKD', [hkHolding('h')], () => hkQuote, NOW);
+  assert.deepEqual(
+    buildCurrencySummarySegments(summary, {
+      fields: DEFAULT_HOLDING_DESCRIPTION_FIELDS,
+      hkdRate: 0.8557,
+    }),
+    ['3.59万', '+1,711(+5.00%)', '今日+1,711(+5.00%)'],
+  );
+  assert.deepEqual(
+    buildCurrencySummarySegments(summary, {
+      fields: DEFAULT_HOLDING_DESCRIPTION_FIELDS,
+      hkdRate: null,
+    }),
+    ['4.20万', '+2,000(+5.00%)', '今日+2,000(+5.00%)'],
+  );
+});
+
+test('treats a suspended quote as having no day profit', () => {
+  // 停牌时昨收与最新价相同，若照常计算会得出"今日 0"，被误读成不涨不跌。
+  const suspended = { ...sameDayQuote(1_500, 'live'), suspended: true };
+  assert.equal(holdingDayChange(suspended, NOW), null);
+  assert.equal(calculateHoldingMetrics(holding, suspended, NOW)?.dayProfit, null);
+});
+
+test('marks suspended quotes in the icon kind, ahead of stale', () => {
+  assert.equal(
+    holdingIconKindOf(2_000, { ...sameDayQuote(1_500, 'live'), suspended: true }),
+    'suspended',
+  );
+  // 停牌是确定事实，优先于"数据可能过期"。
+  assert.equal(
+    holdingIconKindOf(2_000, { ...sameDayQuote(1_500, 'stale'), suspended: true }),
+    'suspended',
+  );
+});
+
+test('buildHoldingDescriptionSegments shows 停牌 in place of the day cell', () => {
+  const suspended = { ...sameDayQuote(1_500, 'live'), suspended: true };
+  const metrics = calculateHoldingMetrics(holding, suspended, NOW);
+  assert.ok(metrics);
+  assert.deepEqual(
+    buildHoldingDescriptionSegments(holding, metrics, {
+      fields: DEFAULT_HOLDING_DESCRIPTION_FIELDS,
+      suspended: true,
+    }),
+    ['100 股', '15.00万', '+1,000(+0.67%)', '停牌'],
+  );
+});
+
 test('buildHoldingDescriptionSegments keeps the sign on negative rates', () => {
   // 现价 1460 低于成本 1490：金额与百分比都应带负号，否则排序后看不出谁在亏。
   const metrics = calculateHoldingMetrics(holding, sameDayQuote(1_460, 'live'), NOW);
   assert.ok(metrics);
   assert.deepEqual(
-    buildHoldingDescriptionSegments(holding, metrics, DEFAULT_HOLDING_DESCRIPTION_FIELDS),
+    buildHoldingDescriptionSegments(holding, metrics, { fields: DEFAULT_HOLDING_DESCRIPTION_FIELDS }),
     ['100 股', '14.60万', '-3,000(-2.01%)', '今日-2,000(-1.35%)'],
   );
 });

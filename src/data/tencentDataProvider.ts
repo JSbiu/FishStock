@@ -215,6 +215,8 @@ export function parseTencentPayload(
       peTtm: row[39],
       totalMarketCap: scaledTencentNumber(row[45], 100_000_000),
       asOf,
+      // 第 40 字段对停牌股返回 "S"，正常股票为空（2026-09-15 以东兴证券停牌实测确认）。
+      suspended: String(row[40] ?? '').trim().toUpperCase() === 'S',
     });
   }
   return quotes;

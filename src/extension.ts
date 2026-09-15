@@ -286,6 +286,9 @@ export async function activate(context: ExtensionContext): Promise<void> {
     fundTreeProvider.setHoldingKeys(() => holdingSymbolSetOf(holdingsRepository, 'fund'));
   };
   refreshHoldingDecorations();
+  const holdingsConfig = workspace.getConfiguration('fishStock.holdings');
+  const readHkdRate = (): number | null =>
+    holdingsConfig.get<number | null>('hkdToCnyRate', null);
   const holdingsTreeProvider = new HoldingsTreeProvider(
     holdingsRepository,
     {
@@ -297,9 +300,11 @@ export async function activate(context: ExtensionContext): Promise<void> {
       key: viewOptions.getSnapshot().holdingsSort,
       desc: viewOptions.getSnapshot().holdingsSortDesc,
     },
-    workspace
-      .getConfiguration('fishStock.holdings')
-      .get<HoldingDescriptionFields>('treeViewFields', DEFAULT_HOLDING_DESCRIPTION_FIELDS),
+    holdingsConfig.get<HoldingDescriptionFields>(
+      'treeViewFields',
+      DEFAULT_HOLDING_DESCRIPTION_FIELDS,
+    ),
+    readHkdRate(),
   );
   const stockTreeView = window.createTreeView('fishStock.stock', {
     treeDataProvider: stockTreeProvider,
@@ -790,6 +795,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
     refresh: () => refreshHoldings(true),
     afterSave: afterHoldingsChange,
     colorConvention: () => config.colorConvention,
+    hkdRate: readHkdRate,
   });
   holdingsManagerRef.current = holdingsManager;
 
@@ -1005,6 +1011,12 @@ export async function activate(context: ExtensionContext): Promise<void> {
           DEFAULT_HOLDING_DESCRIPTION_FIELDS,
         );
       holdingsTreeProvider.setFieldFlags(ensureAtLeastOneField(flags));
+    }),
+    workspace.onDidChangeConfiguration((event) => {
+      if (!event.affectsConfiguration('fishStock.holdings.hkdToCnyRate')) {
+        return;
+      }
+      holdingsTreeProvider.setHkdRate(readHkdRate());
     }),
   );
 

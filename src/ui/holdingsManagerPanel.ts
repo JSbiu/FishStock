@@ -40,6 +40,7 @@ export interface HoldingsManagerOptions {
   refresh(): Promise<void>;
   afterSave(added: readonly Holding[]): Promise<void>;
   colorConvention(): ColorConvention;
+  hkdRate(): number | null;
 }
 
 interface ManagerQuoteFields {
@@ -343,6 +344,7 @@ export class HoldingsManagerPanel implements Disposable {
       rows: this.managerRows(),
       dirty: this.dirty,
       colorConvention: this.options.colorConvention(),
+      hkdRate: this.options.hkdRate(),
       clearSearch,
       watchlistEntries: this.watchlistSnapshot(),
       ...(focus ? { focus } : {}),
@@ -844,6 +846,7 @@ export class HoldingsManagerPanel implements Disposable {
     let latestRequestId = 0;
     let searchTimer;
     let colorConvention = 'china';
+    let hkdRate = null;
     let openAdjustSymbol = '';
     let adjustState = null;
     let adjustCanApply = false;
@@ -1078,6 +1081,16 @@ export class HoldingsManagerPanel implements Disposable {
       notice.classList.toggle('error', Boolean(isError));
     }
 
+    // 港币折算人民币只影响展示：costValue / marketValue / dayProfit 是金额，百分比
+    // 是相对值，汇率在分子分母里约掉了。hkdRate 为 null 时原样输出。
+    function convertAmount(row, value) {
+      return row.currency === 'HKD' && hkdRate ? value * hkdRate : value;
+    }
+
+    function displayCurrency(row) {
+      return row.currency === 'HKD' && hkdRate ? 'CNY' : row.currency;
+    }
+
     function updateMetrics(row, tr) {
       const quantity = parseQuantity(row.quantity);
       const cost = parseCost(row.averageCost);
@@ -1100,8 +1113,8 @@ export class HoldingsManagerPanel implements Disposable {
       const marketValue = quantity * row.currentPrice;
       const profit = marketValue - costValue;
       const percent = profit / costValue * 100;
-      marketValueCell.textContent = formatNumber(marketValue, 2, 2) + ' ' + row.currency;
-      profitCell.textContent = (profit >= 0 ? '+' : '') + formatNumber(profit, 2, 2);
+      marketValueCell.textContent = formatNumber(convertAmount(row, marketValue), 2, 2) + ' ' + displayCurrency(row);
+      profitCell.textContent = (profit >= 0 ? '+' : '') + formatNumber(convertAmount(row, profit), 2, 2);
       returnCell.textContent = (percent >= 0 ? '+' : '') + formatNumber(percent, 2, 2) + '%';
       const className = profit > 0 ? 'up' : profit < 0 ? 'down' : '';
       if (className) {
@@ -1112,7 +1125,7 @@ export class HoldingsManagerPanel implements Disposable {
       if (dayProfit === null) {
         dayProfitCell.textContent = '—';
       } else {
-        dayProfitCell.textContent = (dayProfit >= 0 ? '+' : '') + formatNumber(dayProfit, 2, 2);
+        dayProfitCell.textContent = (dayProfit >= 0 ? '+' : '') + formatNumber(convertAmount(row, dayProfit), 2, 2);
         const dayClassName = dayProfit > 0 ? 'up' : dayProfit < 0 ? 'down' : '';
         if (dayClassName) {
           dayProfitCell.classList.add(dayClassName);
@@ -1123,7 +1136,7 @@ export class HoldingsManagerPanel implements Disposable {
     function updateQuoteCells(row, tr) {
       const priceCell = tr.querySelector('[data-field="currentPrice"]');
       const state = tr.querySelector('.state');
-      priceCell.textContent = Number.isFinite(row.currentPrice) ? formatNumber(row.currentPrice, 2, 4) + ' ' + row.currency : '—';
+      priceCell.textContent = Number.isFinite(row.currentPrice) ? formatNumber(convertAmount(row, row.currentPrice), 2, 4) + ' ' + displayCurrency(row) : '—';
       state.className = 'state ' + row.quoteState;
       state.textContent = row.quoteStateLabel;
       updateMetrics(row, tr);
@@ -1196,10 +1209,10 @@ export class HoldingsManagerPanel implements Disposable {
           group.pending += 1;
           return;
         }
-        group.costValue += quantity * cost;
-        group.marketValue += quantity * row.currentPrice;
+        group.costValue += convertAmount(row, quantity * cost);
+        group.marketValue += convertAmount(row, quantity * row.currentPrice);
         if (Number.isFinite(row.dayChange)) {
-          group.dayProfit = (group.dayProfit === null ? 0 : group.dayProfit) + quantity * row.dayChange;
+          group.dayProfit = (group.dayProfit === null ? 0 : group.dayProfit) + convertAmount(row, quantity * row.dayChange);
           group.dayCount += 1;
         }
       });
@@ -1210,7 +1223,9 @@ export class HoldingsManagerPanel implements Disposable {
         const tr = document.createElement('tr');
         tr.appendChild(blankCell());
         const labelCell = document.createElement('td');
-        labelCell.appendChild(totalLabel('合计 ' + group.currency));
+        const convertedGroup = group.currency === 'HKD' && hkdRate;
+        const groupUnit = convertedGroup ? 'CNY' : group.currency;
+        labelCell.appendChild(totalLabel('合计 ' + (convertedGroup ? '港币折 CNY' : group.currency)));
         if (group.pending > 0) {
           labelCell.appendChild(mutedNote(' · ' + group.pending + ' 项待填写'));
         }
@@ -1218,7 +1233,7 @@ export class HoldingsManagerPanel implements Disposable {
         for (let index = 0; index < 4; index += 1) {
           tr.appendChild(blankCell());
         }
-        tr.appendChild(createCell(priced ? formatNumber(group.marketValue, 2, 2) + ' ' + group.currency : '—'));
+        tr.appendChild(createCell(priced ? formatNumber(group.marketValue, 2, 2) + ' ' + groupUnit : '—'));
         tr.appendChild(toneCell(priced ? signedNumber(profit) : '—', priced ? profit : 0));
         tr.appendChild(toneCell(priced ? signedPercent(profit / group.costValue * 100) : '—', priced ? profit : 0));
         const dayCell = toneCell(
@@ -1613,6 +1628,7 @@ export class HoldingsManagerPanel implements Disposable {
         selectedWatchlist.clear();
         colorConvention = message.colorConvention === 'international' ? 'international' : 'china';
         document.body.classList.toggle('international', colorConvention === 'international');
+        hkdRate = typeof message.hkdRate === 'number' ? message.hkdRate : null;
         selectedRows.clear();
         renderRows(message.focus);
         renderSearchResults();
@@ -1649,6 +1665,7 @@ export class HoldingsManagerPanel implements Disposable {
       if (message.type === 'quoteUpdate' && Array.isArray(message.quotes)) {
         colorConvention = message.colorConvention === 'international' ? 'international' : 'china';
         document.body.classList.toggle('international', colorConvention === 'international');
+        hkdRate = typeof message.hkdRate === 'number' ? message.hkdRate : null;
         const quotes = new Map(message.quotes.map(function (quote) { return [quote.symbol, quote]; }));
         rows.forEach(function (row) {
           const quote = quotes.get(row.symbol);

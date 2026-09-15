@@ -81,5 +81,6 @@ export function parseMarketQuote(raw: RawMarketQuote): Quote {
     changePercent: (change / previousClose) * 100,
     asOf: requiredTimestamp(raw.asOf),
     state: 'live',
+    ...(raw.suspended === true ? { suspended: true } : {}),
   };
 }

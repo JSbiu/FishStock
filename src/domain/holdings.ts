@@ -51,6 +51,10 @@ export function holdingDayChange(
   if (!quote || quote.change === null || !Number.isFinite(quote.change)) {
     return null;
   }
+  // 停牌当日没有成交，昨收与最新价相同，算出来的"0"会被误读成"今天不涨不跌"。
+  if (quote.suspended === true) {
+    return null;
+  }
   if (quote.tradingDate !== shanghaiDateString(now)) {
     return null;
   }
@@ -201,40 +205,83 @@ export function ensureAtLeastOneField(
  * 函数式拆分而不是拼成大字符串：每一段都是独立可测、可独立呈现的语义单元，
  * UI 层拿到数组后 `join(' · ')` 即可。
  */
+/**
+ * 港币折算人民币**只用于展示**：领域数据始终按标的原币种存储，汇率变动不会污染
+ * 持久化数据，也不会让历史快照对不上。
+ *
+ * 百分比一律不折算——它是相对值（盈亏 / 成本、当日 / 昨收），汇率在分子分母里
+ * 约掉了，折算只是白白引入误差。
+ */
+export function toDisplayAmount(
+  value: number,
+  currency: HoldingCurrency,
+  rate: number | null,
+): number {
+  return currency === 'HKD' && rate !== null && rate > 0 ? value * rate : value;
+}
+
+export interface HoldingDescriptionOptions {
+  fields: HoldingDescriptionFields;
+  /** 港币折算人民币的汇率；null 或省略表示不折算。 */
+  hkdRate?: number | null;
+  /** 停牌：当日无成交，用「停牌」替代「今日—」。 */
+  suspended?: boolean;
+}
+
 export function buildHoldingDescriptionSegments(
   holding: Holding,
   metrics: HoldingMetrics,
-  fields: HoldingDescriptionFields,
+  options: HoldingDescriptionOptions,
 ): string[] {
+  const { fields, hkdRate = null, suspended = false } = options;
+  const display = (value: number): number =>
+    toDisplayAmount(value, metrics.currency, hkdRate);
   const segments: string[] = [];
   if (fields.quantity) {
     segments.push(`${holding.quantity.toLocaleString('zh-CN')} ${holding.kind === 'fund' ? '份' : '股'}`);
   }
   if (fields.marketValue) {
-    segments.push(formatCompactMarketValue(metrics.marketValue));
+    segments.push(formatCompactMarketValue(display(metrics.marketValue)));
   }
   if (fields.profit) {
-    segments.push(formatProfitCell(metrics.profit, metrics.returnPercent));
+    segments.push(formatProfitCell(display(metrics.profit), metrics.returnPercent));
   }
   if (fields.dayProfit) {
-    segments.push(formatDayCell(metrics.dayProfit, metrics.dayProfitPercent));
+    segments.push(
+      suspended
+        ? '停牌'
+        : formatDayCell(
+          metrics.dayProfit === null ? null : display(metrics.dayProfit),
+          metrics.dayProfitPercent,
+        ),
+    );
   }
   return segments;
 }
 
 export function buildCurrencySummarySegments(
   summary: HoldingCurrencySummary,
-  fields: HoldingDescriptionFields,
+  options: HoldingDescriptionOptions,
 ): string[] {
+  const { fields, hkdRate = null, suspended = false } = options;
+  const display = (value: number): number =>
+    toDisplayAmount(value, summary.currency, hkdRate);
   const segments: string[] = [];
   if (fields.marketValue) {
-    segments.push(formatCompactMarketValue(summary.marketValue));
+    segments.push(formatCompactMarketValue(display(summary.marketValue)));
   }
   if (fields.profit) {
-    segments.push(formatProfitCell(summary.profit, summary.returnPercent));
+    segments.push(formatProfitCell(display(summary.profit), summary.returnPercent));
   }
   if (fields.dayProfit) {
-    segments.push(formatDayCell(summary.dayProfit, summary.dayProfitPercent));
+    segments.push(
+      suspended
+        ? '停牌'
+        : formatDayCell(
+          summary.dayProfit === null ? null : display(summary.dayProfit),
+          summary.dayProfitPercent,
+        ),
+    );
   }
   return segments;
 }
@@ -289,6 +336,8 @@ export function formatDayCell(value: number | null, percent: number | null): str
 export type HoldingIconKind =
   /** 无行情或行情错误。 */
   | 'warning'
+  /** 停牌：无成交，价格沿用停牌前值。 */
+  | 'suspended'
   /** 刷新超时，行情可能已过期。 */
   | 'stale'
   /** 行情有效但不属于当日，无从判断当日方向。 */
@@ -312,6 +361,10 @@ export function holdingIconKindOf(
 ): HoldingIconKind {
   if (!quote || quote.state === 'error') {
     return 'warning';
+  }
+  // 停牌优先于 stale：停牌是确定的事实，比"数据可能过期"更值得说出来。
+  if (quote.suspended === true) {
+    return 'suspended';
   }
   if (quote.state === 'stale') {
     return 'stale';
