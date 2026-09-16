@@ -2,7 +2,7 @@
   "name": "fish-stock",
   "displayName": "FishStock",
   "description": "轻量、安静、本地优先的股票、ETF、期货与持仓行情插件",
-  "version": "0.7.8",
+  "version": "0.8.0",
   "publisher": "jsbiu",
   "private": true,
   "author": {
@@ -790,10 +790,10 @@
             "number",
             "null"
           ],
-          "default": null,
+          "default": 0.9,
           "minimum": 0.1,
           "maximum": 2,
-          "description": "港币折算人民币的汇率（如 0.8557）。留空表示不折算，港币持仓按原币种显示；折算只作用于金额，百分比不受影响。"
+          "description": "港币折算人民币的汇率（1 港币 = ? 人民币）。默认 0.9 只是占位近似值，请按实际汇率调整；在持仓管理页可直接修改。仅在 settings.json 中显式写 null 才表示不折算。"
         }
       }
     }
