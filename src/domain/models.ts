@@ -135,6 +135,8 @@ export interface MarketSession {
   quoteValidSince?: number;
   nextOpenAt?: number;
   nextTransitionAt?: number;
+  /** 最近一个已结束交易窗口的结束时刻；用于收盘后的宽限刷新。 */
+  lastWindowEnd?: number;
 }
 
 export interface RefreshResult {

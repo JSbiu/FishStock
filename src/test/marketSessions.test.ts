@@ -176,3 +176,14 @@ test('auto refresh is limited to the symbol current session', () => {
   assert.equal(shouldAutoRefreshSymbol(AU, at('2026-08-13T02:00:00')), true);
   assert.equal(shouldAutoRefreshSymbol(AL, at('2026-08-13T02:00:00')), false);
 });
+
+test('keeps refreshing briefly after a window ends so the closing price can settle', () => {
+  // 收盘竞价 15:00:00 结束后，最终收盘价还要几十秒才发布；
+  // 一到 15:00 就停刷会把 14:59:5x 的盘中价当成收盘价。
+  assert.equal(shouldAutoRefreshSymbol(A_SHARE, at('2026-08-12T15:00:30')), true);
+  // 宽限期只有 60 秒，之后照常停止，不会把休市时段变成持续轮询。
+  assert.equal(shouldAutoRefreshSymbol(A_SHARE, at('2026-08-12T15:01:30')), false);
+  // 宽限同样覆盖午休与开盘间歇的起点，让上午/开盘的收尾价格落定。
+  assert.equal(shouldAutoRefreshSymbol(A_SHARE, at('2026-08-12T11:30:20')), true);
+  assert.equal(shouldAutoRefreshSymbol(A_SHARE, at('2026-08-12T09:25:20')), true);
+});

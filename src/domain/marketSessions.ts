@@ -259,12 +259,28 @@ export function marketSessionFor(
         }
       : {}),
     ...(next ? { nextOpenAt: next.start, nextTransitionAt: next.start } : {}),
+    ...(previous ? { lastWindowEnd: previous.end } : {}),
   };
 }
+
+/**
+ * 收盘后的宽限刷新窗口。
+ *
+ * A 股最终收盘价要到 15:00:00 收盘集合竞价落定后才由行情源发布。若一到 15:00
+ * 就停止刷新，手里留下的是 14:59:5x 的盘中价，收盘价、当日盈亏都会偏——2026-09-16
+ * 实测宏桥控股在 15:00:00 取到的 asOf 是 14:59:51，即为此例。宽限期内继续按调度
+ * 间隔刷新，让收盘价落定后的那一笔能取回来。同样适用于午休与盘间断点。
+ */
+const CLOSE_GRACE_MS = 60_000;
 
 export function shouldAutoRefreshSymbol(
   symbol: NormalizedSymbol,
   now: Date,
 ): boolean {
-  return marketSessionFor(symbol, now).phase === 'trading';
+  const session = marketSessionFor(symbol, now);
+  if (session.phase === 'trading') {
+    return true;
+  }
+  return session.lastWindowEnd !== undefined
+    && now.getTime() - session.lastWindowEnd < CLOSE_GRACE_MS;
 }
