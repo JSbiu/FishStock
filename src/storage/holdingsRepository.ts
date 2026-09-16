@@ -1,4 +1,5 @@
-import { moveHoldingWithinCurrency } from '../domain/holdings';
+// 领域函数与下面仓储的同名方法重名，导入时取别名以免遮蔽。
+import { moveHolding as moveHoldingInList } from '../domain/holdings';
 import type {
   Holding,
   HoldingsState,
@@ -175,7 +176,7 @@ export class HoldingsRepository {
   public async moveHolding(holdingId: string, delta: -1 | 1): Promise<void> {
     const state = this.getSnapshot();
     this.requireHolding(state, holdingId);
-    const next = moveHoldingWithinCurrency(state.holdings, holdingId, delta);
+    const next = moveHoldingInList(state.holdings, holdingId, delta);
     await this.save({ version: 1, holdings: next });
   }
 

@@ -4,37 +4,30 @@ import {
   ThemeIcon,
   TreeItem,
   TreeItemCollapsibleState,
+  Uri,
   type TreeDataProvider,
 } from 'vscode';
 import type { ColorConvention } from '../config';
 import {
-  buildCurrencySummarySegments,
   buildHoldingDescriptionSegments,
+  buildSummarySegments,
   calculateHoldingMetrics,
   DEFAULT_HOLDING_DESCRIPTION_FIELDS,
   DEFAULT_HOLDING_SORT,
   holdingCurrency,
   holdingIconKindOf,
   sortHoldings,
-  summarizeHoldingCurrency,
+  summarizeHoldings,
   type HoldingDescriptionFields,
   type HoldingIconKind,
   type HoldingSortState,
+  type HoldingSummary,
 } from '../domain/holdings';
-import type {
-  Holding,
-  HoldingCurrency,
-  Quote,
-} from '../domain/models';
+import type { Holding, Quote } from '../domain/models';
 import type { HoldingsRepository } from '../storage/holdingsRepository';
+import { HKD_DECORATION_SCHEME } from './holdingFileDecorationProvider';
 import { quoteStaleLabel } from './quoteTooltip';
 import { createHoldingTooltip } from './holdingTooltip';
-
-const CURRENCIES: readonly HoldingCurrency[] = ['CNY', 'HKD'];
-
-function currencyLabel(currency: HoldingCurrency): string {
-  return currency === 'CNY' ? '人民币持仓' : '港币持仓';
-}
 
 function stateSuffix(quote: Quote | undefined): string {
   if (!quote || quote.state === 'error') {
@@ -62,15 +55,6 @@ function buildPendingHoldingDescription(
   return segments.join(' · ');
 }
 
-export class HoldingCurrencyNode {
-  public readonly kind = 'currency';
-
-  public constructor(
-    public readonly currency: HoldingCurrency,
-    public readonly holdings: readonly Holding[],
-  ) {}
-}
-
 export class HoldingNode {
   public readonly kind = 'holding';
 
@@ -80,7 +64,14 @@ export class HoldingNode {
   ) {}
 }
 
-export type HoldingsTreeNode = HoldingCurrencyNode | HoldingNode;
+/** 全量汇总行，固定排在列表末尾。 */
+export class HoldingSummaryNode {
+  public readonly kind = 'summary';
+
+  public constructor(public readonly summary: HoldingSummary) {}
+}
+
+export type HoldingsTreeNode = HoldingNode | HoldingSummaryNode;
 
 export interface HoldingsTreeProviderOptions {
   quoteOf(holding: Holding): Quote | undefined;
@@ -125,28 +116,8 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
   }
 
   public getTreeItem(element: HoldingsTreeNode): TreeItem {
-    if (element instanceof HoldingCurrencyNode) {
-      const item = new TreeItem(
-        currencyLabel(element.currency),
-        TreeItemCollapsibleState.Expanded,
-      );
-      item.id = `holding-currency:${element.currency}`;
-      item.iconPath = new ThemeIcon('wallet');
-      const summary = summarizeHoldingCurrency(
-        element.currency,
-        element.holdings,
-        (holding) => this.options.quoteOf(holding),
-      );
-      if (summary.pricedItemCount === 0) {
-        item.description = '等待行情';
-      } else {
-        const partial = summary.pricedItemCount < summary.itemCount ? '部分 · ' : '';
-        item.description = `${partial}${buildCurrencySummarySegments(summary, {
-          fields: this.fieldFlags,
-          hkdRate: this.hkdRate,
-        }).join(' · ')}`;
-      }
-      return item;
+    if (element instanceof HoldingSummaryNode) {
+      return this.summaryItem(element.summary);
     }
 
     const holding = element.holding;
@@ -154,7 +125,7 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
     const item = new TreeItem(holding.name ?? element.quote?.name ?? holding.symbol);
     item.id = `holding:${holding.id}`;
     // 非默认顺序下换一个 contextValue，让「上移 / 下移」菜单项自动隐藏——
-// 那时手动顺序会被排序覆盖，摆出来只会让人点了没反应。
+    // 那时手动顺序会被排序覆盖，摆出来只会让人点了没反应。
     item.contextValue = this.sort.key === 'manual'
       ? 'fishStock.holding'
       : 'fishStock.holdingSorted';
@@ -165,6 +136,10 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
           suspended: element.quote?.suspended === true,
         }).join(' · ')
       : buildPendingHoldingDescription(holding, this.fieldFlags, stateSuffix(element.quote));
+    // 合并展示后 A 股与港股混排，靠角标区分币种；停牌等状态仍走图标，两者不争位。
+    if (holdingCurrency(holding) === 'HKD') {
+      item.resourceUri = Uri.parse(`${HKD_DECORATION_SCHEME}:${holding.symbol}`);
+    }
     item.tooltip = createHoldingTooltip(
       holding,
       element.quote,
@@ -184,34 +159,49 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
   }
 
   public getChildren(element?: HoldingsTreeNode): HoldingsTreeNode[] {
-    if (!element) {
-      return CURRENCIES.flatMap((currency) => {
-        const matching = this.visibleHoldings(currency);
-        return matching.length > 0 ? [new HoldingCurrencyNode(currency, matching)] : [];
-      });
+    if (element) {
+      return [];
     }
-    if (element instanceof HoldingCurrencyNode) {
-      return element.holdings.map((holding) =>
-        new HoldingNode(holding, this.options.quoteOf(holding)));
+    const holdings = this.repository.getSnapshot().holdings;
+    if (holdings.length === 0) {
+      return [];
     }
-    return [];
+    const now = new Date();
+    const quoteOf = (holding: Holding): Quote | undefined => this.options.quoteOf(holding);
+    const nodes: HoldingsTreeNode[] = sortHoldings(
+      holdings,
+      this.sort,
+      quoteOf,
+      now,
+      this.hkdRate,
+    ).map((holding) => new HoldingNode(holding, this.options.quoteOf(holding)));
+    nodes.push(new HoldingSummaryNode(
+      summarizeHoldings(holdings, quoteOf, now, this.hkdRate),
+    ));
+    return nodes;
   }
 
-  public getParent(element: HoldingsTreeNode): HoldingCurrencyNode | undefined {
-    if (!(element instanceof HoldingNode)) {
-      return undefined;
-    }
-    const currency = holdingCurrency(element.holding);
-    return new HoldingCurrencyNode(currency, this.visibleHoldings(currency));
+  public getParent(): HoldingsTreeNode | undefined {
+    // 合并展示后是扁平列表，没有父节点。
+    return undefined;
   }
 
-  private visibleHoldings(currency: HoldingCurrency): Holding[] {
-    const matching = this.repository
-      .getSnapshot()
-      .holdings.filter((holding) => holdingCurrency(holding) === currency);
-    return sortHoldings(matching, this.sort, (holding) =>
-      this.options.quoteOf(holding),
-    );
+  private summaryItem(summary: HoldingSummary): TreeItem {
+    const item = new TreeItem('总计', TreeItemCollapsibleState.None);
+    item.id = 'holding-summary';
+    item.iconPath = new ThemeIcon('sum');
+    // 汇总行没有可操作对象，单独给一个 contextValue 以排除右键菜单。
+    item.contextValue = 'fishStock.holdingSummary';
+    if (summary.pricedItemCount === 0) {
+      item.description = '等待行情';
+    } else {
+      const partial = summary.pricedItemCount < summary.itemCount ? '部分 · ' : '';
+      item.description = `${partial}${buildSummarySegments(summary, {
+        fields: this.fieldFlags,
+      }).join(' · ')}`;
+    }
+    item.tooltip = '全部持仓合计。港币条目按当前配置的汇率折算为人民币后一并计入。';
+    return item;
   }
 
   private holdingIcon(kind: HoldingIconKind): ThemeIcon {

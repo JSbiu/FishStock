@@ -1,5 +1,6 @@
 import {
   commands,
+  ConfigurationTarget,
   env,
   ExtensionMode,
   window,
@@ -796,6 +797,10 @@ export async function activate(context: ExtensionContext): Promise<void> {
     afterSave: afterHoldingsChange,
     colorConvention: () => config.colorConvention,
     hkdRate: readHkdRate,
+    setHkdRate: async (rate) => {
+      // 写入全局配置；onDidChangeConfiguration 会让 Tree View 同步刷新。
+      await holdingsConfig.update('hkdToCnyRate', rate, ConfigurationTarget.Global);
+    },
   });
   holdingsManagerRef.current = holdingsManager;
 

@@ -1,7 +1,7 @@
 import { MarkdownString } from 'vscode';
 import { calculateHoldingMetrics, toDisplayAmount } from '../domain/holdings';
 import type { Holding, Quote } from '../domain/models';
-import { formatPercent, formatPrice, quoteStaleLabel } from './quoteTooltip';
+import { formatCompactTime, formatPercent, formatPrice, quoteStaleLabel } from './quoteTooltip';
 
 function formatAmount(value: number, currency: string): string {
   return `${value.toLocaleString('zh-CN', {
@@ -14,24 +14,29 @@ function formatProfit(value: number, currency: string): string {
   return `${value >= 0 ? '+' : ''}${formatAmount(value, currency)}`;
 }
 
-function formatMarketTime(timestamp: number): string {
-  return new Date(timestamp).toLocaleString('zh-CN', {
-    timeZone: 'Asia/Shanghai',
-    hour12: false,
-  });
-}
-
-function quoteStateText(quote: Quote | undefined): string {
+/**
+ * 状态行。tooltip 里的 Markdown 无法自定义文字颜色，只能靠 codicon 图标承载
+ * 「停牌 / 休市 / 开市」这类语义差异。
+ *
+ * 停牌必须排在 state 判断之前：停牌时行情源照常返回有效价格，state 仍是 live，
+ * 若不先拦下来，悬浮卡会说「开市」而 Tree View 说「停牌」，两处口径就不一致了。
+ */
+function quoteStateMarkdown(quote: Quote | undefined): string {
   if (!quote || quote.state === 'error') {
-    return '暂不可用';
+    return '$(warning) 暂不可用';
+  }
+  if (quote.suspended === true) {
+    return '$(debug-pause) 停牌';
   }
   if (quote.state === 'stale') {
-    return quoteStaleLabel(quote);
+    return `$(history) ${quoteStaleLabel(quote)}`;
   }
   if (quote.state === 'closed') {
-    return quote.sessionLabel ?? '休市';
+    return `$(clock) ${quote.sessionLabel ?? '休市'}`;
   }
-  return quote.sessionLabel ? `开市 · ${quote.sessionLabel}` : '开市';
+  return quote.sessionLabel
+    ? `$(radio-tower) 开市 · ${quote.sessionLabel}`
+    : '$(radio-tower) 开市';
 }
 
 function appendActionHint(tooltip: MarkdownString, actionHint: string | undefined): void {
@@ -52,23 +57,30 @@ export function createHoldingTooltip(
   const tooltip = new MarkdownString();
   tooltip.supportThemeIcons = true;
   const name = holding.name ?? quote?.name ?? holding.symbol;
-  const state = quoteStateText(quote);
   const metrics = calculateHoldingMetrics(holding, quote);
-  tooltip.appendText(`${name} (${holding.symbol}) · ${state}`);
+  tooltip.appendMarkdown(`**${name}** (${holding.symbol}) · ${quoteStateMarkdown(quote)}`);
   tooltip.appendMarkdown('\n\n');
+  // 折算只作用于金额与单价；百分比是相对值，汇率在分子分母里约掉了。
+  const converted = metrics !== undefined
+    && metrics.currency === 'HKD'
+    && hkdRate !== null
+    && hkdRate > 0;
   if (metrics) {
-    // 折算只作用于金额与单价；百分比是相对值，汇率在分子分母里约掉了。
-    const converted = metrics.currency === 'HKD' && hkdRate !== null && hkdRate > 0;
     const unit = converted ? 'CNY' : metrics.currency;
     const amount = (value: number): number =>
       toDisplayAmount(value, metrics.currency, hkdRate);
+    const directionIcon = metrics.profit > 0
+      ? '$(arrow-up)'
+      : metrics.profit < 0
+        ? '$(arrow-down)'
+        : '$(dash)';
     const dayProfitCell = metrics.dayProfit === null
       ? '—'
       : metrics.dayProfitPercent === null
         ? formatProfit(amount(metrics.dayProfit), unit)
         : `${formatProfit(amount(metrics.dayProfit), unit)} (${formatPercent(metrics.dayProfitPercent)})`;
     tooltip.appendMarkdown(
-      `**${formatProfit(amount(metrics.profit), unit)} · ${formatPercent(metrics.returnPercent)}**`,
+      `${directionIcon} **${formatProfit(amount(metrics.profit), unit)} · ${formatPercent(metrics.returnPercent)}**`,
     );
     tooltip.appendMarkdown('\n\n');
     tooltip.appendMarkdown([
@@ -87,31 +99,28 @@ export function createHoldingTooltip(
     tooltip.appendText('当前没有可用于计算收益的有效价格。');
   }
   tooltip.appendMarkdown('\n\n');
-  const quoteTime = quote && quote.asOf > 0 ? formatMarketTime(quote.asOf) : '无';
+  const quoteTime = quote && quote.asOf > 0 ? formatCompactTime(quote.asOf) : '无';
   const fetchedAt = quote?.lastSuccessfulFetchAt !== undefined
-    ? formatMarketTime(quote.lastSuccessfulFetchAt)
+    ? formatCompactTime(quote.lastSuccessfulFetchAt)
     : '无';
-  tooltip.appendText(
-    `行情时间：${quoteTime} · 最近获取：${fetchedAt} · 数据源：${providerName}`,
-  );
+  tooltip.appendMarkdown('$(pulse) ');
+  tooltip.appendText(`行情 ${quoteTime} · 获取 ${fetchedAt} · ${providerName}`);
   if (quote?.message) {
     tooltip.appendMarkdown('\n\n$(warning) ');
     tooltip.appendText(quote.message);
   }
-  tooltip.appendMarkdown('\n\n');
-  const conversionNote = metrics !== undefined
-    && metrics.currency === 'HKD'
-    && hkdRate !== null
-    && hkdRate > 0
-    ? `；港币已按 1 HKD = ${hkdRate} CNY 折算为人民币`
-    : '或汇率换算';
-  tooltip.appendText(
-    `说明：浮动盈亏未计入手续费、税费、分红${conversionNote}；`
-    + '当日盈亏按当前持仓数量估算，未计入当日交易与费用，'
-    + '其百分比以昨收市值为基准（收益率以持仓成本为基准），'
-    + '非交易日或行情不属于当日时显示 —。'
-    + '数据来自第三方公开行情源，与券商对账可能存在差异，请以券商为准。',
-  );
+  if (converted) {
+    tooltip.appendMarkdown('\n\n$(globe) ');
+    tooltip.appendText(`港币已按 ${hkdRate} 折算；百分比不受影响。`);
+  }
+  // 口径说明与数据来源拆开，避免压成一段后重点被淹掉。
+  // 说明必须短。它是 tooltip 里最容易超长的一行，而 Markdown 表格会撑满容器、
+  // 列内两端对齐——说明一旦比表格行宽，容器就被撑开，表格右侧随之留白。
+  // 这里每句控制在 25 字以内，与表格中最长的行（约 30 字符）保持接近。
+  tooltip.appendMarkdown('\n\n---\n\n$(info) ');
+  tooltip.appendText('浮动盈亏未含税费与分红；当日盈亏按持仓数量估算。');
+  tooltip.appendMarkdown('\n\n$(shield) ');
+  tooltip.appendText('来自第三方公开源，与券商对账可能有差异。');
   appendActionHint(tooltip, actionHint);
   return tooltip;
 }

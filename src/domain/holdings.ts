@@ -19,8 +19,11 @@ export interface HoldingMetrics {
   dayProfitPercent: number | null;
 }
 
-export interface HoldingCurrencySummary {
-  currency: HoldingCurrency;
+/**
+ * 全量持仓汇总。金额已按人民币口径合并（港币条目在求和时折算），
+ * 因此不再携带单一币种字段。
+ */
+export interface HoldingSummary {
   itemCount: number;
   pricedItemCount: number;
   costValue: number;
@@ -123,12 +126,18 @@ export function calculateHoldingMetrics(
   };
 }
 
-export function summarizeHoldingCurrency(
-  currency: HoldingCurrency,
+/**
+ * 全量汇总，把不同币种合并到人民币口径。
+ *
+ * 这里**必须折算**：港币条目的人民币市值会和人民币条目直接相加，不折算就等于
+ * 把 1 港币当成 1 人民币。折算只发生在这个求和入口，条目本身仍按原币种存储。
+ */
+export function summarizeHoldings(
   holdings: readonly Holding[],
   quoteOf: (holding: Holding) => Quote | undefined,
   now: Date = new Date(),
-): HoldingCurrencySummary {
+  hkdRate: number | null = null,
+): HoldingSummary {
   let pricedItemCount = 0;
   let costValue = 0;
   let marketValue = 0;
@@ -137,21 +146,22 @@ export function summarizeHoldingCurrency(
   let dayProfitBase = 0;
   for (const holding of holdings) {
     const metrics = calculateHoldingMetrics(holding, quoteOf(holding), now);
-    if (!metrics || metrics.currency !== currency) {
+    if (!metrics) {
       continue;
     }
+    const convert = (value: number): number =>
+      toDisplayAmount(value, metrics.currency, hkdRate);
     pricedItemCount += 1;
-    costValue += metrics.costValue;
-    marketValue += metrics.marketValue;
-    profit += metrics.profit;
+    costValue += convert(metrics.costValue);
+    marketValue += convert(metrics.marketValue);
+    profit += convert(metrics.profit);
     // 当日盈亏的百分比只对“有当日行情”的条目求和，分子分母口径保持一致。
     if (metrics.dayProfit !== null && metrics.previousValue !== null) {
-      dayProfit = (dayProfit ?? 0) + metrics.dayProfit;
-      dayProfitBase += metrics.previousValue;
+      dayProfit = (dayProfit ?? 0) + convert(metrics.dayProfit);
+      dayProfitBase += convert(metrics.previousValue);
     }
   }
   return {
-    currency,
     itemCount: holdings.length,
     pricedItemCount,
     costValue,
@@ -259,28 +269,27 @@ export function buildHoldingDescriptionSegments(
   return segments;
 }
 
-export function buildCurrencySummarySegments(
-  summary: HoldingCurrencySummary,
+/**
+ * 汇总行。金额在 `summarizeHoldings` 里已经折算成人民币口径，这里不再重复折算——
+ * 否则会把汇率乘第二遍。
+ */
+export function buildSummarySegments(
+  summary: HoldingSummary,
   options: HoldingDescriptionOptions,
 ): string[] {
-  const { fields, hkdRate = null, suspended = false } = options;
-  const display = (value: number): number =>
-    toDisplayAmount(value, summary.currency, hkdRate);
+  const { fields, suspended = false } = options;
   const segments: string[] = [];
   if (fields.marketValue) {
-    segments.push(formatCompactMarketValue(display(summary.marketValue)));
+    segments.push(formatCompactMarketValue(summary.marketValue));
   }
   if (fields.profit) {
-    segments.push(formatProfitCell(display(summary.profit), summary.returnPercent));
+    segments.push(formatProfitCell(summary.profit, summary.returnPercent));
   }
   if (fields.dayProfit) {
     segments.push(
       suspended
         ? '停牌'
-        : formatDayCell(
-          summary.dayProfit === null ? null : display(summary.dayProfit),
-          summary.dayProfitPercent,
-        ),
+        : formatDayCell(summary.dayProfit, summary.dayProfitPercent),
     );
   }
   return segments;
@@ -440,14 +449,27 @@ export function sortHoldings(
   sort: HoldingSortState,
   quoteOf: (holding: Holding) => Quote | undefined,
   now: Date = new Date(),
+  hkdRate: number | null = null,
 ): Holding[] {
   if (sort.key === 'manual') {
     return [...holdings];
   }
   const key = sort.key;
+  // 金额维度必须先折算，否则港币条目的金额会和人民币条目按同一尺度比较；
+  // 百分比是相对值（盈亏 / 成本、当日 / 昨收），折算没有意义。
+  const isAmount = key === 'profitAmount' || key === 'dayAmount';
   const withValue = holdings.map((holding) => {
     const metrics = calculateHoldingMetrics(holding, quoteOf(holding), now);
-    return { holding, value: metrics ? sortValueOf(metrics, key) : null };
+    if (!metrics) {
+      return { holding, value: null };
+    }
+    const raw = sortValueOf(metrics, key);
+    return {
+      holding,
+      value: raw !== null && isAmount
+        ? toDisplayAmount(raw, metrics.currency, hkdRate)
+        : raw,
+    };
   });
   const direction = sort.desc ? -1 : 1;
   return withValue
@@ -467,37 +489,25 @@ export function sortHoldings(
 }
 
 /**
- * 只在**同一币种分组内**移动。Holdings Tree View 按币种分组，跨币种移动没有意义——
- * 那等于把条目挪进另一个分组，而分组由标的本身决定，不是用户能排的。
+ * 在列表内上移 / 下移一条持仓。
  *
- * 交换的是扁平数组里的两个绝对位置，因此其他币种的条目位置不受影响。
+ * 合并展示后不再有币种分组，移动就是相邻交换。此前那个"只在同币种内交换"的
+ * 限制是分组时代的产物——跨币种移动会打乱分组，所以当时必须挡掉；分组没了，
+ * 限制也随之移除。
  */
-export function moveHoldingWithinCurrency(
+export function moveHolding(
   holdings: readonly Holding[],
   holdingId: string,
   delta: -1 | 1,
 ): Holding[] {
-  const target = holdings.find((item) => item.id === holdingId);
-  if (!target) {
-    return [...holdings];
-  }
-  const currency = holdingCurrency(target);
-  const groupIndices: number[] = [];
-  holdings.forEach((item, index) => {
-    if (holdingCurrency(item) === currency) {
-      groupIndices.push(index);
-    }
-  });
-  const position = groupIndices.findIndex((index) => holdings[index].id === holdingId);
-  const next = position + delta;
-  if (position < 0 || next < 0 || next >= groupIndices.length) {
+  const index = holdings.findIndex((item) => item.id === holdingId);
+  const next = index + delta;
+  if (index < 0 || next < 0 || next >= holdings.length) {
     return [...holdings];
   }
   const result = [...holdings];
-  const from = groupIndices[position];
-  const to = groupIndices[next];
-  const moved = result[from];
-  result[from] = result[to];
-  result[to] = moved;
+  const moved = result[index];
+  result[index] = result[next];
+  result[next] = moved;
   return result;
 }

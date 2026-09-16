@@ -41,6 +41,7 @@ export interface HoldingsManagerOptions {
   afterSave(added: readonly Holding[]): Promise<void>;
   colorConvention(): ColorConvention;
   hkdRate(): number | null;
+  setHkdRate(rate: number): Promise<void>;
 }
 
 interface ManagerQuoteFields {
@@ -376,6 +377,16 @@ export class HoldingsManagerPanel implements Disposable {
         this.allowedNewInstruments.clear();
         this.postState('未保存更改已放弃', true);
         return;
+      case 'setHkdRate': {
+        if (typeof message.value !== 'number' || !Number.isFinite(message.value)) {
+          return;
+        }
+        // 写回配置后，配置变更监听会让 Tree View 一起刷新；这里再 postState
+        // 是为了让 Webview 自身的输入框与合计行立刻跟上。
+        await this.options.setHkdRate(message.value);
+        this.postState(`港币汇率已更新为 ${message.value}`);
+        return;
+      }
       case 'save': {
         const rows = readDraftInputs(message.rows);
         if (!rows) {
@@ -691,6 +702,9 @@ export class HoldingsManagerPanel implements Disposable {
     .search-actions { display: flex; justify-content: flex-end; margin-top: 10px; }
     .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--vscode-panel-border); }
     .toolbar .spacer { flex: 1; }
+    /* 汇率是「设一次就基本不动」的值，放工具栏右侧、与操作按钮隔开。 */
+    .rate-field { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--vscode-descriptionForeground); white-space: nowrap; }
+    .rate-field input { width: 74px; }
     #dirtyBadge { color: var(--vscode-descriptionForeground); }
     #dirtyBadge.dirty { color: var(--vscode-notificationsWarningIcon-foreground); }
     .table-wrap { overflow-x: auto; }
@@ -772,6 +786,11 @@ export class HoldingsManagerPanel implements Disposable {
     <div class="toolbar">
       <span id="dirtyBadge">没有未保存更改</span>
       <span class="spacer"></span>
+      <label class="rate-field" title="港币折算人民币的汇率：1 港币 = ? 人民币。默认 0.9 只是占位近似值，请按实际汇率调整。">
+        港币汇率
+        <input id="hkdRateInput" type="number" min="0.1" max="2" step="0.0001" inputmode="decimal">
+        <button id="hkdRateReset" class="secondary" type="button" title="恢复默认值 0.9">默认</button>
+      </label>
       <button id="refreshButton" class="secondary" type="button">刷新行情</button>
       <button id="discardButton" class="secondary" type="button" disabled>放弃更改</button>
       <button id="deleteButton" class="danger" type="button" disabled>删除所选</button>
@@ -814,6 +833,8 @@ export class HoldingsManagerPanel implements Disposable {
     const dirtyBadge = document.getElementById('dirtyBadge');
     const notice = document.getElementById('notice');
     const searchInput = document.getElementById('searchInput');
+    const hkdRateInput = document.getElementById('hkdRateInput');
+    const hkdRateReset = document.getElementById('hkdRateReset');
     const searchButton = document.getElementById('searchButton');
     const searchStatus = document.getElementById('searchStatus');
     const searchResultsElement = document.getElementById('searchResults');
@@ -1451,6 +1472,23 @@ export class HoldingsManagerPanel implements Disposable {
       if (!searchInput.value.trim()) return;
       searchTimer = setTimeout(runSearch, 350);
     });
+
+    // 汇率改动即时写回配置。0.9 与 package.json 的 default 保持一致。
+    function submitHkdRate(value) {
+      if (typeof value !== 'number' || !isFinite(value) || value < 0.1 || value > 2) {
+        setNotice('港币汇率需填 0.1 到 2 之间的数字。', true);
+        hkdRateInput.value = hkdRate === null ? '' : String(hkdRate);
+        return;
+      }
+      vscode.postMessage({ type: 'setHkdRate', value: value });
+    }
+
+    hkdRateInput.addEventListener('change', function () {
+      submitHkdRate(Number(hkdRateInput.value));
+    });
+    hkdRateReset.addEventListener('click', function () {
+      submitHkdRate(0.9);
+    });
     searchInput.addEventListener('keydown', function (event) {
       if (event.key === 'Enter') {
         event.preventDefault();
@@ -1629,6 +1667,7 @@ export class HoldingsManagerPanel implements Disposable {
         colorConvention = message.colorConvention === 'international' ? 'international' : 'china';
         document.body.classList.toggle('international', colorConvention === 'international');
         hkdRate = typeof message.hkdRate === 'number' ? message.hkdRate : null;
+        hkdRateInput.value = hkdRate === null ? '' : String(hkdRate);
         selectedRows.clear();
         renderRows(message.focus);
         renderSearchResults();
@@ -1666,6 +1705,7 @@ export class HoldingsManagerPanel implements Disposable {
         colorConvention = message.colorConvention === 'international' ? 'international' : 'china';
         document.body.classList.toggle('international', colorConvention === 'international');
         hkdRate = typeof message.hkdRate === 'number' ? message.hkdRate : null;
+        hkdRateInput.value = hkdRate === null ? '' : String(hkdRate);
         const quotes = new Map(message.quotes.map(function (quote) { return [quote.symbol, quote]; }));
         rows.forEach(function (row) {
           const quote = quotes.get(row.symbol);

@@ -9,17 +9,30 @@ import { type FileDecorationProvider, type Uri } from 'vscode';
 export const HOLDING_DECORATION_SCHEME = 'fishstock-holding';
 
 /**
+ * 港币持仓的币种角标。持仓统一展示后 A 股与港股混在一列里，而两者的交易时间
+ * 与涨跌规则都不同，需要一眼可辨。用独立 scheme 而不是复用上面那个，是为了让
+ * 「在自选里标记持仓」和「在持仓里标记币种」两件事互不干扰。
+ */
+export const HKD_DECORATION_SCHEME = 'fishstock-hkd';
+
+/**
  * 只挂角标、不染色：TreeItem 的文字颜色只能整条目设置（FileDecoration 的 color），
  * 而一个条目只有一个颜色值——用它标记持仓，就没有通道再表达涨跌方向了。
  * 角标是图标右上角的小徽标（VS Code 固定位置，无法移到行尾），比整行染色克制得多。
  */
 const HOLDING_BADGE = '持';
 const HOLDING_TOOLTIP = '已在持仓';
+const HKD_BADGE = '港';
+const HKD_TOOLTIP = '港币计价';
 
 export class HoldingFileDecorationProvider implements FileDecorationProvider {
   public provideFileDecoration(uri: Uri): { badge?: string; tooltip?: string } | undefined {
-    return uri.scheme === HOLDING_DECORATION_SCHEME
-      ? { badge: HOLDING_BADGE, tooltip: HOLDING_TOOLTIP }
-      : undefined;
+    if (uri.scheme === HOLDING_DECORATION_SCHEME) {
+      return { badge: HOLDING_BADGE, tooltip: HOLDING_TOOLTIP };
+    }
+    if (uri.scheme === HKD_DECORATION_SCHEME) {
+      return { badge: HKD_BADGE, tooltip: HKD_TOOLTIP };
+    }
+    return undefined;
   }
 }
