@@ -487,7 +487,8 @@ export class HoldingsManagerPanel implements Disposable {
     void this.panel?.webview.postMessage({ type: 'busy', value: true });
     try {
       await this.options.refresh();
-      this.postState('行情已刷新');
+      this.updateQuotes();
+      void this.panel?.webview.postMessage({ type: 'operationNotice', message: '行情已刷新' });
     } catch (error: unknown) {
       void this.panel?.webview.postMessage({
         type: 'operationError',
@@ -1107,7 +1108,15 @@ export class HoldingsManagerPanel implements Disposable {
       deleteButton.disabled = selectedRows.size === 0 || busy;
       saveButton.disabled = !dirty || hasInvalidRows() || busy;
       refreshButton.disabled = busy;
+      refreshButton.textContent = busy ? '刷新中…' : '刷新行情';
       searchButton.disabled = busy;
+      rows.forEach(function (row) {
+        const tr = rowsElement.querySelector('[data-key="' + CSS.escape(rowKey(row)) + '"]');
+        const adjustButton = tr && tr.querySelector('.row-action');
+        if (adjustButton) adjustButton.disabled = busy || Boolean(validationError(row));
+      });
+      const applyButton = rowsElement.querySelector('.adjust-actions button');
+      if (applyButton) applyButton.disabled = busy || !adjustCanApply;
       selectAll.checked = rows.length > 0 && selectedRows.size === rows.length;
       selectAll.indeterminate = selectedRows.size > 0 && selectedRows.size < rows.length;
     }
@@ -1758,6 +1767,10 @@ export class HoldingsManagerPanel implements Disposable {
         busy = Boolean(message.value);
         updateControls();
         updateWatchlistControls();
+        return;
+      }
+      if (message.type === 'operationNotice') {
+        setNotice(message.message || '', false);
         return;
       }
       if (message.type === 'saveError' || message.type === 'operationError') {

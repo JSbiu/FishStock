@@ -10,6 +10,7 @@ import type { HoldingsManagerOptions, HoldingsManagerPanel as ManagerPanel } fro
 async function managerHarness(
   setRate?: HoldingsManagerOptions['setHkdRate'],
   quoteOf: HoldingsManagerOptions['quoteOf'] = () => undefined,
+  refresh: HoldingsManagerOptions['refresh'] = async () => {},
 ) {
   const holding = {
     id: 'hk', symbol: '00700.HK', market: 'HK', kind: 'stock', name: 'HK sample',
@@ -56,7 +57,7 @@ async function managerHarness(
     quoteOf,
     search: async () => [],
     watchlistEntries: () => [],
-    refresh: async () => {},
+    refresh,
     afterSave: async () => {},
     colorConvention: () => 'china',
     hkdRate: () => rate,
@@ -82,6 +83,34 @@ test('quote updates always carry the current rate, including explicit null', asy
     harness.manager.updateQuotes();
     assert.equal(harness.messages.at(-1)?.type, 'quoteUpdate');
     assert.equal(harness.messages.at(-1)?.hkdRate, rate);
+  }
+});
+
+test('manual refresh success and failure release busy state without replacing the draft', async () => {
+  for (const fail of [false, true]) {
+    let finishRefresh: () => void = () => {};
+    const pending = new Promise<void>((resolve, reject) => {
+      finishRefresh = () => fail ? reject(new Error('Refresh failed')) : resolve();
+    });
+    const harness = await managerHarness(undefined, undefined, () => pending);
+    await harness.send({
+      type: 'draftChanged',
+      rows: [{ id: 'hk', symbol: '00700.HK', quantity: '123', averageCost: '401.25' }],
+    });
+    await harness.send({ type: 'refresh' });
+    assert.equal(harness.messages[0].type, 'busy');
+    assert.equal(harness.messages[0].value, true);
+    finishRefresh();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.deepEqual(harness.messages.map((message) => message.type), fail
+      ? ['busy', 'operationError', 'busy']
+      : ['busy', 'quoteUpdate', 'operationNotice', 'busy']);
+    assert.equal(harness.messages.at(-1)?.value, false);
+    harness.manager.show();
+    const state = harness.messages.at(-1);
+    assert.equal(state?.dirty, true);
+    assert.equal((state?.rows as { quantity: string }[])[0].quantity, '123');
+    assert.equal(harness.repository.getSnapshot().holdings[0].quantity, 100);
   }
 });
 
