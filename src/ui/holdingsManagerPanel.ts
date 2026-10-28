@@ -41,7 +41,7 @@ export interface HoldingsManagerOptions {
   afterSave(added: readonly Holding[]): Promise<void>;
   colorConvention(): ColorConvention;
   hkdRate(): number | null;
-  setHkdRate(rate: number): Promise<void>;
+  setHkdRate(rate: number | null): Promise<void>;
 }
 
 interface ManagerQuoteFields {
@@ -203,6 +203,9 @@ function quoteFields(
 }
 
 function quoteStateLabelOf(quote: Quote): string {
+  if (quote.suspended === true) {
+    return '停牌';
+  }
   if (quote.state === 'stale') {
     return quoteStaleLabel(quote);
   }
@@ -379,17 +382,19 @@ export class HoldingsManagerPanel implements Disposable {
         this.postState('未保存更改已放弃', true);
         return;
       case 'setHkdRate': {
-        if (typeof message.value !== 'number' || !Number.isFinite(message.value)
-          || message.value < 0.1 || message.value > 2) {
+        const rate = message.value;
+        if (rate !== null && (typeof rate !== 'number' || !Number.isFinite(rate)
+          || rate < 0.1 || rate > 2)) {
           return;
         }
         try {
-          await this.options.setHkdRate(message.value);
+          await this.options.setHkdRate(rate);
           this.updateQuotes();
         } catch (error) {
           void this.panel?.webview.postMessage({
             type: 'operationError',
             message: messageOf(error),
+            hkdRate: this.options.hkdRate(),
           });
         }
         return;
@@ -711,7 +716,8 @@ export class HoldingsManagerPanel implements Disposable {
     .toolbar .spacer { flex: 1; }
     /* 汇率是「设一次就基本不动」的值，放工具栏右侧、与操作按钮隔开。 */
     .rate-field { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--vscode-descriptionForeground); white-space: nowrap; }
-    .rate-field input { width: 74px; }
+    .rate-field input[type="number"] { width: 74px; }
+    .rate-field label { display: inline-flex; align-items: center; gap: 4px; }
     #dirtyBadge { color: var(--vscode-descriptionForeground); }
     #dirtyBadge.dirty { color: var(--vscode-notificationsWarningIcon-foreground); }
     .table-wrap { overflow-x: auto; }
@@ -793,11 +799,11 @@ export class HoldingsManagerPanel implements Disposable {
     <div class="toolbar">
       <span id="dirtyBadge">没有未保存更改</span>
       <span class="spacer"></span>
-      <label class="rate-field" title="港币折算人民币的汇率：1 港币 = ? 人民币。默认 0.9 只是占位近似值，请按实际汇率调整。">
-        港币汇率
-        <input id="hkdRateInput" type="number" min="0.1" max="2" step="0.0001" inputmode="decimal">
+      <div class="rate-field" title="1 港币对应多少人民币。取消勾选按原币种显示；默认 0.9 是占位近似值，请按实际汇率调整。">
+        <label><input id="hkdRateEnabled" type="checkbox" checked>港币折算</label>
+        <input id="hkdRateInput" type="number" min="0.1" max="2" step="0.0001" inputmode="decimal" placeholder="已关闭" aria-label="1 港币对应的人民币金额">
         <button id="hkdRateReset" class="secondary" type="button" title="恢复默认值 0.9">默认</button>
-      </label>
+      </div>
       <button id="refreshButton" class="secondary" type="button">刷新行情</button>
       <button id="discardButton" class="secondary" type="button" disabled>放弃更改</button>
       <button id="deleteButton" class="danger" type="button" disabled>删除所选</button>
@@ -829,7 +835,7 @@ export class HoldingsManagerPanel implements Disposable {
     <div id="notice" class="notice"></div>
   </section>
 
-  <footer>港币金额按工具栏汇率折算为人民币，数量与平均成本仍按原币种保存；百分比不受折算影响。显式配置 null 时按原币种展示。浮动盈亏未计入手续费、税费、分红或公司行动影响；当日盈亏按表中当前数量估算，未计入当日交易与费用，非交易日或行情不属于当日时显示 —。休市或过期行情会保留状态标识。调仓按移动加权平均成本计算：加仓摊薄成本，减仓只改数量且成本不变。</footer>
+  <footer>港币金额按工具栏汇率折算为人民币；取消“港币折算”后按原币种展示。数量与平均成本按原币种保存，百分比不受折算影响。浮动盈亏未计入手续费、税费、分红或公司行动影响；当日盈亏按表中当前数量估算，未计入当日交易与费用，非交易日或行情不属于当日时显示 —。休市或过期行情会保留状态标识。调仓按移动加权平均成本计算：加仓摊薄成本，减仓只改数量且成本不变。</footer>
 
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
@@ -840,6 +846,7 @@ export class HoldingsManagerPanel implements Disposable {
     const dirtyBadge = document.getElementById('dirtyBadge');
     const notice = document.getElementById('notice');
     const searchInput = document.getElementById('searchInput');
+    const hkdRateEnabled = document.getElementById('hkdRateEnabled');
     const hkdRateInput = document.getElementById('hkdRateInput');
     const hkdRateReset = document.getElementById('hkdRateReset');
     const searchButton = document.getElementById('searchButton');
@@ -875,6 +882,7 @@ export class HoldingsManagerPanel implements Disposable {
     let searchTimer;
     let colorConvention = 'china';
     let hkdRate = null;
+    let lastHkdRate = 0.9;
     let openAdjustSymbol = '';
     let adjustState = null;
     let adjustCanApply = false;
@@ -1481,15 +1489,29 @@ export class HoldingsManagerPanel implements Disposable {
     });
 
     // 汇率改动即时写回配置。0.9 与 package.json 的 default 保持一致。
+    function updateHkdRate(value, forceInput) {
+      if (value !== null && (typeof value !== 'number' || !Number.isFinite(value))) return;
+      hkdRate = value;
+      if (value !== null) lastHkdRate = value;
+      hkdRateEnabled.checked = value !== null;
+      hkdRateInput.disabled = value === null;
+      if (forceInput || document.activeElement !== hkdRateInput) {
+        hkdRateInput.value = value === null ? '' : String(value);
+      }
+    }
+
     function submitHkdRate(value) {
-      if (typeof value !== 'number' || !isFinite(value) || value < 0.1 || value > 2) {
+      if (value !== null && (typeof value !== 'number' || !isFinite(value) || value < 0.1 || value > 2)) {
         setNotice('港币汇率需填 0.1 到 2 之间的数字。', true);
-        hkdRateInput.value = hkdRate === null ? '' : String(hkdRate);
+        updateHkdRate(hkdRate, true);
         return;
       }
       vscode.postMessage({ type: 'setHkdRate', value: value });
     }
 
+    hkdRateEnabled.addEventListener('change', function () {
+      submitHkdRate(hkdRateEnabled.checked ? lastHkdRate : null);
+    });
     hkdRateInput.addEventListener('change', function () {
       submitHkdRate(Number(hkdRateInput.value));
     });
@@ -1673,8 +1695,7 @@ export class HoldingsManagerPanel implements Disposable {
         selectedWatchlist.clear();
         colorConvention = message.colorConvention === 'international' ? 'international' : 'china';
         document.body.classList.toggle('international', colorConvention === 'international');
-        hkdRate = typeof message.hkdRate === 'number' ? message.hkdRate : null;
-        hkdRateInput.value = hkdRate === null ? '' : String(hkdRate);
+        updateHkdRate(message.hkdRate, true);
         selectedRows.clear();
         renderRows(message.focus);
         renderSearchResults();
@@ -1711,12 +1732,7 @@ export class HoldingsManagerPanel implements Disposable {
       if (message.type === 'quoteUpdate' && Array.isArray(message.quotes)) {
         colorConvention = message.colorConvention === 'international' ? 'international' : 'china';
         document.body.classList.toggle('international', colorConvention === 'international');
-        if (message.hkdRate === null || typeof message.hkdRate === 'number') {
-          hkdRate = message.hkdRate;
-          if (document.activeElement !== hkdRateInput) {
-            hkdRateInput.value = hkdRate === null ? '' : String(hkdRate);
-          }
-        }
+        updateHkdRate(message.hkdRate, false);
         const quotes = new Map(message.quotes.map(function (quote) { return [quote.symbol, quote]; }));
         rows.forEach(function (row) {
           const quote = quotes.get(row.symbol);
@@ -1745,6 +1761,7 @@ export class HoldingsManagerPanel implements Disposable {
         return;
       }
       if (message.type === 'saveError' || message.type === 'operationError') {
+        if ('hkdRate' in message) updateHkdRate(message.hkdRate, true);
         setNotice(message.message || '操作失败', true);
       }
     });

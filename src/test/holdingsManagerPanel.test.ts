@@ -4,9 +4,13 @@ import { createRequire } from 'node:module';
 import test from 'node:test';
 import { runInNewContext } from 'node:vm';
 import { HoldingsRepository } from '../storage/holdingsRepository';
+import type { Quote } from '../domain/models';
 import type { HoldingsManagerOptions, HoldingsManagerPanel as ManagerPanel } from '../ui/holdingsManagerPanel';
 
-async function managerHarness(setRate?: HoldingsManagerOptions['setHkdRate']) {
+async function managerHarness(
+  setRate?: HoldingsManagerOptions['setHkdRate'],
+  quoteOf: HoldingsManagerOptions['quoteOf'] = () => undefined,
+) {
   const holding = {
     id: 'hk', symbol: '00700.HK', market: 'HK', kind: 'stock', name: 'HK sample',
     quantity: 100, averageCost: 400,
@@ -49,7 +53,7 @@ async function managerHarness(setRate?: HoldingsManagerOptions['setHkdRate']) {
   let rate: number | null = 0.8557;
   const manager = new HoldingsManagerPanel({
     repository,
-    quoteOf: () => undefined,
+    quoteOf,
     search: async () => [],
     watchlistEntries: () => [],
     refresh: async () => {},
@@ -101,7 +105,7 @@ test('changing the rate updates quotes without replacing an unsaved draft', asyn
 });
 
 test('invalid rates do not write configuration and write errors are reported', async () => {
-  const attempted: number[] = [];
+  const attempted: (number | null)[] = [];
   const harness = await managerHarness(async (value) => {
     attempted.push(value);
     throw new Error('Configuration write failed');
@@ -114,4 +118,39 @@ test('invalid rates do not write configuration and write errors are reported', a
   assert.deepEqual(attempted, [0.9]);
   assert.equal(harness.messages.at(-1)?.type, 'operationError');
   assert.equal(harness.messages.at(-1)?.message, 'Configuration write failed');
+  assert.equal(harness.messages.at(-1)?.hkdRate, 0.8557);
+});
+
+test('the conversion switch accepts null and resumes without saving the holdings draft', async () => {
+  const harness = await managerHarness();
+  for (const value of [null, 0.8557]) {
+    await harness.send({ type: 'setHkdRate', value });
+    assert.equal(harness.messages.at(-1)?.type, 'quoteUpdate');
+    assert.equal(harness.messages.at(-1)?.hkdRate, value);
+  }
+  assert.equal(harness.repository.getSnapshot().holdings[0].averageCost, 400);
+});
+
+test('manager labels a suspended quote before session and stale labels, and restores on resumption', async () => {
+  const quote: Quote = {
+    symbol: '00700.HK', market: 'HK', name: 'HK sample', currency: 'HKD',
+    price: 420, previousClose: 420, open: null, high: null, low: null,
+    volume: null, volumeUnit: null, turnoverAmount: null, turnoverRate: null,
+    peTtm: null, totalMarketCap: null, settlementPrice: null, openInterest: null,
+    change: 0, changePercent: 0, asOf: Date.now(), state: 'live', suspended: true,
+  };
+  const harness = await managerHarness(undefined, () => quote);
+  for (const state of ['live', 'closed', 'stale'] as const) {
+    quote.state = state;
+    quote.sessionLabel = state === 'closed' ? '休市' : '开市';
+    quote.suspended = true;
+    harness.manager.updateQuotes();
+    const suspended = harness.messages.at(-1)?.quotes as { quoteStateLabel: string; dayChange: number | null }[];
+    assert.equal(suspended[0].quoteStateLabel, '停牌');
+    assert.equal(suspended[0].dayChange, null);
+    quote.suspended = false;
+    harness.manager.updateQuotes();
+    const resumed = harness.messages.at(-1)?.quotes as { quoteStateLabel: string }[];
+    assert.equal(resumed[0].quoteStateLabel, state === 'stale' ? 'stale' : quote.sessionLabel);
+  }
 });
