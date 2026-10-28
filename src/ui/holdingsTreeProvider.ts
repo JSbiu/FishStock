@@ -14,6 +14,7 @@ import {
   calculateHoldingMetrics,
   DEFAULT_HOLDING_DESCRIPTION_FIELDS,
   DEFAULT_HOLDING_SORT,
+  holdingAmountSortPaused,
   holdingCurrency,
   holdingIconKindOf,
   sortHoldings,
@@ -111,6 +112,10 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
     this.refresh();
   }
 
+  public isAmountSortPaused(sort: HoldingSortState = this.sort): boolean {
+    return holdingAmountSortPaused(this.repository.getSnapshot().holdings, sort, this.hkdRate);
+  }
+
   public refresh(): void {
     this.emitter.fire(undefined);
   }
@@ -187,11 +192,25 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
   }
 
   private summaryItem(summary: HoldingSummary): TreeItem {
-    const item = new TreeItem('总计', TreeItemCollapsibleState.None);
+    const label = summary.currency === null ? '总计' : `总计 (${summary.currency})`;
+    const item = new TreeItem(label, TreeItemCollapsibleState.None);
     item.id = 'holding-summary';
     item.iconPath = new ThemeIcon('sum');
     // 汇总行没有可操作对象，单独给一个 contextValue 以排除右键菜单。
     item.contextValue = 'fishStock.holdingSummary';
+    if (summary.currency === null) {
+      item.description = buildSummarySegments(summary, { fields: this.fieldFlags }).join(' · ');
+      if (this.isAmountSortPaused()) {
+        item.description += ' · 金额排序暂用默认顺序';
+      }
+      item.description += ' · 管理页查看小计';
+      item.tooltip = '点击打开持仓管理页，查看 CNY、HKD 小计。未启用港币折算，混币金额与比例不合并。';
+      if (this.isAmountSortPaused()) {
+        item.tooltip += '\n已保留所选金额排序及升降序，恢复有效汇率后自动继续应用。';
+      }
+      item.command = { command: 'fishStock.manageHoldings', title: '查看各币种小计' };
+      return item;
+    }
     if (summary.pricedItemCount === 0) {
       item.description = '等待行情';
     } else {
@@ -200,7 +219,9 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
         fields: this.fieldFlags,
       }).join(' · ')}`;
     }
-    item.tooltip = '全部持仓合计。港币条目按当前配置的汇率折算为人民币后一并计入。';
+    item.tooltip = summary.hkdRate === null
+      ? `按原币种 ${summary.currency} 合计，仅计入有价格的持仓。`
+      : `按 CNY 合计，1 HKD = ${summary.hkdRate} CNY；仅计入有价格的持仓。`;
     return item;
   }
 

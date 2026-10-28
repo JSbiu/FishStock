@@ -19,16 +19,16 @@ export interface HoldingMetrics {
   dayProfitPercent: number | null;
 }
 
-/**
- * 全量持仓汇总。金额已按人民币口径合并（港币条目在求和时折算），
- * 因此不再携带单一币种字段。
- */
+/** currency 为 null 表示混币未合并，此时全部金额与比例也为 null。 */
 export interface HoldingSummary {
+  currency: HoldingCurrency | null;
+  /** 汇总实际使用的折算汇率；原币总计或未合并时为 null。 */
+  hkdRate: number | null;
   itemCount: number;
   pricedItemCount: number;
-  costValue: number;
-  marketValue: number;
-  profit: number;
+  costValue: number | null;
+  marketValue: number | null;
+  profit: number | null;
   returnPercent: number | null;
   dayProfit: number | null;
   dayProfitPercent: number | null;
@@ -36,6 +36,14 @@ export interface HoldingSummary {
 
 export function holdingCurrency(holding: Holding): HoldingCurrency {
   return holding.market === 'HK' ? 'HKD' : 'CNY';
+}
+
+function isValidHkdRate(rate: number | null): rate is number {
+  return rate !== null && Number.isFinite(rate) && rate > 0;
+}
+
+function hasMixedHoldingCurrencies(holdings: readonly Holding[]): boolean {
+  return new Set(holdings.map(holdingCurrency)).size > 1;
 }
 
 /**
@@ -127,10 +135,8 @@ export function calculateHoldingMetrics(
 }
 
 /**
- * 全量汇总，把不同币种合并到人民币口径。
- *
- * 这里**必须折算**：港币条目的人民币市值会和人民币条目直接相加，不折算就等于
- * 把 1 港币当成 1 人民币。折算只发生在这个求和入口，条目本身仍按原币种存储。
+ * 有汇率时折算为 CNY；无汇率时只汇总单币种，混币仅返回条目计数。
+ * 币种按全部持仓判断，避免缺价时误把混币列表当作单币种总计。
  */
 export function summarizeHoldings(
   holdings: readonly Holding[],
@@ -138,6 +144,12 @@ export function summarizeHoldings(
   now: Date = new Date(),
   hkdRate: number | null = null,
 ): HoldingSummary {
+  const rate = isValidHkdRate(hkdRate) ? hkdRate : null;
+  const currency = rate !== null
+    ? 'CNY'
+    : hasMixedHoldingCurrencies(holdings)
+      ? null
+      : holdings.length > 0 ? holdingCurrency(holdings[0]) : 'CNY';
   let pricedItemCount = 0;
   let costValue = 0;
   let marketValue = 0;
@@ -149,9 +161,12 @@ export function summarizeHoldings(
     if (!metrics) {
       continue;
     }
-    const convert = (value: number): number =>
-      toDisplayAmount(value, metrics.currency, hkdRate);
     pricedItemCount += 1;
+    if (currency === null) {
+      continue;
+    }
+    const convert = (value: number): number =>
+      toDisplayAmount(value, metrics.currency, rate);
     costValue += convert(metrics.costValue);
     marketValue += convert(metrics.marketValue);
     profit += convert(metrics.profit);
@@ -162,11 +177,13 @@ export function summarizeHoldings(
     }
   }
   return {
+    currency,
+    hkdRate: holdings.some((holding) => holdingCurrency(holding) === 'HKD') ? rate : null,
     itemCount: holdings.length,
     pricedItemCount,
-    costValue,
-    marketValue,
-    profit,
+    costValue: currency === null ? null : costValue,
+    marketValue: currency === null ? null : marketValue,
+    profit: currency === null ? null : profit,
     returnPercent: costValue > 0 ? (profit / costValue) * 100 : null,
     dayProfit,
     dayProfitPercent:
@@ -227,7 +244,7 @@ export function toDisplayAmount(
   currency: HoldingCurrency,
   rate: number | null,
 ): number {
-  return currency === 'HKD' && rate !== null && rate > 0 ? value * rate : value;
+  return currency === 'HKD' && isValidHkdRate(rate) ? value * rate : value;
 }
 
 export interface HoldingDescriptionOptions {
@@ -270,19 +287,21 @@ export function buildHoldingDescriptionSegments(
 }
 
 /**
- * 汇总行。金额在 `summarizeHoldings` 里已经折算成人民币口径，这里不再重复折算——
- * 否则会把汇率乘第二遍。
+ * 汇总行使用已确定币种的金额，不重复折算；混币未合并时始终显示原因。
  */
 export function buildSummarySegments(
   summary: HoldingSummary,
   options: HoldingDescriptionOptions,
 ): string[] {
+  if (summary.currency === null) {
+    return ['未合并：未启用港币折算'];
+  }
   const { fields, suspended = false } = options;
   const segments: string[] = [];
-  if (fields.marketValue) {
+  if (fields.marketValue && summary.marketValue !== null) {
     segments.push(formatCompactMarketValue(summary.marketValue));
   }
-  if (fields.profit) {
+  if (fields.profit && summary.profit !== null) {
     segments.push(formatProfitCell(summary.profit, summary.returnPercent));
   }
   if (fields.dayProfit) {
@@ -421,6 +440,17 @@ export function holdingSortLabel(sort: HoldingSortState): string {
     : `${HOLDING_SORT_LABELS[sort.key]}${sort.desc ? '（从高到低）' : '（从低到高）'}`;
 }
 
+/** 混币金额排序需先折算；暂停期间保留用户选择，只临时使用默认顺序。 */
+export function holdingAmountSortPaused(
+  holdings: readonly Holding[],
+  sort: HoldingSortState,
+  hkdRate: number | null,
+): boolean {
+  return (sort.key === 'profitAmount' || sort.key === 'dayAmount')
+    && !isValidHkdRate(hkdRate)
+    && hasMixedHoldingCurrencies(holdings);
+}
+
 function sortValueOf(
   metrics: HoldingMetrics,
   key: Exclude<HoldingSortKey, 'manual'>,
@@ -451,7 +481,7 @@ export function sortHoldings(
   now: Date = new Date(),
   hkdRate: number | null = null,
 ): Holding[] {
-  if (sort.key === 'manual') {
+  if (sort.key === 'manual' || holdingAmountSortPaused(holdings, sort, hkdRate)) {
     return [...holdings];
   }
   const key = sort.key;

@@ -193,6 +193,9 @@ export function registerHoldingsCommands(
           return {
             label: HOLDING_SORT_LABELS[pick.key],
             description: isCurrent ? `${base}（当前）` : base,
+            detail: options.treeProvider.isAmountSortPaused({ key: pick.key, desc: current.desc })
+              ? '未启用港币折算：暂用默认顺序；保留排序选择，恢复汇率后自动应用。'
+              : undefined,
             key: pick.key,
           };
         }),

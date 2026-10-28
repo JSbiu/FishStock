@@ -7,6 +7,7 @@ import {
   DEFAULT_HOLDING_DESCRIPTION_FIELDS,
   DEFAULT_HOLDING_SORT,
   ensureAtLeastOneField,
+  holdingAmountSortPaused,
   holdingDayChange,
   holdingIconKindOf,
   holdingSortLabel,
@@ -115,6 +116,8 @@ test('summarizes only priced holdings', () => {
     (item) => item.id === holding.id ? quote(1_500) : undefined,
   );
   assert.deepEqual(summary, {
+    currency: 'CNY',
+    hkdRate: null,
     itemCount: 2,
     pricedItemCount: 1,
     costValue: 149_000,
@@ -501,16 +504,130 @@ test('buildHoldingDescriptionSegments converts HKD amounts but not rates', () =>
 test('summarizeHoldings folds the HKD position into the CNY total', () => {
   const hkQuote = { ...quoteAt('00700.HK', 420, 400), market: 'HK' as const };
   const converted = summarizeHoldings([hkHolding('h')], () => hkQuote, NOW, 0.8557);
+  assert.equal(converted.currency, 'CNY');
+  assert.equal(converted.hkdRate, 0.8557);
   assert.deepEqual(
     buildSummarySegments(converted, { fields: DEFAULT_HOLDING_DESCRIPTION_FIELDS }),
     ['3.59万', '+1,711(+5.00%)', '今日+1,711(+5.00%)'],
   );
   // 不折算时保持港币原值；百分比两种情况都一致。
   const raw = summarizeHoldings([hkHolding('h')], () => hkQuote, NOW, null);
+  assert.equal(raw.currency, 'HKD');
+  assert.equal(raw.hkdRate, null);
+  assert.equal(raw.costValue, 40_000);
+  assert.equal(raw.marketValue, 42_000);
   assert.deepEqual(
     buildSummarySegments(raw, { fields: DEFAULT_HOLDING_DESCRIPTION_FIELDS }),
     ['4.20万', '+2,000(+5.00%)', '今日+2,000(+5.00%)'],
   );
+});
+
+function mixedCurrencyFixture(): { holdings: Holding[]; quotes: Record<string, Quote> } {
+  const cny = sortFixture('cny', 100, 8);
+  const hkd = { ...hkHolding('hkd'), averageCost: 9 };
+  return {
+    holdings: [cny, hkd],
+    quotes: {
+      [cny.symbol]: quoteAt(cny.symbol, 10, 8),
+      [hkd.symbol]: { ...quoteAt(hkd.symbol, 10, 9), market: 'HK', currency: 'HKD' },
+    },
+  };
+}
+
+test('summarizeHoldings converts 1000 CNY plus 1000 HKD and weights both returns', () => {
+  const { holdings, quotes } = mixedCurrencyFixture();
+  for (const [rate, marketValue] of [[0.8557, 1_855.7], [0.9, 1_900]]) {
+    const summary = summarizeHoldings(holdings, (item) => quotes[item.symbol], NOW, rate);
+    const cost = 800 + 900 * rate;
+    const profit = 200 + 100 * rate;
+    assert.equal(summary.currency, 'CNY');
+    assert.equal(summary.hkdRate, rate);
+    assert.equal(summary.pricedItemCount, 2);
+    assert.equal(summary.marketValue?.toFixed(2), marketValue.toFixed(2));
+    assert.equal(summary.costValue, cost);
+    assert.equal(summary.profit, profit);
+    assert.equal(summary.returnPercent, profit / cost * 100);
+    assert.equal(summary.dayProfit, profit);
+    assert.equal(summary.dayProfitPercent, profit / cost * 100);
+  }
+});
+
+test('summarizeHoldings exposes no mixed-currency amounts or rates without conversion', () => {
+  const { holdings, quotes } = mixedCurrencyFixture();
+  const summary = summarizeHoldings(holdings, (item) => quotes[item.symbol], NOW, null);
+  assert.deepEqual(summary, {
+    currency: null,
+    hkdRate: null,
+    itemCount: 2,
+    pricedItemCount: 2,
+    costValue: null,
+    marketValue: null,
+    profit: null,
+    returnPercent: null,
+    dayProfit: null,
+    dayProfitPercent: null,
+  });
+  for (const fields of [DEFAULT_HOLDING_DESCRIPTION_FIELDS, {
+    quantity: true, marketValue: false, profit: false, dayProfit: false,
+  }]) {
+    assert.deepEqual(buildSummarySegments(summary, { fields, suspended: true }), [
+      '未合并：未启用港币折算',
+    ]);
+  }
+});
+
+test('summarizeHoldings excludes missing prices but retains the mixed-currency boundary', () => {
+  const { holdings, quotes } = mixedCurrencyFixture();
+  const quoteOf = (item: Holding): Quote | undefined => item.market === 'HK'
+    ? { ...quotes[item.symbol], price: null }
+    : quotes[item.symbol];
+  const converted = summarizeHoldings(holdings, quoteOf, NOW, 0.8557);
+  assert.equal(converted.itemCount, 2);
+  assert.equal(converted.pricedItemCount, 1);
+  assert.equal(converted.marketValue, 1_000);
+  assert.equal(converted.costValue, 800);
+  assert.equal(converted.profit, 200);
+  assert.equal(converted.returnPercent, 25);
+  assert.equal(converted.dayProfit, 200);
+  assert.equal(converted.dayProfitPercent, 25);
+  for (const available of [quoteOf, () => undefined]) {
+    const summary = summarizeHoldings(holdings, available, NOW, null);
+    assert.equal(summary.currency, null);
+    assert.equal(summary.marketValue, null);
+    assert.equal(summary.costValue, null);
+    assert.equal(summary.profit, null);
+    assert.equal(summary.returnPercent, null);
+    assert.equal(summary.dayProfit, null);
+    assert.equal(summary.dayProfitPercent, null);
+    assert.equal(summary.pricedItemCount, available === quoteOf ? 1 : 0);
+  }
+});
+
+test('converted day totals use the same eligible holdings for numerator and denominator', () => {
+  const { holdings, quotes } = mixedCurrencyFixture();
+  const hkQuote = quotes[holdings[1].symbol];
+  const ineligible: Quote[] = [
+    { ...hkQuote, state: 'stale', asOf: PREVIOUS_DAY_QUOTE_AT },
+    { ...hkQuote, tradingDate: '2026-09-02' },
+    { ...hkQuote, suspended: true },
+    { ...hkQuote, previousClose: null },
+  ];
+  for (const excluded of ineligible) {
+    const summary = summarizeHoldings(holdings, (item) => item.market === 'HK'
+      ? excluded : quotes[item.symbol], NOW, 0.8557);
+    assert.equal(summary.marketValue?.toFixed(2), '1855.70');
+    assert.equal(summary.dayProfit, 200);
+    assert.equal(summary.dayProfitPercent, 25);
+  }
+  const stale = summarizeHoldings(holdings, (item) => ({
+    ...quotes[item.symbol], state: 'stale',
+  }), NOW, 0.8557);
+  assert.equal(stale.dayProfit, 200 + 100 * 0.8557);
+  const unavailable = summarizeHoldings(holdings, (item) => ({
+    ...quotes[item.symbol], asOf: PREVIOUS_DAY_QUOTE_AT,
+  }), NOW, 0.8557);
+  assert.equal(unavailable.dayProfit, null);
+  assert.equal(unavailable.dayProfitPercent, null);
 });
 
 test('treats a suspended quote as having no day profit', () => {
@@ -547,8 +664,7 @@ test('buildHoldingDescriptionSegments shows 停牌 in place of the day cell', ()
 
 test('sortHoldings compares amounts across currencies only after conversion', () => {
   // 人民币 +2,600；港币 100 股 × (430 - 400) = +3,000 HKD。
-  // 不折算时 3,000 > 2,600，港币在前；折 0.8557 后变成 2,567 < 2,600，顺序应当翻转
-  // ——顺序相反才说明折算确实参与了比较，否则这个测试两种配置都会通过。
+  // 无汇率保留默认顺序；0.8557 时港币折后小于人民币，0.9 时则更大。
   const cny = sortFixture('c', 1_000, 10);
   const hkd = hkHolding('h');
   const quotes: Record<string, Quote> = {
@@ -557,16 +673,106 @@ test('sortHoldings compares amounts across currencies only after conversion', ()
   };
   const quoteOf = (item: Holding): Quote | undefined => quotes[item.symbol];
   const desc = (rate: number | null): string[] =>
-    sortHoldings([hkd, cny], { key: 'profitAmount', desc: true }, quoteOf, NOW, rate)
+    sortHoldings([cny, hkd], { key: 'profitAmount', desc: true }, quoteOf, NOW, rate)
       .map((item) => item.id);
-  assert.deepEqual(desc(null), ['h', 'c']);
+  assert.deepEqual(desc(null), ['c', 'h']);
   assert.deepEqual(desc(0.8557), ['c', 'h']);
-  // 换成收益率维度则与汇率无关：c 是 26%、h 是 7.5%，两种配置下顺序一致。
-  const byRate = (rate: number | null): string[] =>
-    sortHoldings([hkd, cny], { key: 'profitPercent', desc: true }, quoteOf, NOW, rate)
-      .map((item) => item.id);
-  assert.deepEqual(byRate(null), ['c', 'h']);
-  assert.deepEqual(byRate(0.8557), ['c', 'h']);
+  assert.deepEqual(desc(0.9), ['h', 'c']);
+  // 两种百分比均为 c: 26%、h: 7.5%，汇率不应改变升降序结果。
+  for (const key of ['profitPercent', 'dayPercent'] as const) {
+    for (const rate of [null, 0.8557, 0.9]) {
+      for (const desc of [true, false]) {
+        assert.deepEqual(
+          sortHoldings([hkd, cny], { key, desc }, quoteOf, NOW, rate).map((item) => item.id),
+          desc ? ['c', 'h'] : ['h', 'c'],
+        );
+      }
+    }
+  }
+});
+
+test('mixed-currency amount sorts keep their selection and resume both directions with a rate', () => {
+  const cny = sortFixture('c', 1_000, 10);
+  const hkd = hkHolding('h');
+  const list = [cny, hkd];
+  const quoteOf = (item: Holding): Quote => item.market === 'HK'
+    ? { ...quoteAt(item.symbol, 430, 400), market: 'HK', currency: 'HKD' }
+    : quoteAt(item.symbol, 12.6, 10);
+  for (const key of ['profitAmount', 'dayAmount'] as const) {
+    for (const desc of [true, false]) {
+      const sort = { key, desc };
+      assert.equal(holdingAmountSortPaused(list, sort, null), true);
+      assert.deepEqual(sortHoldings(list, sort, quoteOf, NOW, null), list);
+      for (const rate of [0.8557, 0.9]) {
+        assert.equal(holdingAmountSortPaused(list, sort, rate), false);
+        const cnyFirst = rate === 0.8557 ? desc : !desc;
+        assert.deepEqual(
+          sortHoldings(list, sort, quoteOf, NOW, rate).map((item) => item.id),
+          cnyFirst ? ['c', 'h'] : ['h', 'c'],
+        );
+      }
+      assert.deepEqual(sortHoldings(list, sort, quoteOf, NOW, null), list);
+      assert.deepEqual(sort, { key, desc });
+    }
+  }
+});
+
+test('single-currency amount sorts remain available without a rate in CNY or HKD', () => {
+  for (const market of ['CN', 'HK'] as const) {
+    const list = [sortFixture('x', 10, 10), sortFixture('y', 1_000, 10)]
+      .map((item) => ({ ...item, market }));
+    const quoteOf = (item: Holding): Quote => ({
+      ...quoteAt(item.symbol, item.id === 'x' ? 20 : 10.5, 10), market,
+    });
+    for (const key of ['profitAmount', 'dayAmount'] as const) {
+      for (const desc of [true, false]) {
+        const sort = { key, desc };
+        assert.equal(holdingAmountSortPaused(list, sort, null), false);
+        assert.deepEqual(
+          sortHoldings(list, sort, quoteOf, NOW, null).map((item) => item.id),
+          desc ? ['y', 'x'] : ['x', 'y'],
+        );
+      }
+    }
+  }
+});
+
+test('missing quotes pause mixed amount sorts while manual and percentage sorts still work', () => {
+  const list = [hkHolding('h'), sortList[1], sortList[0]];
+  const amountSort = { key: 'profitAmount', desc: true } as const;
+  assert.equal(holdingAmountSortPaused(list, amountSort, null), true);
+  assert.deepEqual(sortHoldings(list, amountSort, sortQuoteOf, NOW, null), list);
+  assert.deepEqual(
+    sortHoldings(list, amountSort, sortQuoteOf, NOW, 0.9).map((item) => item.id),
+    ['1', '2', 'h'],
+  );
+  for (const rate of [null, 0.8557, 0.9]) {
+    for (const key of ['manual', 'profitPercent', 'dayPercent'] as const) {
+      const sort = { key, desc: true };
+      assert.equal(holdingAmountSortPaused(list, sort, rate), false);
+      assert.deepEqual(
+        sortHoldings(list, sort, sortQuoteOf, NOW, rate).map((item) => item.id),
+        key === 'manual' ? ['h', '2', '1'] : key === 'profitPercent'
+          ? ['1', '2', 'h'] : ['2', '1', 'h'],
+      );
+    }
+  }
+});
+
+test('converted day amount sorts put holdings without current-day data last in both directions', () => {
+  const { holdings, quotes } = mixedCurrencyFixture();
+  const list = [holdings[1], holdings[0]];
+  const quoteOf = (item: Holding): Quote => item.market === 'HK'
+    ? { ...quotes[item.symbol], asOf: PREVIOUS_DAY_QUOTE_AT }
+    : quotes[item.symbol];
+  for (const desc of [true, false]) {
+    const sort = { key: 'dayAmount', desc } as const;
+    assert.deepEqual(sortHoldings(list, sort, quoteOf, NOW, null), list);
+    assert.deepEqual(
+      sortHoldings(list, sort, quoteOf, NOW, 0.8557).map((item) => item.id),
+      ['cny', 'hkd'],
+    );
+  }
 });
 
 test('buildHoldingDescriptionSegments keeps the sign on negative rates', () => {
