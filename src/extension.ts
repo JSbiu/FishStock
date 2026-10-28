@@ -17,7 +17,7 @@ import {
 } from './commands/commandSets';
 import { registerHoldingsCommands } from './commands/registerHoldingsCommands';
 import { registerWatchlistCommands } from './commands/registerWatchlistCommands';
-import { readConfig } from './config';
+import { readConfig, readHoldingHkdRate } from './config';
 import { BseSecurityDirectory } from './data/bseSecurityDirectory';
 import { QuoteService } from './data/quoteService';
 import { SinaFuturesProvider } from './data/sinaFuturesProvider';
@@ -288,8 +288,6 @@ export async function activate(context: ExtensionContext): Promise<void> {
   };
   refreshHoldingDecorations();
   const holdingsConfig = workspace.getConfiguration('fishStock.holdings');
-  const readHkdRate = (): number | null =>
-    holdingsConfig.get<number | null>('hkdToCnyRate', null);
   const holdingsTreeProvider = new HoldingsTreeProvider(
     holdingsRepository,
     {
@@ -305,7 +303,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
       'treeViewFields',
       DEFAULT_HOLDING_DESCRIPTION_FIELDS,
     ),
-    readHkdRate(),
+    readHoldingHkdRate(),
   );
   const stockTreeView = window.createTreeView('fishStock.stock', {
     treeDataProvider: stockTreeProvider,
@@ -796,10 +794,10 @@ export async function activate(context: ExtensionContext): Promise<void> {
     refresh: () => refreshHoldings(true),
     afterSave: afterHoldingsChange,
     colorConvention: () => config.colorConvention,
-    hkdRate: readHkdRate,
+    hkdRate: readHoldingHkdRate,
     setHkdRate: async (rate) => {
-      // 写入全局配置；onDidChangeConfiguration 会让 Tree View 同步刷新。
-      await holdingsConfig.update('hkdToCnyRate', rate, ConfigurationTarget.Global);
+      await workspace.getConfiguration('fishStock.holdings')
+        .update('hkdToCnyRate', rate, ConfigurationTarget.Global);
     },
   });
   holdingsManagerRef.current = holdingsManager;
@@ -1021,7 +1019,8 @@ export async function activate(context: ExtensionContext): Promise<void> {
       if (!event.affectsConfiguration('fishStock.holdings.hkdToCnyRate')) {
         return;
       }
-      holdingsTreeProvider.setHkdRate(readHkdRate());
+      holdingsTreeProvider.setHkdRate(readHoldingHkdRate());
+      holdingsManager.updateQuotes();
     }),
   );
 

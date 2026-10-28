@@ -12,6 +12,11 @@ function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(Math.max(value, minimum), maximum);
 }
 
+export function readHoldingHkdRate(): number | null {
+  return workspace.getConfiguration('fishStock.holdings')
+    .get<number | null>('hkdToCnyRate', 0.9);
+}
+
 export function readConfig(): FishStockConfig {
   const config = workspace.getConfiguration('fishStock');
   const colorConvention = config.get<string>('colorConvention', 'china');

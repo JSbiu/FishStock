@@ -67,17 +67,20 @@ const args = [
 ];
 
 try {
-  const result = spawnSync(code.command, args, {
-    cwd: root,
-    env: code.env,
-    stdio: 'inherit',
-    timeout: 120_000,
-  });
-  if (result.error) {
-    throw result.error;
-  }
-  if (result.status !== 0) {
-    throw new Error(`Extension Host 冒烟测试失败，退出码 ${result.status ?? '未知'}`);
+  // 第二次启动复用隔离配置，验证首次写入的汇率能跨 Extension Host 保留。
+  for (const reload of ['0', '1']) {
+    const result = spawnSync(code.command, args, {
+      cwd: root,
+      env: { ...code.env, FISHSTOCK_SMOKE_RELOAD: reload },
+      stdio: 'inherit',
+      timeout: 120_000,
+    });
+    if (result.error) {
+      throw result.error;
+    }
+    if (result.status !== 0) {
+      throw new Error(`Extension Host 冒烟测试失败，退出码 ${result.status ?? '未知'}`);
+    }
   }
 } finally {
   rmSync(temporaryRoot, {

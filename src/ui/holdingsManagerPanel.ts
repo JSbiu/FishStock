@@ -261,6 +261,7 @@ export class HoldingsManagerPanel implements Disposable {
       void this.panel.webview.postMessage({
         type: 'quoteUpdate',
         colorConvention: this.options.colorConvention(),
+        hkdRate: this.options.hkdRate(),
         quotes: this.managerRows().map((row) => ({
           symbol: row.symbol,
           currentPrice: row.currentPrice,
@@ -378,13 +379,19 @@ export class HoldingsManagerPanel implements Disposable {
         this.postState('未保存更改已放弃', true);
         return;
       case 'setHkdRate': {
-        if (typeof message.value !== 'number' || !Number.isFinite(message.value)) {
+        if (typeof message.value !== 'number' || !Number.isFinite(message.value)
+          || message.value < 0.1 || message.value > 2) {
           return;
         }
-        // 写回配置后，配置变更监听会让 Tree View 一起刷新；这里再 postState
-        // 是为了让 Webview 自身的输入框与合计行立刻跟上。
-        await this.options.setHkdRate(message.value);
-        this.postState(`港币汇率已更新为 ${message.value}`);
+        try {
+          await this.options.setHkdRate(message.value);
+          this.updateQuotes();
+        } catch (error) {
+          void this.panel?.webview.postMessage({
+            type: 'operationError',
+            message: messageOf(error),
+          });
+        }
         return;
       }
       case 'save': {
@@ -822,7 +829,7 @@ export class HoldingsManagerPanel implements Disposable {
     <div id="notice" class="notice"></div>
   </section>
 
-  <footer>人民币与港币分别计算，不进行汇率换算。浮动盈亏未计入手续费、税费、分红或公司行动影响；当日盈亏按表中当前数量估算，未计入当日交易与费用，非交易日或行情不属于当日时显示 —。休市或过期行情会保留状态标识。调仓按移动加权平均成本计算：加仓摊薄成本，减仓只改数量且成本不变。</footer>
+  <footer>港币金额按工具栏汇率折算为人民币，数量与平均成本仍按原币种保存；百分比不受折算影响。显式配置 null 时按原币种展示。浮动盈亏未计入手续费、税费、分红或公司行动影响；当日盈亏按表中当前数量估算，未计入当日交易与费用，非交易日或行情不属于当日时显示 —。休市或过期行情会保留状态标识。调仓按移动加权平均成本计算：加仓摊薄成本，减仓只改数量且成本不变。</footer>
 
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
@@ -1704,8 +1711,12 @@ export class HoldingsManagerPanel implements Disposable {
       if (message.type === 'quoteUpdate' && Array.isArray(message.quotes)) {
         colorConvention = message.colorConvention === 'international' ? 'international' : 'china';
         document.body.classList.toggle('international', colorConvention === 'international');
-        hkdRate = typeof message.hkdRate === 'number' ? message.hkdRate : null;
-        hkdRateInput.value = hkdRate === null ? '' : String(hkdRate);
+        if (message.hkdRate === null || typeof message.hkdRate === 'number') {
+          hkdRate = message.hkdRate;
+          if (document.activeElement !== hkdRateInput) {
+            hkdRateInput.value = hkdRate === null ? '' : String(hkdRate);
+          }
+        }
         const quotes = new Map(message.quotes.map(function (quote) { return [quote.symbol, quote]; }));
         rows.forEach(function (row) {
           const quote = quotes.get(row.symbol);
