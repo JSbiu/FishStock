@@ -1,4 +1,5 @@
 import type { StockSearchResult } from '../domain/models';
+import { isMainFuturesSymbol } from '../domain/symbol';
 import type { ViewKind } from '../storage/viewOptionsStore';
 
 export interface CommandNames {
@@ -138,7 +139,7 @@ export function buildFuturesCommandSet(): WatchlistCommandSet {
       searchEmptyLabel: '$(info) 未找到匹配的国内期货',
       searchEmptyHint: '请尝试品种名称、主连代码或月份合约代码',
       describeSearchResult: (result) => ({
-        description: `${result.symbol} · ${result.symbol.endsWith('0.CNF') ? '主连' : '月份合约'}`,
+        description: `${result.symbol} · ${isMainFuturesSymbol(result.symbol) ? '主连' : '月份合约'}`,
         ...(result.venue ? { detail: result.venue } : {}),
       }),
       removeConfirm: (name) => `从期货自选删除 ${name}？`,

@@ -48,6 +48,45 @@ test('generates both four-digit and Zhengzhou-style contract candidates', () => 
   assert.equal(candidates.includes('AL2806.CNF'), true);
 });
 
+test('keeps October month names and does not expand them as main contracts', () => {
+  const symbols: NormalizedSymbol[] = [
+    { symbol: 'RB2610.CNF', market: 'CNF' },
+    { symbol: 'TA610.CNF', market: 'CNF' },
+  ];
+  const quotes = parseSinaFuturesPayload(
+    [futuresRow('RB2610', '螺纹钢2610', '3100'), futuresRow('TA610', 'PTA610', '5100')].join('\n'),
+    symbols, NOW,
+  );
+  assert.deepEqual(quotes.map((quote) => quote.name), ['螺纹钢2610', 'PTA610']);
+  for (const symbol of symbols) {
+    assert.deepEqual(candidateFutureContracts(symbol.symbol, NOW), []);
+  }
+});
+
+test('searches October month codes without treating them as main or bypassing stale-date filtering', async () => {
+  const now = new Date('2026-10-28T13:20:00.000Z');
+  const provider = new SinaFuturesProvider({
+    now: () => now,
+    decode: (bytes) => new TextDecoder().decode(bytes),
+    fetcher: async () => new Response([
+      futuresRow('RB0', '螺纹钢连续', '3100', '2026-10-28'),
+      futuresRow('RB2610', '螺纹钢2610', '3000', '2026-10-15'),
+      futuresRow('RB2611', '螺纹钢2611', '3101', '2026-10-28'),
+      futuresRow('RB2710', '螺纹钢2710', '3102', '2026-10-28'),
+    ].join('\n')),
+  });
+  assert.deepEqual((await provider.searchFutures('RB0')).map((item) => item.symbol), [
+    'RB0.CNF', 'RB2611.CNF', 'RB2710.CNF',
+  ]);
+  assert.deepEqual(await provider.searchFutures('RB2610'), []);
+  for (const code of ['RB2611', 'RB2710']) {
+    const results = await provider.searchFutures(code);
+    assert.equal(results.length, 1);
+    assert.equal(results[0].symbol, `${code}.CNF`);
+    assert.equal(results[0].name, `螺纹钢${code.slice(2)}`);
+  }
+});
+
 test('parses futures price against previous settlement with volume and open interest', () => {
   const quotes = parseSinaFuturesPayload(
     futuresRow('AL0', '铝连续', '23680.000'),

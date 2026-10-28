@@ -4,7 +4,7 @@ import type {
   StockSearchResult,
 } from '../domain/models';
 import { isSupportedFuturesSymbol } from '../domain/futuresSessions';
-import { isFuturesSymbol, normalizeSymbol } from '../domain/symbol';
+import { isFuturesSymbol, isMainFuturesSymbol, normalizeSymbol } from '../domain/symbol';
 import { AccessDeniedBackoff } from './accessDeniedBackoff';
 import type { FuturesDataProvider } from './marketDataProvider';
 
@@ -118,7 +118,7 @@ function parseFuturesTimestamp(
 }
 
 function mainContractName(code: string, sourceName: string): string {
-  if (!code.endsWith('0')) {
+  if (!isMainFuturesSymbol(`${code}.CNF`)) {
     return sourceName;
   }
   const normalized = sourceName.replace(/连续$/, '主连');
@@ -233,7 +233,7 @@ export function candidateFutureContracts(
 ): NormalizedSymbol[] {
   const normalized = normalizeSymbol(mainSymbol);
   const mainCode = normalized.symbol.slice(0, -4);
-  if (normalized.market !== 'CNF' || !mainCode.endsWith('0')) {
+  if (!isMainFuturesSymbol(normalized.symbol)) {
     return [];
   }
   const product = mainCode.slice(0, -1);
@@ -285,7 +285,7 @@ function activeContractQuotes(
   const currentTradingDate = main ? tradingDate(main.asOf) : '';
   return quotes.filter(
     (quote) =>
-      quote.symbol.endsWith('0.CNF') ||
+      isMainFuturesSymbol(quote.symbol) ||
       (currentTradingDate !== '' && tradingDate(quote.asOf) === currentTradingDate),
   );
 }
@@ -338,7 +338,7 @@ export class SinaFuturesProvider implements FuturesDataProvider {
       if (!isSupportedFuturesSymbol(direct.symbol)) {
         return [];
       }
-      const isMain = direct.symbol.endsWith('0.CNF');
+      const isMain = isMainFuturesSymbol(direct.symbol);
       const main = isMain ? direct : mainSymbolFor(direct);
       const requested = isMain
         ? [direct, ...candidateFutureContracts(direct.symbol, this.now())]

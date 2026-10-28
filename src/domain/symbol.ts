@@ -41,6 +41,10 @@ export function isFuturesSymbol(symbol: string): boolean {
   return /\.CNF$/i.test(symbol.trim());
 }
 
+export function isMainFuturesSymbol(symbol: string): boolean {
+  return /^[A-Z]{1,3}0\.CNF$/i.test(symbol.trim());
+}
+
 export function normalizeSymbol(input: string): NormalizedSymbol {
   const compact = input.trim().toUpperCase().replace(/\s+/g, '');
   if (!compact) {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { normalizeSymbol, SymbolFormatError } from '../domain/symbol';
+import { isMainFuturesSymbol, normalizeSymbol, SymbolFormatError } from '../domain/symbol';
 
 test('normalizes common A-share formats', () => {
   assert.deepEqual(normalizeSymbol('600519'), { symbol: '600519.SH', market: 'CN' });
@@ -25,6 +25,15 @@ test('normalizes domestic futures main and month contracts', () => {
   assert.deepEqual(normalizeSymbol('AL0'), { symbol: 'AL0.CNF', market: 'CNF' });
   assert.deepEqual(normalizeSymbol('nf_AU2608'), { symbol: 'AU2608.CNF', market: 'CNF' });
   assert.deepEqual(normalizeSymbol('SA609.CNF'), { symbol: 'SA609.CNF', market: 'CNF' });
+});
+
+test('distinguishes main futures from October month codes', () => {
+  assert.equal(isMainFuturesSymbol(normalizeSymbol('RB0').symbol), true);
+  for (const code of ['RB2610', 'RB2710', 'TA610']) {
+    const normalized = normalizeSymbol(code);
+    assert.equal(normalized.market, 'CNF');
+    assert.equal(isMainFuturesSymbol(normalized.symbol), false);
+  }
 });
 
 test('keeps a future US extension point without enabling a provider', () => {

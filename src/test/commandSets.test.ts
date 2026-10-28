@@ -29,6 +29,14 @@ function contributedViews(): Array<{ id: string; icon?: string }> {
   return Object.values(manifest.contributes.views).flat();
 }
 
+test('futures search labels October codes as month contracts', () => {
+  const describe = buildFuturesCommandSet().texts.describeSearchResult;
+  for (const symbol of ['RB0.CNF', 'RB2610.CNF', 'RB2710.CNF', 'TA610.CNF']) {
+    const result = describe({ symbol, market: 'CNF', kind: 'future', name: symbol });
+    assert.equal(result.description, `${symbol} · ${symbol === 'RB0.CNF' ? '主连' : '月份合约'}`);
+  }
+});
+
 test('every registered command id is declared in package.json', () => {
   const declared = new Set(declaredCommandIds());
   const ids = [
