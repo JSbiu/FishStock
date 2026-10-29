@@ -208,7 +208,7 @@ test('manual refresh success and failure release busy state without replacing th
       ? ['busy', 'operationError', 'busy']
       : ['busy', 'quoteUpdate', 'operationNotice', 'busy']);
     assert.equal(harness.messages.at(-1)?.value, false);
-    harness.manager.show();
+    await harness.send({ type: 'ready' });
     const state = harness.messages.at(-1);
     assert.equal(state?.dirty, true);
     assert.equal((state?.rows as { quantity: string }[])[0].quantity, '123');
@@ -226,13 +226,49 @@ test('changing the rate updates quotes without replacing an unsaved draft', asyn
   assert.equal(harness.messages.length, 1);
   assert.equal(harness.messages[0].type, 'quoteUpdate');
   assert.equal(harness.messages[0].hkdRate, 0.9);
-  harness.manager.show();
+  await harness.send({ type: 'ready' });
   const state = harness.messages.at(-1);
   assert.equal(state?.dirty, true);
   const rows = state?.rows as { quantity: string; averageCost: string }[];
   assert.equal(rows[0].quantity, '123');
   assert.equal(rows[0].averageCost, '401.25');
   assert.equal(harness.repository.getSnapshot().holdings[0].quantity, 100);
+});
+
+test('revealing an existing manager sends only the requested focus without replacing its draft', async () => {
+  const harness = await managerHarness();
+  await harness.send({
+    type: 'draftChanged',
+    rows: [{ id: 'hk', symbol: '00700.HK', quantity: '123', averageCost: '401.25' }],
+  });
+  harness.manager.show();
+  assert.equal(harness.messages.length, 0);
+  for (const focus of [{ type: 'search' }, { type: 'holding', holdingId: 'hk' }] as const) {
+    harness.manager.show(focus);
+    assert.equal(harness.messages.at(-1)?.type, 'focus');
+    assert.deepEqual(harness.messages.at(-1)?.focus, focus);
+  }
+  assert.equal(harness.messages.some((message) => message.type === 'state'), false);
+  await harness.send({ type: 'ready' });
+  assert.equal(harness.messages.at(-1)?.dirty, true);
+  assert.equal((harness.messages.at(-1)?.rows as { quantity: string }[])[0].quantity, '123');
+  assert.equal(harness.repository.getSnapshot().holdings[0].quantity, 100);
+});
+
+test('repository changes reload a clean manager and preserve an unsaved draft', async () => {
+  const harness = await managerHarness(undefined, undefined, undefined, { persist: async () => {} });
+  await harness.repository.updateHolding('hk', 200, 410);
+  harness.manager.repositoryChanged();
+  assert.equal(harness.messages.at(-1)?.type, 'state');
+  assert.equal((harness.messages.at(-1)?.rows as { quantity: string }[])[0].quantity, '200');
+  await harness.send({
+    type: 'draftChanged', rows: [{ id: 'hk', symbol: '00700.HK', quantity: '123', averageCost: '401.25' }],
+  });
+  await harness.repository.updateHolding('hk', 300, 420);
+  harness.manager.repositoryChanged();
+  assert.equal(harness.messages.at(-1)?.type, 'quoteUpdate');
+  await harness.send({ type: 'ready' });
+  assert.equal((harness.messages.at(-1)?.rows as { quantity: string }[])[0].quantity, '123');
 });
 
 test('invalid rates do not write configuration and write errors are reported', async () => {

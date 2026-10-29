@@ -231,7 +231,12 @@ export class HoldingsManagerPanel implements Disposable {
     this.pendingFocus = focus;
     if (this.panel) {
       this.panel.reveal(ViewColumn.Active, true);
-      this.postState();
+      if (this.webviewReady) {
+        this.pendingFocus = undefined;
+        if (focus) {
+          void this.panel.webview.postMessage({ type: 'focus', focus });
+        }
+      }
       return;
     }
 
@@ -1459,7 +1464,13 @@ export class HoldingsManagerPanel implements Disposable {
 
       renderTotals();
       updateControls();
-      if (focus && focus.type === 'holding') {
+      focusInput(focus);
+    }
+
+    function focusInput(focus) {
+      if (focus && focus.type === 'search') {
+        activatePane('search');
+      } else if (focus && focus.type === 'holding') {
         const target = rows.find(function (row) { return row.id === focus.holdingId; });
         if (target) {
           const tr = rowsElement.querySelector('[data-key="' + CSS.escape(rowKey(target)) + '"]');
@@ -1724,6 +1735,10 @@ export class HoldingsManagerPanel implements Disposable {
     window.addEventListener('message', function (event) {
       const message = event.data;
       if (!message || typeof message.type !== 'string') return;
+      if (message.type === 'focus') {
+        focusInput(message.focus);
+        return;
+      }
       if (message.type === 'state') {
         closeAdjustPanel();
         rows = Array.isArray(message.rows) ? message.rows : [];
@@ -1745,7 +1760,6 @@ export class HoldingsManagerPanel implements Disposable {
         renderSearchResults();
         if (activePane === 'watchlist') renderWatchlistEntries();
         setNotice(message.saveError || message.message || '', Boolean(message.saveError));
-        if (message.focus && message.focus.type === 'search') activatePane('search');
         return;
       }
       if (message.type === 'adjustPreviewResult') {
