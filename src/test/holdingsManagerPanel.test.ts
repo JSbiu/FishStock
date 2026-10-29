@@ -11,6 +11,10 @@ async function managerHarness(
   setRate?: HoldingsManagerOptions['setHkdRate'],
   quoteOf: HoldingsManagerOptions['quoteOf'] = () => undefined,
   refresh: HoldingsManagerOptions['refresh'] = async () => {},
+  overrides: Partial<Pick<HoldingsManagerOptions, 'search' | 'watchlistEntries'>> & {
+    persist?: () => Promise<void>;
+    choose?: () => Promise<string | undefined>;
+  } = {},
 ) {
   const holding = {
     id: 'hk', symbol: '00700.HK', market: 'HK', kind: 'stock', name: 'HK sample',
@@ -18,18 +22,20 @@ async function managerHarness(
   };
   const repository = new HoldingsRepository({
     get: <T>() => ({ version: 1, holdings: [holding] }) as T,
-    update: async () => { throw new Error('Display changes must not persist holdings'); },
+    update: overrides.persist ?? (async () => { throw new Error('Display changes must not persist holdings'); }),
   });
   await repository.load();
   const messages: Record<string, unknown>[] = [];
+  const warnings: string[] = [];
   let receive: (message: unknown) => void = () => {};
+  let onDispose = () => {};
   const panel = {
     webview: {
       html: '',
       postMessage: (message: Record<string, unknown>) => { messages.push(message); },
       onDidReceiveMessage: (listener: typeof receive) => { receive = listener; },
     },
-    onDidDispose: () => {},
+    onDidDispose: (listener: () => void) => { onDispose = listener; },
     reveal: () => {},
     dispose: () => {},
   };
@@ -40,9 +46,20 @@ async function managerHarness(
     module,
     exports: module.exports,
     Error,
+    AbortController,
     require: (name: string) => {
       if (name === 'vscode') {
-        return { window: { createWebviewPanel: () => panel }, ViewColumn: { Active: 1 } };
+        return {
+          window: {
+            createWebviewPanel: () => panel,
+            setStatusBarMessage: () => {},
+            showWarningMessage: async (message: string) => {
+              warnings.push(message);
+              return message === '持仓管理中有未保存的更改。' ? overrides.choose?.() : undefined;
+            },
+          },
+          ViewColumn: { Active: 1 },
+        };
       }
       if (name === './quoteTooltip') {
         return { quoteStaleLabel: () => 'stale' };
@@ -55,8 +72,8 @@ async function managerHarness(
   const manager = new HoldingsManagerPanel({
     repository,
     quoteOf,
-    search: async () => [],
-    watchlistEntries: () => [],
+    search: overrides.search ?? (async () => []),
+    watchlistEntries: overrides.watchlistEntries ?? (() => []),
     refresh,
     afterSave: async () => {},
     colorConvention: () => 'china',
@@ -67,7 +84,8 @@ async function managerHarness(
   receive({ type: 'ready' });
   messages.length = 0;
   return {
-    manager, messages, repository,
+    manager, messages, repository, warnings,
+    close: () => { onDispose(); },
     setRate: (value: number | null) => { rate = value; },
     send: async (message: unknown) => {
       receive(message);
@@ -83,6 +101,90 @@ test('quote updates always carry the current rate, including explicit null', asy
     harness.manager.updateQuotes();
     assert.equal(harness.messages.at(-1)?.type, 'quoteUpdate');
     assert.equal(harness.messages.at(-1)?.hkdRate, rate);
+  }
+});
+
+test('a pending save locks draft mutations and duplicate saves until the single write finishes', async () => {
+  let finish = () => {};
+  let writes = 0;
+  const pending = new Promise<void>((resolve) => { finish = resolve; });
+  const harness = await managerHarness(undefined, undefined, undefined, {
+    persist: async () => { writes += 1; await pending; },
+  });
+  const draft = [{ id: 'hk', symbol: '00700.HK', quantity: '123', averageCost: '401.25' }];
+  await harness.send({ type: 'save', rows: draft });
+  assert.equal(harness.messages[0].type, 'saving');
+  assert.equal(harness.messages[0].value, true);
+  await harness.send({ type: 'draftChanged', rows: [{ ...draft[0], quantity: '456' }] });
+  await harness.send({ type: 'save', rows: [] });
+  await harness.send({ type: 'discard' });
+  await harness.send({ type: 'adjustApply', symbol: '00700.HK', direction: 'sell', quantity: 100, price: 500 });
+  assert.equal(writes, 1);
+  assert.equal(harness.repository.getSnapshot().holdings[0].quantity, 100);
+  finish();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(harness.repository.getSnapshot().holdings[0].quantity, 123);
+  const saved = harness.messages.find((message) => message.type === 'state');
+  assert.equal(saved?.dirty, false);
+  assert.equal((saved?.rows as { quantity: string }[])[0].quantity, '123');
+  assert.equal(harness.messages.at(-1)?.type, 'saving');
+  assert.equal(harness.messages.at(-1)?.value, false);
+});
+
+test('a failed save preserves the draft and confirmed instruments for a successful retry', async () => {
+  let fail = true;
+  const harness = await managerHarness(undefined, undefined, undefined, {
+    persist: async () => { if (fail) throw new Error('Storage unavailable'); },
+    watchlistEntries: () => [{ symbol: '000333.SZ', market: 'CN', kind: 'stock', name: 'CN sample' }],
+  });
+  const draft = [
+    { id: 'hk', symbol: '00700.HK', quantity: '123', averageCost: '401.25' },
+    { symbol: '000333.SZ', quantity: '200', averageCost: '50' },
+  ];
+  await harness.send({ type: 'save', rows: draft });
+  assert.equal(harness.repository.getSnapshot().holdings.length, 1);
+  assert.equal(harness.repository.getSnapshot().holdings[0].quantity, 100);
+  assert.equal(harness.messages.find((message) => message.type === 'saveError')?.message, 'Storage unavailable');
+  assert.equal(harness.messages.at(-1)?.value, false);
+  await harness.send({ type: 'ready' });
+  const state = harness.messages.at(-1);
+  assert.equal(state?.dirty, true);
+  assert.equal(state?.saveError, 'Storage unavailable');
+  assert.equal((state?.rows as unknown[]).length, 2);
+  fail = false;
+  await harness.send({ type: 'save', rows: draft });
+  assert.equal(harness.repository.getSnapshot().holdings.length, 2);
+  assert.equal(harness.repository.getSnapshot().holdings[0].quantity, 123);
+});
+
+test('closing during a save waits for success without prompting for an already saved draft', async () => {
+  let finish = () => {};
+  const pending = new Promise<void>((resolve) => { finish = resolve; });
+  const harness = await managerHarness(undefined, undefined, undefined, { persist: () => pending });
+  await harness.send({ type: 'save', rows: [{ id: 'hk', symbol: '00700.HK', quantity: '123', averageCost: '400' }] });
+  harness.close();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.deepEqual(harness.warnings, []);
+  finish();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.deepEqual(harness.warnings, []);
+  assert.equal(harness.repository.getSnapshot().holdings[0].quantity, 123);
+});
+
+test('saving on close reports the actual validation or storage error and restores the draft', async () => {
+  for (const quantity of ['0', '123']) {
+    const harness = await managerHarness(undefined, undefined, undefined, {
+      persist: async () => { throw new Error('Storage unavailable'); },
+      choose: async () => '保存',
+    });
+    await harness.send({ type: 'draftChanged', rows: [{ id: 'hk', symbol: '00700.HK', quantity, averageCost: '400' }] });
+    harness.close();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.match(harness.warnings.at(-1) ?? '', quantity === '0' ? /正整数/ : /Storage unavailable/);
+    await harness.send({ type: 'ready' });
+    assert.equal(harness.messages.at(-1)?.dirty, true);
+    assert.equal((harness.messages.at(-1)?.rows as { quantity: string }[])[0].quantity, quantity);
+    assert.equal(harness.repository.getSnapshot().holdings[0].quantity, 100);
   }
 });
 

@@ -222,6 +222,8 @@ export class HoldingsManagerPanel implements Disposable {
   private readonly allowedNewInstruments = new Map<string, HoldingSearchResult>();
   private disposing = false;
   private webviewReady = false;
+  private saveOperation: Promise<boolean> | undefined;
+  private saveError: string | undefined;
 
   public constructor(private readonly options: HoldingsManagerOptions) {}
 
@@ -348,6 +350,8 @@ export class HoldingsManagerPanel implements Disposable {
       type: 'state',
       rows: this.managerRows(),
       dirty: this.dirty,
+      saving: Boolean(this.saveOperation),
+      saveError: this.saveError,
       colorConvention: this.options.colorConvention(),
       hkdRate: this.options.hkdRate(),
       clearSearch,
@@ -359,6 +363,9 @@ export class HoldingsManagerPanel implements Disposable {
 
   private async handleMessage(message: unknown): Promise<void> {
     if (!isRecord(message) || typeof message.type !== 'string') {
+      return;
+    }
+    if (this.saveOperation && ['draftChanged', 'discard', 'save', 'adjustApply'].includes(message.type)) {
       return;
     }
     switch (message.type) {
@@ -378,6 +385,7 @@ export class HoldingsManagerPanel implements Disposable {
       case 'discard':
         this.draft = undefined;
         this.dirty = false;
+        this.saveError = undefined;
         this.allowedNewInstruments.clear();
         this.postState('未保存更改已放弃', true);
         return;
@@ -406,7 +414,7 @@ export class HoldingsManagerPanel implements Disposable {
         }
         this.draft = rows;
         this.dirty = true;
-        await this.saveCurrentDraft(true);
+        await this.saveCurrentDraft();
         return;
       }
       case 'search':
@@ -590,11 +598,24 @@ export class HoldingsManagerPanel implements Disposable {
     this.postState(adjustmentMessage(payload, before, result));
   }
 
-  private async saveCurrentDraft(notifyPanel: boolean): Promise<boolean> {
+  private saveCurrentDraft(): Promise<boolean> {
+    if (this.saveOperation) {
+      return this.saveOperation;
+    }
     const draft = this.draft;
     if (!draft) {
-      return true;
+      return Promise.resolve(true);
     }
+    this.saveError = undefined;
+    void this.panel?.webview.postMessage({ type: 'saving', value: true });
+    this.saveOperation = this.persistDraft(draft).finally(() => {
+      this.saveOperation = undefined;
+      void this.panel?.webview.postMessage({ type: 'saving', value: false });
+    });
+    return this.saveOperation;
+  }
+
+  private async persistDraft(draft: HoldingDraftInput[]): Promise<boolean> {
     try {
       const before = this.options.repository.getSnapshot().holdings;
       const holdings = materializeHoldingDraft(
@@ -610,26 +631,24 @@ export class HoldingsManagerPanel implements Disposable {
       this.dirty = false;
       this.allowedNewInstruments.clear();
       const afterSave = this.options.afterSave(added);
-      if (notifyPanel) {
-        this.postState('持仓已保存', true);
-      }
+      this.postState('持仓已保存', true);
       window.setStatusBarMessage('FishStock: 持仓已保存', 2_500);
       void afterSave.catch(async (error: unknown) => {
         await window.showWarningMessage(`FishStock: ${messageOf(error)}`);
       });
       return true;
     } catch (error: unknown) {
-      if (notifyPanel) {
-        void this.panel?.webview.postMessage({
-          type: 'saveError',
-          message: messageOf(error),
-        });
-      }
+      this.saveError = messageOf(error);
+      void this.panel?.webview.postMessage({ type: 'saveError', message: this.saveError });
       return false;
     }
   }
 
   private async confirmUnsavedDraft(): Promise<void> {
+    await this.saveOperation;
+    if (this.disposing || this.panel || !this.dirty || !this.draft) {
+      return;
+    }
     const choice = await window.showWarningMessage(
       '持仓管理中有未保存的更改。',
       {
@@ -641,9 +660,9 @@ export class HoldingsManagerPanel implements Disposable {
       '放弃',
     );
     if (choice === '保存') {
-      const saved = await this.saveCurrentDraft(false);
+      const saved = await this.saveCurrentDraft();
       if (!saved) {
-        await window.showWarningMessage('FishStock: 草稿中仍有无效行，请继续编辑后保存。');
+        await window.showWarningMessage(`FishStock: ${this.saveError}`);
         this.show();
       }
       return;
@@ -655,6 +674,7 @@ export class HoldingsManagerPanel implements Disposable {
     if (choice === '放弃') {
       this.draft = undefined;
       this.dirty = false;
+      this.saveError = undefined;
       this.allowedNewInstruments.clear();
     }
   }
@@ -878,6 +898,7 @@ export class HoldingsManagerPanel implements Disposable {
     let activePane = 'search';
     let dirty = false;
     let busy = false;
+    let saving = false;
     let requestId = 0;
     let latestRequestId = 0;
     let searchTimer;
@@ -1002,7 +1023,7 @@ export class HoldingsManagerPanel implements Disposable {
       const applyButton = document.createElement('button');
       applyButton.type = 'button';
       applyButton.textContent = '应用';
-      applyButton.disabled = !adjustCanApply || busy;
+      applyButton.disabled = !adjustCanApply || busy || saving;
       applyButton.addEventListener('click', function () {
         if (!adjustState) return;
         vscode.postMessage({
@@ -1099,24 +1120,33 @@ export class HoldingsManagerPanel implements Disposable {
     }
 
     function updateControls() {
+      const blocked = busy || saving;
       const cny = rows.filter(function (row) { return row.currency === 'CNY'; }).length;
       const hkd = rows.length - cny;
       summary.textContent = rows.length + ' 项持仓 · CNY ' + cny + ' · HKD ' + hkd;
       dirtyBadge.textContent = dirty ? '有未保存更改' : '没有未保存更改';
       dirtyBadge.classList.toggle('dirty', dirty);
-      discardButton.disabled = !dirty || busy;
-      deleteButton.disabled = selectedRows.size === 0 || busy;
-      saveButton.disabled = !dirty || hasInvalidRows() || busy;
-      refreshButton.disabled = busy;
+      discardButton.disabled = !dirty || blocked;
+      deleteButton.disabled = selectedRows.size === 0 || blocked;
+      saveButton.disabled = !dirty || hasInvalidRows() || blocked;
+      saveButton.textContent = saving ? '保存中…' : '保存全部';
+      refreshButton.disabled = blocked;
       refreshButton.textContent = busy ? '刷新中…' : '刷新行情';
-      searchButton.disabled = busy;
+      searchButton.disabled = blocked;
+      searchInput.disabled = saving;
+      selectAll.disabled = saving;
+      rowsElement.querySelectorAll('input, select, .adjust-actions .secondary').forEach(function (control) {
+        control.disabled = saving;
+      });
+      addSelectedButton.disabled = selectedResults.size === 0 || saving;
       rows.forEach(function (row) {
         const tr = rowsElement.querySelector('[data-key="' + CSS.escape(rowKey(row)) + '"]');
         const adjustButton = tr && tr.querySelector('.row-action');
-        if (adjustButton) adjustButton.disabled = busy || Boolean(validationError(row));
+        if (adjustButton) adjustButton.disabled = blocked || Boolean(validationError(row));
       });
       const applyButton = rowsElement.querySelector('.adjust-actions button');
-      if (applyButton) applyButton.disabled = busy || !adjustCanApply;
+      if (applyButton) applyButton.disabled = blocked || !adjustCanApply;
+      updateWatchlistControls();
       selectAll.checked = rows.length > 0 && selectedRows.size === rows.length;
       selectAll.indeterminate = selectedRows.size > 0 && selectedRows.size < rows.length;
     }
@@ -1402,7 +1432,7 @@ export class HoldingsManagerPanel implements Disposable {
         adjustButton.className = 'secondary row-action';
         adjustButton.textContent = '调仓';
         const rowReady = parseQuantity(row.quantity) !== null && parseCost(row.averageCost) !== null;
-        adjustButton.disabled = !rowReady || busy;
+        adjustButton.disabled = !rowReady || busy || saving;
         adjustButton.title = rowReady
           ? '记录一次买入或卖出，并重算平均成本'
           : '请先填写有效的数量和平均成本';
@@ -1452,12 +1482,12 @@ export class HoldingsManagerPanel implements Disposable {
         label.className = 'search-result' + (alreadyAdded ? ' disabled' : '');
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
-        checkbox.disabled = alreadyAdded;
+        checkbox.disabled = alreadyAdded || saving;
         checkbox.checked = selectedResults.has(result.symbol) && !alreadyAdded;
         checkbox.addEventListener('change', function () {
           if (checkbox.checked) selectedResults.add(result.symbol);
           else selectedResults.delete(result.symbol);
-          addSelectedButton.disabled = selectedResults.size === 0;
+          addSelectedButton.disabled = selectedResults.size === 0 || saving;
         });
         const title = document.createElement('div');
         const strong = document.createElement('strong');
@@ -1473,7 +1503,7 @@ export class HoldingsManagerPanel implements Disposable {
         searchResultsElement.appendChild(label);
       });
       searchActions.hidden = searchResults.length === 0;
-      addSelectedButton.disabled = selectedResults.size === 0;
+      addSelectedButton.disabled = selectedResults.size === 0 || saving;
     }
 
     function runSearch() {
@@ -1537,6 +1567,7 @@ export class HoldingsManagerPanel implements Disposable {
     searchButton.addEventListener('click', runSearch);
 
     function addInstruments(entries, selected) {
+      if (saving) return 0;
       const existingSymbols = new Set(rows.map(function (row) { return row.symbol; }));
       const added = entries.filter(function (entry) {
         return selected.has(entry.symbol) && !existingSymbols.has(entry.symbol);
@@ -1574,8 +1605,8 @@ export class HoldingsManagerPanel implements Disposable {
         return selectedWatchlist.has(entry.symbol);
       });
       watchlistSelectAllButton.textContent = allSelected ? '全不选' : '全选';
-      watchlistSelectAllButton.disabled = selectable.length === 0 || busy;
-      addWatchlistButton.disabled = selectedWatchlist.size === 0 || busy;
+      watchlistSelectAllButton.disabled = selectable.length === 0 || busy || saving;
+      addWatchlistButton.disabled = selectedWatchlist.size === 0 || busy || saving;
     }
 
     function renderWatchlistEntries() {
@@ -1590,7 +1621,7 @@ export class HoldingsManagerPanel implements Disposable {
         label.className = 'search-result' + (alreadyAdded ? ' disabled' : '');
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
-        checkbox.disabled = alreadyAdded;
+        checkbox.disabled = alreadyAdded || saving;
         checkbox.checked = selectedWatchlist.has(entry.symbol) && !alreadyAdded;
         checkbox.addEventListener('change', function () {
           if (checkbox.checked) selectedWatchlist.add(entry.symbol);
@@ -1683,6 +1714,9 @@ export class HoldingsManagerPanel implements Disposable {
       vscode.postMessage({ type: 'refresh' });
     });
     saveButton.addEventListener('click', function () {
+      if (saveButton.disabled) return;
+      saving = true;
+      updateControls();
       setNotice('正在保存…', false);
       vscode.postMessage({ type: 'save', rows: serializeRows() });
     });
@@ -1694,6 +1728,7 @@ export class HoldingsManagerPanel implements Disposable {
         closeAdjustPanel();
         rows = Array.isArray(message.rows) ? message.rows : [];
         dirty = Boolean(message.dirty);
+        saving = Boolean(message.saving);
         if (message.clearSearch) {
           searchInput.value = '';
           searchResults = [];
@@ -1709,7 +1744,7 @@ export class HoldingsManagerPanel implements Disposable {
         renderRows(message.focus);
         renderSearchResults();
         if (activePane === 'watchlist') renderWatchlistEntries();
-        setNotice(message.message || '', false);
+        setNotice(message.saveError || message.message || '', Boolean(message.saveError));
         if (message.focus && message.focus.type === 'search') activatePane('search');
         return;
       }
@@ -1722,7 +1757,7 @@ export class HoldingsManagerPanel implements Disposable {
         preview.classList.toggle('is-error', !message.ok);
         preview.textContent = adjustPreviewText(message);
         const applyButton = preview.parentElement.querySelector('.adjust-actions button');
-        if (applyButton) applyButton.disabled = !message.ok || busy;
+        if (applyButton) applyButton.disabled = !message.ok || busy || saving;
         return;
       }
       if (message.type === 'searchResults' && message.requestId === latestRequestId) {
@@ -1767,6 +1802,13 @@ export class HoldingsManagerPanel implements Disposable {
         busy = Boolean(message.value);
         updateControls();
         updateWatchlistControls();
+        return;
+      }
+      if (message.type === 'saving') {
+        saving = Boolean(message.value);
+        updateControls();
+        renderSearchResults();
+        if (activePane === 'watchlist') renderWatchlistEntries();
         return;
       }
       if (message.type === 'operationNotice') {
