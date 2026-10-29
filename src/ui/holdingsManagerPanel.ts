@@ -756,6 +756,8 @@ export class HoldingsManagerPanel implements Disposable {
     .rate-field label { display: inline-flex; align-items: center; gap: 4px; }
     #dirtyBadge { color: var(--vscode-descriptionForeground); }
     #dirtyBadge.dirty { color: var(--vscode-notificationsWarningIcon-foreground); }
+    .validation-status { padding: 10px 14px; border-bottom: 1px solid var(--vscode-panel-border); color: var(--vscode-notificationsWarningIcon-foreground); }
+    .validation-status button { margin-left: 8px; padding: 3px 9px; }
     .table-wrap { overflow-x: auto; }
     table { width: 100%; min-width: 1180px; border-collapse: collapse; }
     th, td { padding: 9px 10px; border-bottom: 1px solid var(--vscode-panel-border); text-align: right; vertical-align: middle; }
@@ -845,6 +847,10 @@ export class HoldingsManagerPanel implements Disposable {
       <button id="deleteButton" class="danger" type="button" disabled>删除所选</button>
       <button id="saveButton" type="button" disabled>保存全部</button>
     </div>
+    <div id="validationStatus" class="validation-status" role="status" hidden>
+      <span id="validationMessage"></span>
+      <button id="focusInvalidButton" class="secondary" type="button">定位填写</button>
+    </div>
     <div class="table-wrap">
       <table>
         <thead>
@@ -880,6 +886,9 @@ export class HoldingsManagerPanel implements Disposable {
     const emptyState = document.getElementById('emptyState');
     const summary = document.getElementById('summary');
     const dirtyBadge = document.getElementById('dirtyBadge');
+    const validationStatus = document.getElementById('validationStatus');
+    const validationMessage = document.getElementById('validationMessage');
+    const focusInvalidButton = document.getElementById('focusInvalidButton');
     const notice = document.getElementById('notice');
     const searchInput = document.getElementById('searchInput');
     const hkdRateEnabled = document.getElementById('hkdRateEnabled');
@@ -1130,21 +1139,27 @@ export class HoldingsManagerPanel implements Disposable {
       return '';
     }
 
-    function hasInvalidRows() {
-      return rows.some(function (row) { return validationError(row); });
-    }
-
     function updateControls() {
       const blocked = busy || saving;
+      const invalidRows = rows.filter(function (row) { return validationError(row); });
+      const firstInvalid = invalidRows[0];
       const cny = rows.filter(function (row) { return row.currency === 'CNY'; }).length;
       const hkd = rows.length - cny;
       summary.textContent = rows.length + ' 项持仓 · CNY ' + cny + ' · HKD ' + hkd;
-      dirtyBadge.textContent = dirty ? '有未保存更改' : '没有未保存更改';
+      dirtyBadge.textContent = saving ? '正在保存…' : invalidRows.length > 0
+        ? invalidRows.length + ' 项待填写' : dirty ? '有未保存更改' : '没有未保存更改';
       dirtyBadge.classList.toggle('dirty', dirty);
+      validationStatus.hidden = !firstInvalid;
+      validationMessage.textContent = firstInvalid
+        ? '第 ' + (rows.indexOf(firstInvalid) + 1) + ' 行 ' + firstInvalid.name + '：' + validationError(firstInvalid) + '。'
+        : '';
+      focusInvalidButton.disabled = saving;
       discardButton.disabled = !dirty || blocked;
       deleteButton.disabled = selectedRows.size === 0 || blocked;
-      saveButton.disabled = !dirty || hasInvalidRows() || blocked;
+      saveButton.disabled = !dirty || invalidRows.length > 0 || blocked;
       saveButton.textContent = saving ? '保存中…' : '保存全部';
+      saveButton.title = firstInvalid ? validationMessage.textContent
+        : saving ? '正在保存，请稍候' : dirty ? '保存全部更改' : '没有未保存更改';
       refreshButton.disabled = blocked;
       refreshButton.textContent = busy ? '刷新中…' : '刷新行情';
       searchButton.disabled = blocked;
@@ -1481,18 +1496,25 @@ export class HoldingsManagerPanel implements Disposable {
       if (focus && focus.type === 'search') {
         activatePane('search');
       } else if (focus && focus.type === 'holding') {
-        const target = rows.find(function (row) { return row.id === focus.holdingId; });
-        if (target) {
-          const tr = rowsElement.querySelector('[data-key="' + CSS.escape(rowKey(target)) + '"]');
-          const input = tr && tr.querySelector('[data-role="quantity"]');
-          if (input) {
-            input.focus();
-            input.select();
-            tr.scrollIntoView({ block: 'center' });
-          }
-        }
+        focusRow(rows.find(function (row) { return row.id === focus.holdingId; }), 'quantity');
       }
     }
+
+    function focusRow(row, role) {
+      if (!row) return;
+      const tr = rowsElement.querySelector('[data-key="' + CSS.escape(rowKey(row)) + '"]');
+      const input = tr && tr.querySelector('[data-role="' + role + '"]');
+      if (input) {
+        input.focus();
+        input.select();
+        tr.scrollIntoView({ block: 'center' });
+      }
+    }
+
+    focusInvalidButton.addEventListener('click', function () {
+      const firstInvalid = rows.find(function (row) { return validationError(row); });
+      if (firstInvalid) focusRow(firstInvalid, parseQuantity(firstInvalid.quantity) === null ? 'quantity' : 'cost');
+    });
 
     function renderSearchResults() {
       searchResultsElement.replaceChildren();
