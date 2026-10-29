@@ -271,6 +271,50 @@ test('repository changes reload a clean manager and preserve an unsaved draft', 
   assert.equal((harness.messages.at(-1)?.rows as { quantity: string }[])[0].quantity, '123');
 });
 
+test('cancel, discard and successful save reject late search results and errors', async () => {
+  for (const action of ['cancelSearch', 'discard', 'save']) {
+    for (const fail of [false, true]) {
+      let finish = () => {};
+      let signal: AbortSignal | undefined;
+      const harness = await managerHarness(undefined, undefined, undefined, {
+        persist: async () => {},
+        search: (_query, receivedSignal) => {
+          signal = receivedSignal;
+          return new Promise((resolve, reject) => {
+            finish = () => fail ? reject(new Error('Late search error')) : resolve([
+              { symbol: '000333.SZ', market: 'CN', kind: 'stock', name: 'CN sample' },
+            ]);
+          });
+        },
+      });
+      await harness.send({ type: 'search', query: 'A', requestId: 1 });
+      await harness.send({ type: action, rows: [{ id: 'hk', symbol: '00700.HK', quantity: '123', averageCost: '400' }] });
+      assert.equal(signal?.aborted, true);
+      const before = harness.messages.length;
+      finish();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(harness.messages.length, before);
+    }
+  }
+});
+
+test('only the current search can return results when providers ignore cancellation', async () => {
+  const pending: ((name: string) => void)[] = [];
+  const harness = await managerHarness(undefined, undefined, undefined, {
+    search: () => new Promise((resolve) => {
+      pending.push((name) => resolve([{ symbol: '000333.SZ', market: 'CN', kind: 'stock', name }]));
+    }),
+  });
+  await harness.send({ type: 'search', query: 'A', requestId: 1 });
+  await harness.send({ type: 'search', query: 'B', requestId: 2 });
+  pending[1]('Current result');
+  pending[0]('Outdated result');
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(harness.messages.length, 1);
+  assert.equal(harness.messages[0].requestId, 2);
+  assert.equal((harness.messages[0].results as { name: string }[])[0].name, 'Current result');
+});
+
 test('invalid rates do not write configuration and write errors are reported', async () => {
   const attempted: (number | null)[] = [];
   const harness = await managerHarness(async (value) => {

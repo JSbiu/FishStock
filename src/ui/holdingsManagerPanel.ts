@@ -256,8 +256,7 @@ export class HoldingsManagerPanel implements Disposable {
       void this.handleMessage(message);
     });
     panel.onDidDispose(() => {
-      this.searchController?.abort();
-      this.searchController = undefined;
+      this.cancelSearch();
       this.panel = undefined;
       this.webviewReady = false;
       if (!this.disposing && this.dirty && this.draft) {
@@ -295,7 +294,7 @@ export class HoldingsManagerPanel implements Disposable {
 
   public dispose(): void {
     this.disposing = true;
-    this.searchController?.abort();
+    this.cancelSearch();
     this.panel?.dispose();
     this.panel = undefined;
   }
@@ -345,6 +344,9 @@ export class HoldingsManagerPanel implements Disposable {
   }
 
   private postState(message?: string, clearSearch = false): void {
+    if (clearSearch) {
+      this.cancelSearch();
+    }
     const panel = this.panel;
     if (!panel || !this.webviewReady) {
       return;
@@ -425,6 +427,9 @@ export class HoldingsManagerPanel implements Disposable {
       case 'search':
         await this.search(message);
         return;
+      case 'cancelSearch':
+        this.cancelSearch();
+        return;
       case 'watchlist':
         void this.panel?.webview.postMessage({
           type: 'watchlistEntries',
@@ -448,6 +453,11 @@ export class HoldingsManagerPanel implements Disposable {
     }
   }
 
+  private cancelSearch(): void {
+    this.searchController?.abort();
+    this.searchController = undefined;
+  }
+
   private async search(message: Record<string, unknown>): Promise<void> {
     if (typeof message.query !== 'string' || typeof message.requestId !== 'number') {
       return;
@@ -456,7 +466,7 @@ export class HoldingsManagerPanel implements Disposable {
     if (!query) {
       return;
     }
-    this.searchController?.abort();
+    this.cancelSearch();
     const controller = new AbortController();
     this.searchController = controller;
     try {
@@ -481,7 +491,7 @@ export class HoldingsManagerPanel implements Disposable {
         results: payload,
       });
     } catch (error: unknown) {
-      if (controller.signal.aborted) {
+      if (controller.signal.aborted || this.searchController !== controller) {
         return;
       }
       void this.panel?.webview.postMessage({
@@ -1518,23 +1528,30 @@ export class HoldingsManagerPanel implements Disposable {
     }
 
     function runSearch() {
+      clearSearchResults();
       const query = searchInput.value.trim();
       if (!query) {
         searchStatus.textContent = '请输入名称、简称或代码。';
         return;
       }
-      requestId += 1;
-      latestRequestId = requestId;
-      selectedResults.clear();
       searchStatus.textContent = '正在搜索…';
+      vscode.postMessage({ type: 'search', query: query, requestId: latestRequestId });
+    }
+
+    function clearSearchResults() {
+      clearTimeout(searchTimer);
+      latestRequestId = ++requestId;
       searchResults = [];
+      selectedResults.clear();
       renderSearchResults();
-      vscode.postMessage({ type: 'search', query: query, requestId: requestId });
+      vscode.postMessage({ type: 'cancelSearch' });
     }
 
     searchInput.addEventListener('input', function () {
-      clearTimeout(searchTimer);
-      if (!searchInput.value.trim()) return;
+      clearSearchResults();
+      const query = searchInput.value.trim();
+      searchStatus.textContent = query ? '等待搜索…' : '请输入名称、简称或代码。';
+      if (!query) return;
       searchTimer = setTimeout(runSearch, 350);
     });
 
@@ -1746,8 +1763,7 @@ export class HoldingsManagerPanel implements Disposable {
         saving = Boolean(message.saving);
         if (message.clearSearch) {
           searchInput.value = '';
-          searchResults = [];
-          selectedResults.clear();
+          clearSearchResults();
           searchStatus.textContent = '可连续搜索并勾选多个结果，再统一填写数量与平均成本。';
         }
         watchlistEntries = Array.isArray(message.watchlistEntries) ? message.watchlistEntries : [];
