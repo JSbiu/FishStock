@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
-import { commands, ConfigurationTarget, extensions, workspace } from 'vscode';
+import { commands, ConfigurationTarget, extensions, workspace, type StatusBarItem } from 'vscode';
 import { readHoldingHkdRate } from '../config';
+import type { Quote } from '../domain/models';
+import { HoldingsRepository } from '../storage/holdingsRepository';
 import { HoldingsTreeProvider } from '../ui/holdingsTreeProvider';
 import { HoldingsManagerPanel } from '../ui/holdingsManagerPanel';
+import { StatusBarController } from '../ui/statusBarController';
 
 const EXTENSION_ID = 'jsbiu.fish-stock';
 
@@ -94,4 +97,62 @@ export async function run(): Promise<void> {
     await config.update('hkdToCnyRate', originalRate, ConfigurationTarget.Global);
   }
   await config.update('hkdToCnyRate', 0.8557, ConfigurationTarget.Global);
+  await verifySavedHoldingViews();
+}
+
+async function verifySavedHoldingViews(): Promise<void> {
+  const instrument = { symbol: '000333.SZ', market: 'CN', kind: 'stock', name: '持仓验收样例' } as const;
+  const quote: Quote = {
+    symbol: instrument.symbol, market: 'CN', name: instrument.name, currency: 'CNY',
+    price: 55, previousClose: 54, open: null, high: null, low: null,
+    volume: null, volumeUnit: null, turnoverAmount: null, turnoverRate: null,
+    peTtm: null, totalMarketCap: null, settlementPrice: null, openInterest: null,
+    change: 1, changePercent: 100 / 54, asOf: Date.now(), state: 'closed',
+  };
+  const repository = new HoldingsRepository({
+    get: <T>() => ({ version: 1, holdings: [] }) as T,
+    update: async () => {},
+  });
+  await repository.load();
+  const tree = new HoldingsTreeProvider(repository, {
+    quoteOf: () => quote, providerNameOf: () => '固定样本',
+  }, 'china');
+  const status = new StatusBarController(60_000, 'holdings');
+  let applied = 0;
+  const manager = new HoldingsManagerPanel({
+    repository, quoteOf: () => quote,
+    search: async () => [instrument], watchlistEntries: () => [],
+    refresh: async () => {}, colorConvention: () => 'china',
+    hkdRate: () => 0.9, setHkdRate: async () => {},
+    afterSave: async (added) => {
+      assert.equal(added.length, 1);
+      applied += 1;
+      tree.refresh();
+      status.setHoldingSource({
+        state: repository.getSnapshot(), quoteOf: () => quote,
+        providerNameOf: () => '固定样本', openCommand: 'fishStock.openHoldings',
+      });
+      manager.repositoryChanged();
+    },
+  });
+  // 页面消息由浏览器回归覆盖；此处在真实 Extension Host 中验证同一保存处理器与原生视图。
+  const receiver = manager as unknown as { handleMessage(message: unknown): Promise<void> };
+  try {
+    manager.show();
+    await receiver.handleMessage({ type: 'ready' });
+    await receiver.handleMessage({ type: 'search', query: instrument.name, requestId: 1 });
+    await receiver.handleMessage({
+      type: 'save', rows: [{ symbol: instrument.symbol, quantity: '123', averageCost: '50' }],
+    });
+    assert.equal(applied, 1, '保存后没有同步持仓视图');
+    assert.equal(repository.getSnapshot().holdings[0].quantity, 123);
+    const node = tree.getChildren()[0];
+    assert.equal(node.kind, 'holding');
+    assert.match(String(tree.getTreeItem(node).description), /123 股/);
+    const item = Reflect.get(status, 'item') as StatusBarItem;
+    assert.match(item.text, /\+615\.00 CNY/, '状态栏没有显示保存后的持仓盈亏');
+  } finally {
+    manager.dispose();
+    status.dispose();
+  }
 }
