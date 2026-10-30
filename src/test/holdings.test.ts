@@ -4,6 +4,7 @@ import {
   buildSummarySegments,
   buildHoldingDescriptionSegments,
   calculateHoldingMetrics,
+  DEFAULT_HOLDING_HKD_RATE,
   DEFAULT_HOLDING_DESCRIPTION_FIELDS,
   DEFAULT_HOLDING_SORT,
   ensureAtLeastOneField,
@@ -11,7 +12,10 @@ import {
   holdingDayChange,
   holdingIconKindOf,
   holdingSortLabel,
+  holdingTreeContextValue,
   moveHolding,
+  normalizeHoldingDescriptionFields,
+  normalizeHoldingHkdRate,
   sortHoldings,
   summarizeHoldings,
   toDisplayAmount,
@@ -250,6 +254,63 @@ test('ensureAtLeastOneField returns the input as is when something is enabled', 
   assert.deepEqual(ensureAtLeastOneField(partial), partial);
 });
 
+test('normalizes malformed HKD rates while preserving explicit null', () => {
+  for (const value of [0.1, 0.8557, 2]) {
+    assert.equal(normalizeHoldingHkdRate(value), value);
+  }
+  assert.equal(normalizeHoldingHkdRate(null), null);
+  for (const value of [undefined, 0, 0.09, 2.01, Number.NaN, '0.9']) {
+    assert.equal(normalizeHoldingHkdRate(value), DEFAULT_HOLDING_HKD_RATE);
+  }
+});
+
+test('normalizes partial and malformed tree View fields against defaults', () => {
+  assert.deepEqual(normalizeHoldingDescriptionFields(undefined), {
+    quantity: true,
+    marketValue: true,
+    profit: true,
+    dayProfit: true,
+  });
+  assert.deepEqual(normalizeHoldingDescriptionFields({
+    quantity: false,
+    profit: 'false',
+  }), {
+    quantity: false,
+    marketValue: true,
+    profit: true,
+    dayProfit: true,
+  });
+  assert.deepEqual(normalizeHoldingDescriptionFields({
+    quantity: false,
+    marketValue: false,
+    profit: false,
+    dayProfit: false,
+  }), {
+    quantity: false,
+    marketValue: true,
+    profit: false,
+    dayProfit: false,
+  });
+  assert.deepEqual(normalizeHoldingDescriptionFields('invalid'), {
+    quantity: true,
+    marketValue: true,
+    profit: true,
+    dayProfit: true,
+  });
+});
+
+test('holding tree context values hide only reordering outside manual sort', () => {
+  assert.equal(holdingTreeContextValue(DEFAULT_HOLDING_SORT), 'fishStock.holding');
+  assert.equal(
+    holdingTreeContextValue({ key: 'profitPercent', desc: true }),
+    'fishStock.holdingSorted',
+  );
+  assert.equal(
+    holdingTreeContextValue({ key: 'profitAmount', desc: false }),
+    'fishStock.holdingSorted',
+  );
+});
+
 test('buildHoldingDescriptionSegments renders every enabled field in order', () => {
   const metrics = calculateHoldingMetrics(holding, sameDayQuote(1_500, 'live'), NOW);
   assert.ok(metrics);
@@ -476,6 +537,9 @@ test('toDisplayAmount only converts HKD and only with a rate', () => {
   assert.ok(Math.abs(toDisplayAmount(100, 'HKD', 0.8557) - 85.57) < 1e-6);
   assert.equal(toDisplayAmount(100, 'HKD', null), 100);
   assert.equal(toDisplayAmount(100, 'CNY', 0.8557), 100);
+  for (const invalid of [0, 0.09, 2.01, Number.NaN]) {
+    assert.equal(toDisplayAmount(100, 'HKD', invalid), 100);
+  }
 });
 
 test('buildHoldingDescriptionSegments converts HKD amounts but not rates', () => {

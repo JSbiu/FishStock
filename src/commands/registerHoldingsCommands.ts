@@ -10,13 +10,13 @@ import {
 } from 'vscode';
 import type { Holding } from '../domain/models';
 import {
-  DEFAULT_HOLDING_DESCRIPTION_FIELDS,
   ensureAtLeastOneField,
   HOLDING_SORT_LABELS,
   type HoldingDescriptionFields,
   type HoldingSortKey,
   type HoldingSortState,
 } from '../domain/holdings';
+import { readHoldingDescriptionFields } from '../config';
 import { buildQuoteUrl } from '../domain/quoteUrl';
 import type { HoldingsRepository } from '../storage/holdingsRepository';
 import type { ViewOptionsStore } from '../storage/viewOptionsStore';
@@ -227,10 +227,7 @@ export function registerHoldingsCommands(
 
     commands.registerCommand('fishStock.selectHoldingsTreeViewFields', async () => {
       const config = workspace.getConfiguration('fishStock.holdings');
-      const current = config.get<HoldingDescriptionFields>(
-        'treeViewFields',
-        DEFAULT_HOLDING_DESCRIPTION_FIELDS,
-      );
+      const current = readHoldingDescriptionFields();
       const picker = window.createQuickPick<{ label: string; description: string; key: keyof HoldingDescriptionFields }>();
       picker.placeholder = '选择 Holdings Tree View 描述行展示的字段（至少一项）';
       picker.canSelectMany = true;

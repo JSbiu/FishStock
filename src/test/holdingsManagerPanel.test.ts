@@ -30,6 +30,7 @@ async function managerHarness(
   let receive: (message: unknown) => void = () => {};
   let onDispose = () => {};
   const panel = {
+    title: '',
     webview: {
       html: '',
       postMessage: (message: Record<string, unknown>) => { messages.push(message); },
@@ -85,6 +86,8 @@ async function managerHarness(
   messages.length = 0;
   return {
     manager, messages, repository, warnings,
+    panelTitle: () => panel.title,
+    html: () => panel.webview.html,
     close: () => { onDispose(); },
     setRate: (value: number | null) => { rate = value; },
     send: async (message: unknown) => {
@@ -102,6 +105,48 @@ test('quote updates always carry the current rate, including explicit null', asy
     assert.equal(harness.messages.at(-1)?.type, 'quoteUpdate');
     assert.equal(harness.messages.at(-1)?.hkdRate, rate);
   }
+});
+
+test('manager tab title marks unsaved drafts and clears after save or discard', async () => {
+  const harness = await managerHarness(undefined, undefined, undefined, {
+    persist: async () => {},
+  });
+  assert.equal(harness.panelTitle(), 'FishStock 持仓管理');
+  const draft = [{ id: 'hk', symbol: '00700.HK', quantity: '123', averageCost: '401.25' }];
+  await harness.send({ type: 'draftChanged', rows: draft });
+  assert.equal(harness.panelTitle(), 'FishStock 持仓管理（有未保存更改）');
+  await harness.send({ type: 'save', rows: draft });
+  assert.equal(harness.panelTitle(), 'FishStock 持仓管理');
+  await harness.send({ type: 'draftChanged', rows: draft });
+  await harness.send({ type: 'discard' });
+  assert.equal(harness.panelTitle(), 'FishStock 持仓管理');
+});
+
+test('manager page exposes Ctrl+S through the same guarded save action', async () => {
+  const harness = await managerHarness();
+  const html = harness.html();
+  assert.match(html, /aria-keyshortcuts="Control\+S Meta\+S"/);
+  assert.match(html, /event\.ctrlKey \|\| event\.metaKey/);
+  assert.match(html, /event\.key\.toLowerCase\(\) === 's'/);
+  assert.match(html, /saveButton\.addEventListener\('click', requestSave\)/);
+  assert.match(html, /requestSave\(\);/);
+  assert.equal((html.match(/type: 'save'/g) ?? []).length, 1);
+});
+
+test('manager page keeps current price in its original currency while converting amounts', async () => {
+  const html = (await managerHarness()).html();
+  assert.match(
+    html,
+    /formatNumber\(row\.currentPrice, 2, 4\) \+ ' ' \+ row\.currency/,
+  );
+  assert.doesNotMatch(
+    html,
+    /formatNumber\(convertAmount\(row, row\.currentPrice\)/,
+  );
+  assert.match(
+    html,
+    /formatNumber\(convertAmount\(row, profit\), 2, 2\) \+ ' ' \+ displayCurrency\(row\)/,
+  );
 });
 
 test('a pending save locks draft mutations and duplicate saves until the single write finishes', async () => {

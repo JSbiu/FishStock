@@ -1,6 +1,7 @@
 import { MarkdownString } from 'vscode';
 import type { Quote, Stock } from '../domain/models';
 import { listingVenue } from '../domain/listingVenue';
+import { quoteDisplayKind } from '../domain/quotePresentation';
 
 export function formatPrice(price: number): string {
   return price.toFixed(price < 10 ? 3 : 2);
@@ -82,13 +83,17 @@ export function quoteStaleLabel(quote: Quote): string {
 }
 
 function quoteStateText(quote: Quote): string {
-  if (quote.state === 'live') {
+  const kind = quoteDisplayKind(quote);
+  if (kind === 'suspended') {
+    return '停牌';
+  }
+  if (kind === 'live') {
     return quote.sessionLabel ? `开市 · ${quote.sessionLabel}` : '开市';
   }
-  if (quote.state === 'closed') {
+  if (kind === 'closed') {
     return quote.sessionLabel ?? '休市';
   }
-  if (quote.state === 'stale') {
+  if (kind === 'stale') {
     const label = quoteStaleLabel(quote);
     return quote.sessionLabel ? `${label} · ${quote.sessionLabel}` : label;
   }

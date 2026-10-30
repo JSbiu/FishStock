@@ -9,6 +9,7 @@ import {
 } from 'vscode';
 import type { ColorConvention } from '../config';
 import type { Quote, Stock, WatchGroup } from '../domain/models';
+import { quoteDisplayKind } from '../domain/quotePresentation';
 import { applyViewOptions, type ViewMode } from '../domain/viewOptions';
 import type { QuoteService } from '../data/quoteService';
 import type { WatchlistRepository } from '../storage/watchlistRepository';
@@ -46,17 +47,24 @@ export interface WatchlistTreeOptions {
 }
 
 function quoteDescription(stock: Stock, quote: Quote | undefined): string {
-  if (!quote || quote.price === null || quote.changePercent === null) {
+  const kind = quoteDisplayKind(quote);
+  if (!quote || kind === 'unavailable') {
+    return `${stock.symbol} · 暂不可用`;
+  }
+  if (kind === 'suspended') {
+    return quote.price === null
+      ? '停牌'
+      : `${formatPrice(quote.price)} · 停牌`;
+  }
+  if (quote.price === null || quote.changePercent === null) {
     return `${stock.symbol} · 暂不可用`;
   }
   const suffix =
-    quote.state === 'closed'
+    kind === 'closed'
       ? ` · ${quote.sessionLabel ?? '休市'}`
-      : quote.state === 'stale'
+      : kind === 'stale'
         ? ` · ${quoteStaleLabel(quote)}`
-        : quote.state === 'error'
-          ? ' · 暂不可用'
-          : '';
+        : '';
   return `${formatPrice(quote.price)}  ${formatPercent(quote.changePercent)}${suffix}`;
 }
 
@@ -64,14 +72,21 @@ function quoteIcon(
   quote: Quote | undefined,
   convention: ColorConvention,
 ): ThemeIcon {
-  if (!quote || quote.state === 'error') {
+  const kind = quoteDisplayKind(quote);
+  if (kind === 'unavailable') {
     return new ThemeIcon('warning');
   }
-  if (quote.state === 'stale') {
+  if (kind === 'suspended') {
+    return new ThemeIcon('debug-pause');
+  }
+  if (kind === 'stale') {
     return new ThemeIcon('history');
   }
-  if (quote.state === 'closed') {
+  if (kind === 'closed') {
     return new ThemeIcon('clock');
+  }
+  if (!quote) {
+    return new ThemeIcon('warning');
   }
   if (quote.change === null || quote.change === 0) {
     return new ThemeIcon('dash');

@@ -1,5 +1,10 @@
 import { MarkdownString } from 'vscode';
-import { calculateHoldingMetrics, toDisplayAmount } from '../domain/holdings';
+import {
+  calculateHoldingMetrics,
+  MAX_HOLDING_HKD_RATE,
+  MIN_HOLDING_HKD_RATE,
+  toDisplayAmount,
+} from '../domain/holdings';
 import type { Holding, Quote } from '../domain/models';
 import { formatCompactTime, formatPercent, formatPrice, quoteStaleLabel } from './quoteTooltip';
 
@@ -60,13 +65,14 @@ export function createHoldingTooltip(
   const metrics = calculateHoldingMetrics(holding, quote);
   tooltip.appendMarkdown(`**${name}** (${holding.symbol}) · ${quoteStateMarkdown(quote)}`);
   tooltip.appendMarkdown('\n\n');
-  // 折算只作用于金额与单价；百分比是相对值，汇率在分子分母里约掉了。
+  // 折算只作用于金额；成本与现价是券商口径的单价，始终保留原币种。
   const converted = metrics !== undefined
     && metrics.currency === 'HKD'
     && hkdRate !== null
-    && hkdRate > 0;
+    && hkdRate >= MIN_HOLDING_HKD_RATE
+    && hkdRate <= MAX_HOLDING_HKD_RATE;
   if (metrics) {
-    const unit = converted ? 'CNY' : metrics.currency;
+    const amountUnit = converted ? 'CNY' : metrics.currency;
     const amount = (value: number): number =>
       toDisplayAmount(value, metrics.currency, hkdRate);
     const directionIcon = metrics.profit > 0
@@ -77,21 +83,21 @@ export function createHoldingTooltip(
     const dayProfitCell = metrics.dayProfit === null
       ? '—'
       : metrics.dayProfitPercent === null
-        ? formatProfit(amount(metrics.dayProfit), unit)
-        : `${formatProfit(amount(metrics.dayProfit), unit)} (${formatPercent(metrics.dayProfitPercent)})`;
+        ? formatProfit(amount(metrics.dayProfit), amountUnit)
+        : `${formatProfit(amount(metrics.dayProfit), amountUnit)} (${formatPercent(metrics.dayProfitPercent)})`;
     tooltip.appendMarkdown(
-      `${directionIcon} **${formatProfit(amount(metrics.profit), unit)} · ${formatPercent(metrics.returnPercent)}**`,
+      `${directionIcon} **${formatProfit(amount(metrics.profit), amountUnit)} · ${formatPercent(metrics.returnPercent)}**`,
     );
     tooltip.appendMarkdown('\n\n');
     tooltip.appendMarkdown([
       '| 指标 | 数值 |',
       '| :--- | ---: |',
       `| 持有数量 | ${holding.quantity.toLocaleString('zh-CN')} ${holding.kind === 'fund' ? '份' : '股'} |`,
-      `| 平均成本 | ${formatPrice(amount(holding.averageCost))} ${unit} |`,
-      `| 当前价格 | ${formatPrice(amount(metrics.currentPrice))} ${unit} |`,
-      `| 成本金额 | ${formatAmount(amount(metrics.costValue), unit)} |`,
-      `| 当前市值 | ${formatAmount(amount(metrics.marketValue), unit)} |`,
-      `| 浮动盈亏 | ${formatProfit(amount(metrics.profit), unit)} |`,
+      `| 平均成本 | ${formatPrice(holding.averageCost)} ${metrics.currency} |`,
+      `| 当前价格 | ${formatPrice(metrics.currentPrice)} ${metrics.currency} |`,
+      `| 成本金额 | ${formatAmount(amount(metrics.costValue), amountUnit)} |`,
+      `| 当前市值 | ${formatAmount(amount(metrics.marketValue), amountUnit)} |`,
+      `| 浮动盈亏 | ${formatProfit(amount(metrics.profit), amountUnit)} |`,
       `| 收益率 | ${formatPercent(metrics.returnPercent)} |`,
       `| 当日盈亏 | ${dayProfitCell} |`,
     ].join('\n'));
@@ -111,7 +117,7 @@ export function createHoldingTooltip(
   }
   if (converted) {
     tooltip.appendMarkdown('\n\n$(globe) ');
-    tooltip.appendText(`港币已按 ${hkdRate} 折算；百分比不受影响。`);
+    tooltip.appendText(`港币金额已按 ${hkdRate} 折算；单价保持 HKD。`);
   }
   // 口径说明与数据来源拆开，避免压成一段后重点被淹掉。
   // 说明必须短。它是 tooltip 里最容易超长的一行，而 Markdown 表格会撑满容器、

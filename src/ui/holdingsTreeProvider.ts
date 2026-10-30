@@ -12,11 +12,13 @@ import {
   buildHoldingDescriptionSegments,
   buildSummarySegments,
   calculateHoldingMetrics,
+  DEFAULT_HOLDING_HKD_RATE,
   DEFAULT_HOLDING_DESCRIPTION_FIELDS,
   DEFAULT_HOLDING_SORT,
   holdingAmountSortPaused,
   holdingCurrency,
   holdingIconKindOf,
+  holdingTreeContextValue,
   sortHoldings,
   summarizeHoldings,
   type HoldingDescriptionFields,
@@ -129,11 +131,7 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
     const metrics = calculateHoldingMetrics(holding, element.quote);
     const item = new TreeItem(holding.name ?? element.quote?.name ?? holding.symbol);
     item.id = `holding:${holding.id}`;
-    // 非默认顺序下换一个 contextValue，让「上移 / 下移」菜单项自动隐藏——
-    // 那时手动顺序会被排序覆盖，摆出来只会让人点了没反应。
-    item.contextValue = this.sort.key === 'manual'
-      ? 'fishStock.holding'
-      : 'fishStock.holdingSorted';
+    item.contextValue = holdingTreeContextValue(this.sort);
     item.description = metrics
       ? buildHoldingDescriptionSegments(holding, metrics, {
           fields: this.fieldFlags,
@@ -219,9 +217,15 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
         fields: this.fieldFlags,
       }).join(' · ')}`;
     }
+    if (summary.hkdRate !== null) {
+      const defaultLabel = summary.hkdRate === DEFAULT_HOLDING_HKD_RATE ? '（默认）' : '';
+      item.description += ` · 汇率 ${summary.hkdRate}${defaultLabel}`;
+    }
     item.tooltip = summary.hkdRate === null
       ? `按原币种 ${summary.currency} 合计，仅计入有价格的持仓。`
-      : `按 CNY 合计，1 HKD = ${summary.hkdRate} CNY；仅计入有价格的持仓。`;
+      : `按 CNY 合计，1 HKD = ${summary.hkdRate} CNY${
+        summary.hkdRate === DEFAULT_HOLDING_HKD_RATE ? '（默认占位值）' : ''
+      }；仅计入有价格的持仓。`;
     return item;
   }
 

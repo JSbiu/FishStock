@@ -29,6 +29,27 @@ function contributedViews(): Array<{ id: string; icon?: string }> {
   return Object.values(manifest.contributes.views).flat();
 }
 
+interface MenuContribution {
+  command: string;
+  when?: string;
+  group?: string;
+}
+
+function holdingItemMenus(): MenuContribution[] {
+  const manifest = JSON.parse(
+    readFileSync(join(process.cwd(), 'package.json'), 'utf8'),
+  ) as {
+    contributes: {
+      menus: {
+        'view/item/context': MenuContribution[];
+      };
+    };
+  };
+  return manifest.contributes.menus['view/item/context'].filter(
+    (entry) => entry.when?.includes('view == fishStock.holdings') === true,
+  );
+}
+
 test('futures search labels October codes as month contracts', () => {
   const describe = buildFuturesCommandSet().texts.describeSearchResult;
   for (const symbol of ['RB0.CNF', 'RB2610.CNF', 'RB2710.CNF', 'TA610.CNF']) {
@@ -105,4 +126,29 @@ test('manifest contributes Stock, Fund, Futures and Holdings views', () => {
       'fishStock.holdings',
     ],
   );
+});
+
+test('holding edit and delete remain available under every sort context', () => {
+  const menus = holdingItemMenus();
+  for (const command of ['fishStock.editHolding', 'fishStock.removeHolding']) {
+    const entries = menus.filter((entry) => entry.command === command);
+    assert.ok(entries.length > 0, `${command} 缺少持仓菜单`);
+    for (const entry of entries) {
+      assert.match(entry.when ?? '', /viewItem == fishStock\.holding\b/);
+      assert.match(entry.when ?? '', /viewItem == fishStock\.holdingSorted\b/);
+    }
+  }
+});
+
+test('holding move commands are limited to the manual sort context', () => {
+  const entries = holdingItemMenus().filter(
+    (entry) =>
+      entry.command === 'fishStock.moveHoldingUp'
+      || entry.command === 'fishStock.moveHoldingDown',
+  );
+  assert.equal(entries.length, 2);
+  for (const entry of entries) {
+    assert.match(entry.when ?? '', /viewItem == fishStock\.holding\b/);
+    assert.doesNotMatch(entry.when ?? '', /holdingSorted/);
+  }
 });

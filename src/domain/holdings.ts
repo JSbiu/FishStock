@@ -5,6 +5,10 @@ import type {
 } from './models';
 import { shanghaiDateString } from './tradingCalendar';
 
+export const DEFAULT_HOLDING_HKD_RATE = 0.9;
+export const MIN_HOLDING_HKD_RATE = 0.1;
+export const MAX_HOLDING_HKD_RATE = 2;
+
 export interface HoldingMetrics {
   currency: HoldingCurrency;
   quantity: number;
@@ -38,8 +42,19 @@ export function holdingCurrency(holding: Holding): HoldingCurrency {
   return holding.market === 'HK' ? 'HKD' : 'CNY';
 }
 
-function isValidHkdRate(rate: number | null): rate is number {
-  return rate !== null && Number.isFinite(rate) && rate > 0;
+function isValidHkdRate(rate: unknown): rate is number {
+  return typeof rate === 'number'
+    && Number.isFinite(rate)
+    && rate >= MIN_HOLDING_HKD_RATE
+    && rate <= MAX_HOLDING_HKD_RATE;
+}
+
+/** 手动配置不是合法汇率时回到占位默认值；显式 null 仍表示关闭折算。 */
+export function normalizeHoldingHkdRate(value: unknown): number | null {
+  if (value === null) {
+    return null;
+  }
+  return isValidHkdRate(value) ? value : DEFAULT_HOLDING_HKD_RATE;
 }
 
 function hasMixedHoldingCurrencies(holdings: readonly Holding[]): boolean {
@@ -210,6 +225,32 @@ export const DEFAULT_HOLDING_DESCRIPTION_FIELDS: HoldingDescriptionFields = {
   profit: true,
   dayProfit: true,
 };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Settings JSON 可以绕过编辑器类型约束。缺失或非 boolean 的字段回退默认值，
+ * 而不是用真值转换把字符串 "false" 误当成开启。
+ */
+export function normalizeHoldingDescriptionFields(
+  value: unknown,
+): HoldingDescriptionFields {
+  const source = isRecord(value) ? value : {};
+  const field = (key: keyof HoldingDescriptionFields): boolean => {
+    const candidate = source[key];
+    return typeof candidate === 'boolean'
+      ? candidate
+      : DEFAULT_HOLDING_DESCRIPTION_FIELDS[key];
+  };
+  return ensureAtLeastOneField({
+    quantity: field('quantity'),
+    marketValue: field('marketValue'),
+    profit: field('profit'),
+    dayProfit: field('dayProfit'),
+  });
+}
 
 /**
  * 至少保留一个字段——否则 Tree View 的描述会是空的，不如强制保留市值作为兜底。
@@ -424,6 +465,11 @@ export interface HoldingSortState {
 }
 
 export const DEFAULT_HOLDING_SORT: HoldingSortState = { key: 'manual', desc: true };
+
+/** 非默认排序只隐藏上移 / 下移；编辑和删除仍使用匹配两种值的菜单条件。 */
+export function holdingTreeContextValue(sort: HoldingSortState): string {
+  return sort.key === 'manual' ? 'fishStock.holding' : 'fishStock.holdingSorted';
+}
 
 /** 排序维度的中文名，命令面板与诊断报告共用，避免两处各写一份。 */
 export const HOLDING_SORT_LABELS: Readonly<Record<HoldingSortKey, string>> = {

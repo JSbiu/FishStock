@@ -17,7 +17,11 @@ import {
 } from './commands/commandSets';
 import { registerHoldingsCommands } from './commands/registerHoldingsCommands';
 import { registerWatchlistCommands } from './commands/registerWatchlistCommands';
-import { readConfig, readHoldingHkdRate } from './config';
+import {
+  readConfig,
+  readHoldingDescriptionFields,
+  readHoldingHkdRate,
+} from './config';
 import { BseSecurityDirectory } from './data/bseSecurityDirectory';
 import { QuoteService } from './data/quoteService';
 import { SinaFuturesProvider } from './data/sinaFuturesProvider';
@@ -44,10 +48,7 @@ import {
 import { marketSessionFor, shouldAutoRefreshSymbol } from './domain/marketSessions';
 import { holdingCandidatesFromWatchlists } from './domain/holdingCandidates';
 import {
-  DEFAULT_HOLDING_DESCRIPTION_FIELDS,
-  ensureAtLeastOneField,
   holdingSortLabel,
-  type HoldingDescriptionFields,
 } from './domain/holdings';
 import { calendarCoverageEnd, isTradingDay } from './domain/tradingCalendar';
 import { startBackgroundRefresh } from './services/backgroundRefresh';
@@ -287,7 +288,6 @@ export async function activate(context: ExtensionContext): Promise<void> {
     fundTreeProvider.setHoldingKeys(() => holdingSymbolSetOf(holdingsRepository, 'fund'));
   };
   refreshHoldingDecorations();
-  const holdingsConfig = workspace.getConfiguration('fishStock.holdings');
   const holdingsTreeProvider = new HoldingsTreeProvider(
     holdingsRepository,
     {
@@ -299,10 +299,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
       key: viewOptions.getSnapshot().holdingsSort,
       desc: viewOptions.getSnapshot().holdingsSortDesc,
     },
-    holdingsConfig.get<HoldingDescriptionFields>(
-      'treeViewFields',
-      DEFAULT_HOLDING_DESCRIPTION_FIELDS,
-    ),
+    readHoldingDescriptionFields(),
     readHoldingHkdRate(),
   );
   const stockTreeView = window.createTreeView('fishStock.stock', {
@@ -1007,13 +1004,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
       if (!event.affectsConfiguration('fishStock.holdings.treeViewFields')) {
         return;
       }
-      const flags = workspace
-        .getConfiguration('fishStock.holdings')
-        .get<HoldingDescriptionFields>(
-          'treeViewFields',
-          DEFAULT_HOLDING_DESCRIPTION_FIELDS,
-        );
-      holdingsTreeProvider.setFieldFlags(ensureAtLeastOneField(flags));
+      holdingsTreeProvider.setFieldFlags(readHoldingDescriptionFields());
     }),
     workspace.onDidChangeConfiguration((event) => {
       if (!event.affectsConfiguration('fishStock.holdings.hkdToCnyRate')) {

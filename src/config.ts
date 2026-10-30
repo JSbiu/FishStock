@@ -1,4 +1,9 @@
 import { workspace } from 'vscode';
+import {
+  normalizeHoldingDescriptionFields,
+  normalizeHoldingHkdRate,
+  type HoldingDescriptionFields,
+} from './domain/holdings';
 
 export type ColorConvention = 'china' | 'international';
 
@@ -13,8 +18,15 @@ function clamp(value: number, minimum: number, maximum: number): number {
 }
 
 export function readHoldingHkdRate(): number | null {
-  return workspace.getConfiguration('fishStock.holdings')
-    .get<number | null>('hkdToCnyRate', 0.9);
+  const value = workspace.getConfiguration('fishStock.holdings')
+    .get<unknown>('hkdToCnyRate', 0.9);
+  return normalizeHoldingHkdRate(value);
+}
+
+export function readHoldingDescriptionFields(): HoldingDescriptionFields {
+  const value = workspace.getConfiguration('fishStock.holdings')
+    .get<unknown>('treeViewFields');
+  return normalizeHoldingDescriptionFields(value);
 }
 
 export function readConfig(): FishStockConfig {

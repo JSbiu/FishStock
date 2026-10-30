@@ -12,6 +12,7 @@ import {
   type HoldingDraftInput,
 } from '../domain/holdingDraft';
 import { holdingDayChange } from '../domain/holdings';
+import { quoteDisplayKind } from '../domain/quotePresentation';
 import {
   applyHoldingAdjustment,
   type AdjustmentDirection,
@@ -27,6 +28,9 @@ import type { ColorConvention } from '../config';
 import { buildQuoteUrl } from '../domain/quoteUrl';
 import type { HoldingsRepository } from '../storage/holdingsRepository';
 import { quoteStaleLabel } from './quoteTooltip';
+
+const MANAGER_TITLE = 'FishStock 持仓管理';
+const MANAGER_DIRTY_TITLE = `${MANAGER_TITLE}（有未保存更改）`;
 
 export type HoldingsManagerFocus =
   | { type: 'search' }
@@ -203,13 +207,14 @@ function quoteFields(
 }
 
 function quoteStateLabelOf(quote: Quote): string {
-  if (quote.suspended === true) {
+  const kind = quoteDisplayKind(quote);
+  if (kind === 'suspended') {
     return '停牌';
   }
-  if (quote.state === 'stale') {
+  if (kind === 'stale') {
     return quoteStaleLabel(quote);
   }
-  const fallback = quote.state === 'closed' ? '休市' : '实时';
+  const fallback = kind === 'closed' ? '休市' : '实时';
   return quote.sessionLabel ?? fallback;
 }
 
@@ -242,7 +247,7 @@ export class HoldingsManagerPanel implements Disposable {
 
     const panel = window.createWebviewPanel(
       'fishStock.holdingsManager',
-      'FishStock 持仓管理',
+      this.dirty ? MANAGER_DIRTY_TITLE : MANAGER_TITLE,
       ViewColumn.Active,
       {
         enableScripts: true,
@@ -250,6 +255,7 @@ export class HoldingsManagerPanel implements Disposable {
       },
     );
     this.panel = panel;
+    this.syncPanelTitle();
     this.webviewReady = false;
     panel.webview.html = this.html();
     panel.webview.onDidReceiveMessage((message: unknown) => {
@@ -387,6 +393,7 @@ export class HoldingsManagerPanel implements Disposable {
         }
         this.draft = rows;
         this.dirty = true;
+        this.syncPanelTitle();
         return;
       }
       case 'discard':
@@ -394,6 +401,7 @@ export class HoldingsManagerPanel implements Disposable {
         this.dirty = false;
         this.saveError = undefined;
         this.allowedNewInstruments.clear();
+        this.syncPanelTitle();
         this.postState('未保存更改已放弃', true);
         return;
       case 'setHkdRate': {
@@ -421,6 +429,7 @@ export class HoldingsManagerPanel implements Disposable {
         }
         this.draft = rows;
         this.dirty = true;
+        this.syncPanelTitle();
         await this.saveCurrentDraft();
         return;
       }
@@ -610,6 +619,7 @@ export class HoldingsManagerPanel implements Disposable {
     }
     this.draft = draft;
     this.dirty = true;
+    this.syncPanelTitle();
     this.postState(adjustmentMessage(payload, before, result));
   }
 
@@ -644,6 +654,7 @@ export class HoldingsManagerPanel implements Disposable {
       const added = holdings.filter((holding) => !previousSymbols.has(holding.symbol));
       this.draft = toDraftInputs(holdings);
       this.dirty = false;
+      this.syncPanelTitle();
       this.allowedNewInstruments.clear();
       const afterSave = this.options.afterSave(added);
       this.postState('持仓已保存', true);
@@ -691,6 +702,13 @@ export class HoldingsManagerPanel implements Disposable {
       this.dirty = false;
       this.saveError = undefined;
       this.allowedNewInstruments.clear();
+      this.syncPanelTitle();
+    }
+  }
+
+  private syncPanelTitle(): void {
+    if (this.panel) {
+      this.panel.title = this.dirty ? MANAGER_DIRTY_TITLE : MANAGER_TITLE;
     }
   }
 
@@ -845,7 +863,7 @@ export class HoldingsManagerPanel implements Disposable {
       <button id="refreshButton" class="secondary" type="button">刷新行情</button>
       <button id="discardButton" class="secondary" type="button" disabled>放弃更改</button>
       <button id="deleteButton" class="danger" type="button" disabled>删除所选</button>
-      <button id="saveButton" type="button" disabled>保存全部</button>
+      <button id="saveButton" type="button" aria-keyshortcuts="Control+S Meta+S" disabled>保存全部</button>
     </div>
     <div id="validationStatus" class="validation-status" role="status" hidden>
       <span id="validationMessage"></span>
@@ -877,7 +895,7 @@ export class HoldingsManagerPanel implements Disposable {
     <div id="notice" class="notice"></div>
   </section>
 
-  <footer>港币金额按工具栏汇率折算为人民币；取消“港币折算”后按原币种展示。数量与平均成本按原币种保存，百分比不受折算影响。浮动盈亏未计入手续费、税费、分红或公司行动影响；当日盈亏按表中当前数量估算，未计入当日交易与费用，非交易日或行情不属于当日时显示 —。休市或过期行情会保留状态标识。调仓按移动加权平均成本计算：加仓摊薄成本，减仓只改数量且成本不变。</footer>
+  <footer>港币金额按工具栏汇率折算为人民币；取消“港币折算”后按原币种展示。平均成本与现价始终使用原币种，数量与平均成本按原币种保存，百分比不受折算影响。浮动盈亏未计入手续费、税费、分红或公司行动影响；当日盈亏按表中当前数量估算，未计入当日交易与费用，非交易日或行情不属于当日时显示 —。休市或过期行情会保留状态标识。调仓按移动加权平均成本计算：加仓摊薄成本，减仓只改数量且成本不变。</footer>
 
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
@@ -1159,7 +1177,7 @@ export class HoldingsManagerPanel implements Disposable {
       saveButton.disabled = !dirty || invalidRows.length > 0 || blocked;
       saveButton.textContent = saving ? '保存中…' : '保存全部';
       saveButton.title = firstInvalid ? validationMessage.textContent
-        : saving ? '正在保存，请稍候' : dirty ? '保存全部更改' : '没有未保存更改';
+        : saving ? '正在保存，请稍候' : dirty ? '保存全部更改（Ctrl+S）' : '没有未保存更改';
       refreshButton.disabled = blocked;
       refreshButton.textContent = busy ? '刷新中…' : '刷新行情';
       searchButton.disabled = blocked;
@@ -1219,7 +1237,7 @@ export class HoldingsManagerPanel implements Disposable {
       const profit = marketValue - costValue;
       const percent = profit / costValue * 100;
       marketValueCell.textContent = formatNumber(convertAmount(row, marketValue), 2, 2) + ' ' + displayCurrency(row);
-      profitCell.textContent = (profit >= 0 ? '+' : '') + formatNumber(convertAmount(row, profit), 2, 2);
+      profitCell.textContent = (profit >= 0 ? '+' : '') + formatNumber(convertAmount(row, profit), 2, 2) + ' ' + displayCurrency(row);
       returnCell.textContent = (percent >= 0 ? '+' : '') + formatNumber(percent, 2, 2) + '%';
       const className = profit > 0 ? 'up' : profit < 0 ? 'down' : '';
       if (className) {
@@ -1230,7 +1248,7 @@ export class HoldingsManagerPanel implements Disposable {
       if (dayProfit === null) {
         dayProfitCell.textContent = '—';
       } else {
-        dayProfitCell.textContent = (dayProfit >= 0 ? '+' : '') + formatNumber(convertAmount(row, dayProfit), 2, 2);
+        dayProfitCell.textContent = (dayProfit >= 0 ? '+' : '') + formatNumber(convertAmount(row, dayProfit), 2, 2) + ' ' + displayCurrency(row);
         const dayClassName = dayProfit > 0 ? 'up' : dayProfit < 0 ? 'down' : '';
         if (dayClassName) {
           dayProfitCell.classList.add(dayClassName);
@@ -1241,7 +1259,9 @@ export class HoldingsManagerPanel implements Disposable {
     function updateQuoteCells(row, tr) {
       const priceCell = tr.querySelector('[data-field="currentPrice"]');
       const state = tr.querySelector('.state');
-      priceCell.textContent = Number.isFinite(row.currentPrice) ? formatNumber(convertAmount(row, row.currentPrice), 2, 4) + ' ' + displayCurrency(row) : '—';
+      priceCell.textContent = Number.isFinite(row.currentPrice)
+        ? formatNumber(row.currentPrice, 2, 4) + ' ' + row.currency
+        : '—';
       state.className = 'state ' + row.quoteState;
       state.textContent = row.quoteStateLabel;
       updateMetrics(row, tr);
@@ -1763,12 +1783,19 @@ export class HoldingsManagerPanel implements Disposable {
     refreshButton.addEventListener('click', function () {
       vscode.postMessage({ type: 'refresh' });
     });
-    saveButton.addEventListener('click', function () {
+    function requestSave() {
       if (saveButton.disabled) return;
       saving = true;
       updateControls();
       setNotice('正在保存…', false);
       vscode.postMessage({ type: 'save', rows: serializeRows() });
+    }
+    saveButton.addEventListener('click', requestSave);
+    window.addEventListener('keydown', function (event) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+        event.preventDefault();
+        requestSave();
+      }
     });
 
     window.addEventListener('message', function (event) {

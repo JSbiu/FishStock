@@ -691,12 +691,12 @@
         },
         {
           "command": "fishStock.editHolding",
-          "when": "view == fishStock.holdings && viewItem == fishStock.holding",
+          "when": "view == fishStock.holdings && (viewItem == fishStock.holding || viewItem == fishStock.holdingSorted)",
           "group": "inline@1"
         },
         {
           "command": "fishStock.editHolding",
-          "when": "view == fishStock.holdings && viewItem == fishStock.holding",
+          "when": "view == fishStock.holdings && (viewItem == fishStock.holding || viewItem == fishStock.holdingSorted)",
           "group": "1_edit@1"
         },
         {
@@ -711,7 +711,7 @@
         },
         {
           "command": "fishStock.removeHolding",
-          "when": "view == fishStock.holdings && viewItem == fishStock.holding",
+          "when": "view == fishStock.holdings && (viewItem == fishStock.holding || viewItem == fishStock.holdingSorted)",
           "group": "9_delete@1"
         }
       ]
@@ -783,7 +783,7 @@
             "profit": true,
             "dayProfit": true
           },
-          "description": "Holdings Tree View 描述行展示哪些字段。未勾选的字段在悬浮面板与编辑器管理器仍可见；至少保留一个字段，强制保留市值作为兜底。"
+          "description": "Holdings Tree View 描述行展示哪些字段。未勾选或手动写成无效值的字段回退默认值；至少保留一个字段，强制保留市值作为兜底。"
         },
         "fishStock.holdings.hkdToCnyRate": {
           "type": [
@@ -793,7 +793,7 @@
           "default": 0.9,
           "minimum": 0.1,
           "maximum": 2,
-          "description": "港币折算人民币的汇率（1 港币对应多少人民币），有效数值范围为 0.1–2。默认 0.9 是占位近似值，请按实际汇率调整；管理页工具栏可开关“港币折算”、修改汇率或点击“默认”恢复。重置配置恢复 0.9；关闭折算等同于在 settings.json 写 null。单条百分比不变，混币总计百分比可能随权重变化。"
+          "description": "港币折算人民币的汇率（1 港币对应多少人民币），有效数值范围为 0.1–2。默认 0.9 是占位近似值，请按实际汇率调整；手动写成无效数值时安全回退到 0.9。管理页工具栏可开关“港币折算”、修改汇率或点击“默认”恢复。重置配置恢复 0.9；关闭折算等同于在 settings.json 写 null。单条百分比不变，混币总计百分比可能随权重变化。"
         }
       }
     }

@@ -5,6 +5,7 @@ import {
   type StatusBarItem,
 } from 'vscode';
 import { calculateHoldingMetrics } from '../domain/holdings';
+import { quoteDisplayKind } from '../domain/quotePresentation';
 import type {
   Holding,
   HoldingsState,
@@ -22,18 +23,24 @@ const SELECT_GROUPS_COMMAND = 'fishStock.selectStatusBarGroups';
 
 function displayText(stock: Stock, quote: Quote | undefined): string {
   const name = stock.name ?? quote?.name ?? stock.symbol;
-  if (!quote || quote.price === null || quote.changePercent === null) {
+  const kind = quoteDisplayKind(quote);
+  if (!quote || kind === 'unavailable') {
+    return `$(warning) ${name} --`;
+  }
+  if (kind === 'suspended') {
+    return quote.price === null
+      ? `$(debug-pause) ${name} 停牌`
+      : `$(debug-pause) ${name} ${formatPrice(quote.price)} 停牌`;
+  }
+  if (quote.price === null || quote.changePercent === null) {
     return `$(warning) ${name} --`;
   }
   const change = `${quote.changePercent >= 0 ? '+' : ''}${quote.changePercent.toFixed(2)}%`;
-  if (quote.state === 'closed') {
+  if (kind === 'closed') {
     return `$(clock) ${name} ${formatPrice(quote.price)} ${change}`;
   }
-  if (quote.state === 'stale') {
+  if (kind === 'stale') {
     return `$(history) ${name} ${formatPrice(quote.price)} ${change}`;
-  }
-  if (quote.state === 'error') {
-    return `$(warning) ${name} --`;
   }
   return `$(pulse) ${name} ${formatPrice(quote.price)} ${change}`;
 }
@@ -41,6 +48,18 @@ function displayText(stock: Stock, quote: Quote | undefined): string {
 function holdingDisplayText(holding: Holding, quote: Quote | undefined): string {
   const name = holding.name ?? quote?.name ?? holding.symbol;
   const metrics = calculateHoldingMetrics(holding, quote);
+  const kind = quoteDisplayKind(quote);
+  if (kind === 'suspended') {
+    if (!metrics) {
+      return `$(debug-pause) ${name} --`;
+    }
+    const profit = `${metrics.profit >= 0 ? '+' : ''}${metrics.profit.toLocaleString('zh-CN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })} ${metrics.currency}`;
+    const percent = `${metrics.returnPercent >= 0 ? '+' : ''}${metrics.returnPercent.toFixed(2)}%`;
+    return `$(debug-pause) ${name} ${profit} (${percent})`;
+  }
   if (!metrics) {
     return `$(warning) ${name} --`;
   }
@@ -49,14 +68,11 @@ function holdingDisplayText(holding: Holding, quote: Quote | undefined): string 
     maximumFractionDigits: 2,
   })} ${metrics.currency}`;
   const percent = `${metrics.returnPercent >= 0 ? '+' : ''}${metrics.returnPercent.toFixed(2)}%`;
-  if (quote?.state === 'closed') {
+  if (kind === 'closed') {
     return `$(clock) ${name} ${profit} (${percent})`;
   }
-  if (quote?.state === 'stale') {
+  if (kind === 'stale') {
     return `$(history) ${name} ${profit} (${percent})`;
-  }
-  if (quote?.state === 'error') {
-    return `$(warning) ${name} --`;
   }
   return `$(pulse) ${name} ${profit} (${percent})`;
 }
