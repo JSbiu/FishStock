@@ -367,6 +367,32 @@ test('uses a specific stale reason for an uncovered session', async () => {
   assert.equal(service.get(symbol.symbol)?.staleReason, 'session-uncovered');
 });
 
+test('uses a specific stale reason for an uncovered trading calendar', async () => {
+  const provider: QuoteDataProvider = {
+    id: 'test',
+    displayName: '测试行情',
+    async fetchQuotes() {
+      return [rawQuote(990_000)];
+    },
+  };
+  const service = new QuoteService(
+    provider,
+    10_000,
+    120_000,
+    () => 1_000_000,
+    () => ({
+      phase: 'unknown',
+      label: '交易日历未覆盖',
+      exact: false,
+      staleReason: 'calendar-uncovered',
+    }),
+  );
+
+  await service.refresh([symbol]);
+  assert.equal(service.get(symbol.symbol)?.state, 'stale');
+  assert.equal(service.get(symbol.symbol)?.staleReason, 'calendar-uncovered');
+});
+
 test('exposes the exact time when a live quote will become stale', async () => {
   const provider: QuoteDataProvider = {
     id: 'test',

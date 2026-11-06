@@ -79,6 +79,9 @@ export function quoteStaleLabel(quote: Quote): string {
   if (quote.staleReason === 'session-uncovered') {
     return '时段未收录';
   }
+  if (quote.staleReason === 'calendar-uncovered') {
+    return '日历未覆盖';
+  }
   return '数据过期';
 }
 
@@ -95,6 +98,9 @@ function quoteStateText(quote: Quote): string {
   }
   if (kind === 'stale') {
     const label = quoteStaleLabel(quote);
+    if (quote.staleReason === 'calendar-uncovered') {
+      return label;
+    }
     return quote.sessionLabel ? `${label} · ${quote.sessionLabel}` : label;
   }
   return quote.sessionLabel ? `暂不可用 · ${quote.sessionLabel}` : '暂不可用';

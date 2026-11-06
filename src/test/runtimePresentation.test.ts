@@ -127,7 +127,8 @@ const quoteTooltipMock = {
   createQuoteTooltip: () => ({}),
   formatPercent: (value: number): string => `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`,
   formatPrice: (value: number): string => value.toFixed(value < 10 ? 3 : 2),
-  quoteStaleLabel: (): string => '数据过期',
+  quoteStaleLabel: (item: Quote): string =>
+    item.staleReason === 'calendar-uncovered' ? '日历未覆盖' : '数据过期',
 };
 
 const stock: Stock = {
@@ -353,4 +354,52 @@ test('status bar gives suspension priority in quote and holding modes', () => {
   });
   assert.match(item.text, /\$\(pulse\).*\+100\.00 CNY/);
   controller.dispose();
+});
+
+test('uncovered calendar quotes use the stale icon and concise label', () => {
+  type WatchlistProvider = {
+    getTreeItem(element: unknown): FakeTreeItem;
+  };
+  const module = loadUiModule('../ui/watchlistTreeProvider', {
+    vscode: vscodeMock,
+    './quoteTooltip': quoteTooltipMock,
+  });
+  const Provider = module.WatchlistTreeProvider as new (
+    repository: { getSnapshot(): WatchlistState },
+    quotes: { get(symbol: string): Quote | undefined },
+    colorConvention: ColorConvention,
+    providerName: string,
+    options: { groupContextValue?: string; itemContextValue?: string },
+    viewMode: ViewMode,
+    holdingKeys: () => ReadonlySet<string>,
+  ) => WatchlistProvider;
+  const Node = module.StockNode as new (
+    groupId: string,
+    stock: Stock,
+    quote: Quote | undefined,
+  ) => unknown;
+  const repository = {
+    getSnapshot: (): WatchlistState => ({
+      version: 1,
+      groups: [{ id: 'g', name: '默认', collapsed: false, stocks: [stock] }],
+    }),
+  };
+  const current = quote({
+    state: 'stale',
+    staleReason: 'calendar-uncovered',
+    sessionPhase: 'unknown',
+    sessionLabel: '交易日历未覆盖',
+  });
+  const provider = new Provider(
+    repository,
+    { get: () => current },
+    'china',
+    '固定样本',
+    {},
+    'default',
+    () => new Set(),
+  );
+  const item = provider.getTreeItem(new Node('g', stock, current));
+  assert.equal(item.description, '10.00  +1.00% · 日历未覆盖');
+  assert.equal((item.iconPath as FakeThemeIcon).id, 'history');
 });

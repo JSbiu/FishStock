@@ -32,6 +32,7 @@ test('marks Hong Kong exchange holidays as closed', () => {
   assert.equal(isTradingDay('HK', at('2026-02-17')), false);
   assert.equal(isTradingDay('HK', at('2026-12-25')), false);
   assert.equal(isTradingDay('HK', at('2026-10-19')), false);
+  assert.equal(isTradingDay('HK', at('2027-01-01')), false);
 });
 
 test('keeps Hong Kong open on mainland-only observed holidays', () => {
@@ -58,9 +59,17 @@ test('treats uncovered US dates as weekdays outside the calendar', () => {
   assert.equal(isTradingDay('US', at('2026-10-01')), true);
 });
 
-test('falls back to weekday checks after the last known holiday data', () => {
-  assert.equal(isTradingDay('CN', at('2027-01-04')), true);
-  assert.equal(isTradingDay('CN', at('2027-02-15')), true);
+test('keeps Hong Kong 2027 trading days open after the official calendar extension', () => {
+  assert.equal(isTradingDay('HK', at('2027-01-04')), true);
+  assert.equal(isTradingDay('HK', at('2027-01-02')), false);
+  assert.equal(isHalfTradingDay('HK', '2027-02-05'), true);
+  assert.equal(isHalfTradingDay('HK', '2027-12-31'), true);
+});
+
+test('does not guess mainland trading days after the verified calendar ends', () => {
+  assert.equal(isTradingDay('CN', at('2027-01-04')), false);
+  assert.equal(isTradingDay('CNF', at('2027-01-04')), false);
+  assert.equal(isTradingDay('CN', at('2027-02-15')), false);
   assert.equal(isTradingDay('CN', at('2027-01-02')), false);
 });
 
@@ -68,8 +77,12 @@ test('reports explicit calendar coverage independently from the last holiday', (
   assert.equal(hasCalendarCoverage('CN', '2026-12-31'), true);
   assert.equal(hasCalendarCoverage('HK', '2026-12-31'), true);
   assert.equal(hasCalendarCoverage('CN', '2027-01-01'), false);
+  assert.equal(hasCalendarCoverage('HK', '2027-01-01'), true);
+  assert.equal(hasCalendarCoverage('HK', '2027-12-31'), true);
+  assert.equal(hasCalendarCoverage('HK', '2028-01-03'), false);
   assert.equal(hasCalendarCoverage('US', '2026-08-12'), false);
   assert.equal(calendarCoverageEnd('CNF'), '2026-12-31');
+  assert.equal(calendarCoverageEnd('HK'), '2027-12-31');
 });
 
 test('recognizes Hong Kong half trading days', () => {
@@ -89,5 +102,7 @@ test('auto refresh runs when at least one watched market is trading', () => {
   assert.equal(shouldAutoRefresh(['CN', 'HK'], at('2026-05-25')), true);
   assert.equal(shouldAutoRefresh(['HK'], at('2026-05-25')), false);
   assert.equal(shouldAutoRefresh(['CNF'], at('2026-10-01')), false);
+  assert.equal(shouldAutoRefresh(['CN'], at('2027-01-04')), false);
+  assert.equal(shouldAutoRefresh(['HK'], at('2027-01-04')), true);
   assert.equal(shouldAutoRefresh([], at('2026-05-25')), false);
 });

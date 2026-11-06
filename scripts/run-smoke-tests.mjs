@@ -10,11 +10,18 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import process from 'node:process';
+import { format } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const suite = join(root, 'out', 'smoke', 'suite.js');
-const temporaryRoot = mkdtempSync(join(tmpdir(), 'fishstock-smoke-'));
+const smokeRoot = process.env.FISHSTOCK_SMOKE_ROOT;
+if (smokeRoot) {
+  mkdirSync(smokeRoot, { recursive: true });
+}
+const temporaryRoot = mkdtempSync(
+  join(smokeRoot ?? tmpdir(), smokeRoot ? 'run-' : 'fishstock-smoke-'),
+);
 const userDataDir = join(temporaryRoot, 'user-data');
 const extensionsDir = join(temporaryRoot, 'extensions');
 mkdirSync(userDataDir);
@@ -83,10 +90,17 @@ try {
     }
   }
 } finally {
-  rmSync(temporaryRoot, {
-    recursive: true,
-    force: true,
-    maxRetries: 10,
-    retryDelay: 250,
-  });
+  try {
+    rmSync(temporaryRoot, {
+      recursive: true,
+      force: true,
+      maxRetries: 10,
+      retryDelay: 250,
+    });
+  } catch (error) {
+    // Windows 可能短暂占用刚退出的 Extension Host 文件；清理失败不应掩盖测试结果。
+    process.stderr.write(
+      `${format('无法删除隔离冒烟目录 %s：%s\n', temporaryRoot, error instanceof Error ? error.message : String(error))}`,
+    );
+  }
 }

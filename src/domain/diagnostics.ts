@@ -54,6 +54,7 @@ export interface DiagnosticReport {
   sessionPhases?: Readonly<Record<MarketSessionPhase, number>>;
   nextAutomaticRefreshAt?: string;
   calendarCoverage?: Readonly<Partial<Record<Market, string>>>;
+  uncoveredCalendarMarkets?: readonly Market[];
   futuresSessionRules?: {
     supportedProductCount: number;
     uncoveredItemCount: number;
@@ -77,6 +78,7 @@ const STALE_REASONS: readonly DiagnosticStaleReason[] = [
   'quote-not-current',
   'future-timestamp',
   'session-uncovered',
+  'calendar-uncovered',
   'unspecified',
 ];
 
@@ -102,6 +104,7 @@ export function summarizeWatchlist(
     'quote-not-current': 0,
     'future-timestamp': 0,
     'session-uncovered': 0,
+    'calendar-uncovered': 0,
     unspecified: 0,
   };
   let itemCount = 0;
@@ -214,6 +217,11 @@ export function formatDiagnosticReport(report: DiagnosticReport): string {
           `- 交易日历覆盖：${Object.entries(report.calendarCoverage)
             .map(([market, end]) => `${market} 至 ${end}`)
             .join(', ') || '无自选市场'}`,
+        ]
+      : []),
+    ...(report.uncoveredCalendarMarkets
+      ? [
+          `- 交易日历未覆盖市场：${report.uncoveredCalendarMarkets.join(', ') || '无'}`,
         ]
       : []),
     ...(report.futuresSessionRules

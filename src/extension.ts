@@ -50,7 +50,12 @@ import { holdingCandidatesFromWatchlists } from './domain/holdingCandidates';
 import {
   holdingSortLabel,
 } from './domain/holdings';
-import { calendarCoverageEnd, isTradingDay } from './domain/tradingCalendar';
+import {
+  calendarCoverageEnd,
+  hasCalendarCoverage,
+  isTradingDay,
+  shanghaiDateString,
+} from './domain/tradingCalendar';
 import { startBackgroundRefresh } from './services/backgroundRefresh';
 import { MarketSessionMonitor } from './services/marketSessionMonitor';
 import { RefreshScheduler } from './services/refreshScheduler';
@@ -162,6 +167,9 @@ function manualSuccessMessage(
   now = new Date(),
 ): string {
   const sessions = symbols.map((symbol) => marketSessionFor(symbol, now));
+  if (sessions.some((session) => session.staleReason === 'calendar-uncovered')) {
+    return `FishStock: ${label}已获取最近行情，部分市场交易日历未覆盖`;
+  }
   if (sessions.some((session) => session.phase === 'unknown')) {
     return `FishStock: ${label}已获取最近行情，部分期货交易时段未收录`;
   }
@@ -590,6 +598,10 @@ export async function activate(context: ExtensionContext): Promise<void> {
         calendarCoverage[market] = end;
       }
     }
+    const uncoveredCalendarMarkets = activeMarkets().filter(
+      (market) =>
+        market !== 'US' && !hasCalendarCoverage(market, shanghaiDateString(now)),
+    );
     const modes = viewOptions.getSnapshot();
     return formatDiagnosticReport({
       generatedAt: now.toISOString(),
@@ -618,6 +630,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
         ? { nextAutomaticRefreshAt: new Date(nextAutomaticRefreshAt).toISOString() }
         : {}),
       calendarCoverage,
+      uncoveredCalendarMarkets,
       futuresSessionRules: {
         supportedProductCount: supportedFuturesProductCount(),
         uncoveredItemCount: watchlistSymbols(futuresRepository).filter(

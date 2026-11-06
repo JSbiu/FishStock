@@ -221,7 +221,7 @@ export class QuoteService {
         ...quote,
         ...sessionFields,
         state: 'stale',
-        staleReason: 'session-uncovered',
+        staleReason: session.staleReason ?? 'session-uncovered',
         message: [session.label, refreshFailure].filter(Boolean).join('；'),
       };
     }

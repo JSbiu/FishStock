@@ -46,9 +46,12 @@ export function isTradingDate(market: Market, dateString: string): boolean {
   if (isWeekend(dateString)) {
     return false;
   }
-  const range = CALENDAR_RANGE[calendarKey];
-  if (!range || dateString < range.first || dateString > range.last) {
+  // US 仅保留代码规范化兼容；其他市场不能把未核实年份猜作交易日。
+  if (calendarKey === 'US') {
     return true;
+  }
+  if (!hasCalendarCoverage(market, dateString)) {
+    return false;
   }
   return !(HOLIDAYS[calendarKey] ?? EMPTY_HOLIDAYS).has(dateString);
 }

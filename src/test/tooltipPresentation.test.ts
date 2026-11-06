@@ -104,6 +104,23 @@ test('quote tooltip shows suspension before live and restores live after resumpt
   assert.doesNotMatch(resumedText, /停牌/);
 });
 
+test('quote tooltip presents uncovered calendars without repeating the same phrase', () => {
+  const { createQuoteTooltip } = loadUiModule<QuoteTooltipModule>(
+    '../ui/quoteTooltip',
+    { vscode: { MarkdownString: FakeMarkdownString } },
+  );
+  const uncovered = {
+    ...quote,
+    state: 'stale' as const,
+    staleReason: 'calendar-uncovered' as const,
+    sessionPhase: 'unknown' as const,
+    sessionLabel: '交易日历未覆盖',
+  };
+  const text = createQuoteTooltip(stock, uncovered, '固定样本').value;
+  assert.match(text, /浦发银行 \(600000\.SH\) · 日历未覆盖/);
+  assert.doesNotMatch(text, /日历未覆盖 · 交易日历未覆盖/);
+});
+
 test('HKD holding tooltip keeps unit price in HKD while converting amounts', () => {
   const quoteModule = loadUiModule<QuoteTooltipModule>(
     '../ui/quoteTooltip',

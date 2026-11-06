@@ -56,6 +56,7 @@ test('summarizes watchlist counts without carrying private labels or symbols', (
       'quote-not-current': 0,
       'future-timestamp': 0,
       'session-uncovered': 0,
+      'calendar-uncovered': 0,
       unspecified: 0,
     },
     lastRefreshState: 'success',
@@ -98,6 +99,7 @@ test('formats a copyable diagnostic report with an explicit privacy statement', 
     sessionPhases: { trading: 1, break: 1, closed: 0, unknown: 0 },
     nextAutomaticRefreshAt: '2026-08-03T10:01:00.000Z',
     calendarCoverage: { CN: '2026-12-31', HK: '2026-12-31' },
+    uncoveredCalendarMarkets: ['CN', 'CNF'],
     futuresSessionRules: { supportedProductCount: 64, uncoveredItemCount: 1 },
     stock: summary,
     fund: summary,
@@ -109,6 +111,7 @@ test('formats a copyable diagnostic report with an explicit privacy statement', 
   assert.match(report, /trading=1, break=1, closed=0, unknown=0/);
   assert.match(report, /下次计划自动刷新：2026-08-03T10:01:00\.000Z/);
   assert.match(report, /CN 至 2026-12-31, HK 至 2026-12-31/);
+  assert.match(report, /交易日历未覆盖市场：CN, CNF/);
   assert.match(report, /已收录 64 个品种，未覆盖自选 1 个/);
   assert.match(report, /Stock=default, Fund=gainDesc, Futures=upOnly/);
   assert.match(report, /状态栏模式：holdings/);

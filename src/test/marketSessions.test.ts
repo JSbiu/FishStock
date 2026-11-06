@@ -187,3 +187,35 @@ test('keeps refreshing briefly after a window ends so the closing price can sett
   assert.equal(shouldAutoRefreshSymbol(A_SHARE, at('2026-08-12T11:30:20')), true);
   assert.equal(shouldAutoRefreshSymbol(A_SHARE, at('2026-08-12T09:25:20')), true);
 });
+
+test('marks mainland calendar gaps unknown without windows or automatic refresh', () => {
+  const cn = marketSessionFor(A_SHARE, at('2027-01-04T10:00:00'));
+  const cnf = marketSessionFor(AU, at('2027-01-04T10:00:00'));
+  assert.deepEqual(
+    [cn.phase, cn.label, cn.exact, cn.staleReason, cn.nextOpenAt, cn.lastWindowEnd],
+    ['unknown', '交易日历未覆盖', false, 'calendar-uncovered', undefined, undefined],
+  );
+  assert.deepEqual(
+    [cnf.phase, cnf.label, cnf.staleReason, cnf.nextOpenAt, cnf.lastWindowEnd],
+    ['unknown', '交易日历未覆盖', 'calendar-uncovered', undefined, undefined],
+  );
+  assert.equal(shouldAutoRefreshSymbol(A_SHARE, at('2027-01-04T10:00:00')), false);
+  assert.equal(shouldAutoRefreshSymbol(AU, at('2027-01-04T10:00:00')), false);
+});
+
+test('keeps known 2027 Hong Kong sessions and weekend labels intact', () => {
+  const weekend = marketSessionFor(HK_SHARE, at('2027-01-02T10:00:00'));
+  assert.deepEqual([weekend.phase, weekend.label], ['closed', '周末休市']);
+  const halfDay = marketSessionFor(HK_SHARE, at('2027-02-05T12:05:00'));
+  assert.deepEqual([halfDay.phase, halfDay.label], ['trading', '半日市收市竞价']);
+  assert.equal(marketSessionFor(HK_SHARE, at('2027-01-01T10:00:00')).label, '节假日休市');
+  assert.equal(marketSessionFor(HK_SHARE, at('2027-01-04T10:00:00')).phase, 'trading');
+});
+
+test('does not borrow an uncovered 2027 trading day for the last covered night', () => {
+  const session = marketSessionFor(AU, at('2026-12-31T21:30:00'));
+  assert.equal(session.phase, 'closed');
+  assert.equal(session.label, '已收盘');
+  assert.equal(session.nextOpenAt, undefined);
+  assert.equal(shouldAutoRefreshSymbol(AU, at('2026-12-31T21:30:00')), false);
+});

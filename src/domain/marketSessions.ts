@@ -5,6 +5,7 @@ import type {
 } from './models';
 import { futuresSessionRule } from './futuresSessions';
 import {
+  hasCalendarCoverage,
   isHalfTradingDay,
   isTradingDate,
   isWeekend,
@@ -212,6 +213,18 @@ export function marketSessionFor(
 ): MarketSession {
   const timestamp = now.getTime();
   const dateString = shanghaiDateString(now);
+  if (
+    symbol.market !== 'US' &&
+    !isWeekend(dateString) &&
+    !hasCalendarCoverage(symbol.market, dateString)
+  ) {
+    return {
+      phase: 'unknown',
+      label: '交易日历未覆盖',
+      exact: false,
+      staleReason: 'calendar-uncovered',
+    };
+  }
   const windows = windowsAround(symbol, dateString);
   const current = windows.find((window) => timestamp >= window.start && timestamp < window.end);
   const previous = windows.filter((window) => window.end <= timestamp).at(-1);

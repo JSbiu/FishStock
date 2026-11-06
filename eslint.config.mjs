@@ -3,7 +3,15 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['node_modules/**', '.pnpm-store/**', '.vscode-test/**', 'out/**', 'dist/**'],
+    ignores: [
+      'node_modules/**',
+      '.pnpm-store/**',
+      '.vscode-test/**',
+      '.local/**',
+      '.codex/**',
+      'out/**',
+      'dist/**',
+    ],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,

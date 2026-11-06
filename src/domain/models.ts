@@ -12,7 +12,8 @@ export type QuoteStaleReason =
   | 'refresh-overdue'
   | 'quote-not-current'
   | 'future-timestamp'
-  | 'session-uncovered';
+  | 'session-uncovered'
+  | 'calendar-uncovered';
 
 export type MarketSessionPhase = 'trading' | 'break' | 'closed' | 'unknown';
 
@@ -137,6 +138,7 @@ export interface MarketSession {
   nextTransitionAt?: number;
   /** 最近一个已结束交易窗口的结束时刻；用于收盘后的宽限刷新。 */
   lastWindowEnd?: number;
+  staleReason?: QuoteStaleReason;
 }
 
 export interface RefreshResult {
