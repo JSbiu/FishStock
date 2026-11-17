@@ -151,7 +151,7 @@ pnpm run release:check
 - [x] Tree View 增加现金节点、总资产行和可选的「仓位」字段；现金节点不参与行情刷新、排序、调仓、编辑或删除。
 - [x] `treeViewFields` 新增 `weight`，缺失字段回退默认开启，五项全关时仍强制保留市值；命令面板与 Settings UI 读取同一归一化结果。
 - [x] `pnpm run check` 通过，共 272 个单元与回归测试；ESLint、严格 TypeScript 编译和新增现金/仓位回归通过。
-- [x] 完整 `pnpm run release:check` 通过并生成 `fish-stock-0.8.6.vsix`（59 个文件、181.39 KB）。Windows 删除隔离冒烟 Profile 时仍输出一次 EPERM 清理警告，但子进程退出码为 0，不覆盖冒烟结论。
+- [x] 完整 `pnpm run release:check` 通过并生成 `fish-stock-0.8.6.vsix`（59 个文件、约 181 KB）；Extension Host 冒烟验证保存现金后原生 Tree View 出现现金节点与总资产/仓位行。Windows 删除隔离冒烟 Profile 时仍输出一次 EPERM 清理警告，但子进程退出码为 0，不覆盖冒烟结论。
 
 ## 版本规则
 

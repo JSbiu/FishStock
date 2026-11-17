@@ -143,12 +143,27 @@ async function verifySavedHoldingViews(): Promise<void> {
     await receiver.handleMessage({ type: 'search', query: instrument.name, requestId: 1 });
     await receiver.handleMessage({
       type: 'save', rows: [{ symbol: instrument.symbol, quantity: '123', averageCost: '50' }],
+      cash: { amount: '1000', currency: 'CNY' },
     });
     assert.equal(applied, 1, '保存后没有同步持仓视图');
     assert.equal(repository.getSnapshot().holdings[0].quantity, 123);
-    const node = tree.getChildren()[0];
+    assert.equal(repository.getSnapshot().cash?.amount, 1_000);
+    const nodes = tree.getChildren();
+    const node = nodes[0];
     assert.equal(node.kind, 'holding');
     assert.match(String(tree.getTreeItem(node).description), /123 股/);
+    const cashNode = nodes.find((item) => item.kind === 'cash');
+    assert.ok(cashNode, '保存现金后没有生成现金节点');
+    assert.match(
+      String(tree.getTreeItem(cashNode).description),
+      /1,000\.00 CNY/,
+    );
+    const summaryNode = nodes.find((item) => item.kind === 'summary');
+    assert.ok(summaryNode, '保存现金后没有生成总资产行');
+    assert.match(
+      String(tree.getTreeItem(summaryNode).description),
+      /仓位 87\.12%/,
+    );
     const item = Reflect.get(status, 'item') as StatusBarItem;
     assert.match(item.text, /\+615\.00 CNY/, '状态栏没有显示保存后的持仓盈亏');
   } finally {

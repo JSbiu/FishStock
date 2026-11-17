@@ -452,6 +452,6 @@ FishStock 是面向开发者的轻量 VS Code 行情看板，另带一个可选�
 ### 验收与限制
 
 - `pnpm run check` 通过，ESLint、严格 TypeScript 编译和 272 个单元与回归测试全部通过；新增回归覆盖现金存储、旧数据兼容、原子失败、CNY/HKD 现金、单币种与混币、总资产/仓位/现金占比、缺价持仓、管理页现金保存和 Tree View 现金节点。
-- 完整 `pnpm run release:check` 通过，Extension Host 冒烟、版本与包内容检查和稳定通道 VSIX 打包成功，生成 `fish-stock-0.8.6.vsix`（59 个文件、181.39 KB）。Windows 删除隔离 Profile 时出现一次 EPERM 清理警告，但冒烟子进程退出码为 0，不覆盖测试结论。
+- 完整 `pnpm run release:check` 通过，Extension Host 冒烟、版本与包内容检查和稳定通道 VSIX 打包成功，生成 `fish-stock-0.8.6.vsix`（59 个文件、约 181 KB）；冒烟同时验证保存现金后原生 Tree View 出现现金节点与总资产/仓位行。Windows 删除隔离 Profile 时出现一次 EPERM 清理警告，但冒烟子进程退出码为 0，不覆盖测试结论。
 - 本版不增加仓位排序、Top N 集中度、行业/板块占比、多账户、多币种现金账户、交易流水、自动现金增减或自动汇率获取；这些属于后续独立功能。
 - 本版未安装到日常 VS Code、未上传 Marketplace；VSIX 为本地交付，Marketplace 商店版本与真实用户升级反馈仍未核实。
