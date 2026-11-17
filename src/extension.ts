@@ -334,7 +334,9 @@ export async function activate(context: ExtensionContext): Promise<void> {
     holdingsTreeProvider,
   );
   const updateHoldingsMessage = (): void => {
-    holdingsTreeView.message = holdingsRepository.getSnapshot().holdings.length === 0
+    const snapshot = holdingsRepository.getSnapshot();
+    holdingsTreeView.message = snapshot.holdings.length === 0
+      && (snapshot.cash?.amount ?? 0) <= 0
       ? '暂无持仓。使用 + 添加 A 股、港股或境内 ETF。'
       : undefined;
   };

@@ -54,6 +54,7 @@ const FIELD_PICKS: ReadonlyArray<{
 }> = [
   { label: '数量', description: '持仓 /份数', key: 'quantity' },
   { label: '市值', description: '按万 / 亿压缩', key: 'marketValue' },
+  { label: '仓位', description: '该持仓市值占总资产（含现金）比例', key: 'weight' },
   { label: '浮动盈亏', description: '金额 + 相对成本收益率', key: 'profit' },
   { label: '当日盈亏', description: '今日金额 + 相对昨收百分比', key: 'dayProfit' },
 ];
@@ -130,6 +131,10 @@ export function registerHoldingsCommands(
       options.openManager({ type: 'holding', holdingId: holding.id });
     }),
 
+    commands.registerCommand('fishStock.editHoldingCash', async () => {
+      options.openManager({ type: 'cash' });
+    }),
+
     commands.registerCommand('fishStock.removeHolding', async (node?: HoldingNode) => {
       const holding = await chooseHolding(options.repository, node);
       if (!holding) {
@@ -163,7 +168,7 @@ export function registerHoldingsCommands(
         '清空全部持仓？',
         {
           modal: true,
-          detail: `将删除 ${count} 个持仓条目的数量和平均成本。此操作无法撤销。`,
+          detail: `将删除 ${count} 个持仓条目的数量和平均成本。现金余额会保留。此操作无法撤销。`,
         },
         '清空持仓',
       );
@@ -258,6 +263,7 @@ export function registerHoldingsCommands(
       const next: HoldingDescriptionFields = {
         quantity: selected.some((item) => item.key === 'quantity'),
         marketValue: selected.some((item) => item.key === 'marketValue'),
+        weight: selected.some((item) => item.key === 'weight'),
         profit: selected.some((item) => item.key === 'profit'),
         dayProfit: selected.some((item) => item.key === 'dayProfit'),
       };
@@ -265,6 +271,7 @@ export function registerHoldingsCommands(
       const same =
         ensured.quantity === current.quantity
         && ensured.marketValue === current.marketValue
+        && ensured.weight === current.weight
         && ensured.profit === current.profit
         && ensured.dayProfit === current.dayProfit;
       if (same) {

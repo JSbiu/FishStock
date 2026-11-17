@@ -149,6 +149,51 @@ test('manager page keeps current price in its original currency while converting
   );
 });
 
+test('manager page exposes cash and position controls with parseable script', async () => {
+  const html = (await managerHarness()).html();
+  assert.match(html, /id="cashAmount"/);
+  assert.match(html, /id="cashCurrency"/);
+  assert.match(html, /id="assetTotal"/);
+  assert.match(html, /<th>仓位<\/th>/);
+  assert.match(html, /现金不参与浮动盈亏或当日盈亏/);
+  const script = html.match(/<script nonce="[^"]*">([\s\S]*)<\/script>/)?.[1];
+  assert.ok(script);
+  assert.doesNotThrow(() => new Function(script));
+});
+
+test('manager saves cash together with holdings in one portfolio write', async () => {
+  const harness = await managerHarness(undefined, undefined, undefined, {
+    persist: async () => {},
+  });
+  await harness.send({
+    type: 'save',
+    rows: [{ id: 'hk', symbol: '00700.HK', quantity: '123', averageCost: '401.25' }],
+    cash: { amount: '1234.5', currency: 'HKD' },
+  });
+  assert.deepEqual(harness.repository.getSnapshot().cash, {
+    amount: 1_234.5,
+    currency: 'HKD',
+  });
+  const state = harness.messages.find((message) => message.type === 'state');
+  assert.deepEqual(state?.cash, { amount: 1_234.5, currency: 'HKD' });
+});
+
+test('manager rejects invalid cash before writing the portfolio', async () => {
+  const harness = await managerHarness();
+  const before = harness.repository.getSnapshot();
+  await harness.send({
+    type: 'save',
+    rows: [{ id: 'hk', symbol: '00700.HK', quantity: '123', averageCost: '401.25' }],
+    cash: { amount: '-1', currency: 'CNY' },
+  });
+  assert.ok(harness.messages.some((message) =>
+    message.type === 'saveError' && /现金金额/.test(String(message.message))));
+  assert.equal(harness.messages.at(-1)?.type, 'saving');
+  assert.equal(harness.messages.at(-1)?.value, false);
+  assert.equal(harness.panelTitle(), 'FishStock 持仓管理（有未保存更改）');
+  assert.deepEqual(harness.repository.getSnapshot(), before);
+});
+
 test('a pending save locks draft mutations and duplicate saves until the single write finishes', async () => {
   let finish = () => {};
   let writes = 0;

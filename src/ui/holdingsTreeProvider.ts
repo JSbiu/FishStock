@@ -10,23 +10,28 @@ import {
 import type { ColorConvention } from '../config';
 import {
   buildHoldingDescriptionSegments,
-  buildSummarySegments,
+  buildPortfolioSummarySegments,
   calculateHoldingMetrics,
+  cashBalanceOf,
   DEFAULT_HOLDING_HKD_RATE,
   DEFAULT_HOLDING_DESCRIPTION_FIELDS,
   DEFAULT_HOLDING_SORT,
+  formatCashAmount,
+  formatCompactMarketValue,
+  formatWeightPercent,
   holdingAmountSortPaused,
   holdingCurrency,
   holdingIconKindOf,
+  holdingWeightPercent,
   holdingTreeContextValue,
   sortHoldings,
-  summarizeHoldings,
+  summarizePortfolio,
   type HoldingDescriptionFields,
   type HoldingIconKind,
   type HoldingSortState,
-  type HoldingSummary,
+  type PortfolioSummary,
 } from '../domain/holdings';
-import type { Holding, Quote } from '../domain/models';
+import type { CashBalance, Holding, Quote } from '../domain/models';
 import type { HoldingsRepository } from '../storage/holdingsRepository';
 import { HKD_DECORATION_SCHEME } from './holdingFileDecorationProvider';
 import { quoteStaleLabel } from './quoteTooltip';
@@ -64,6 +69,17 @@ export class HoldingNode {
   public constructor(
     public readonly holding: Holding,
     public readonly quote: Quote | undefined,
+    public readonly weightPercent: number | null = null,
+  ) {}
+}
+
+/** 现金不是证券，单独成行，不参与行情刷新、排序或调仓。 */
+export class HoldingCashNode {
+  public readonly kind = 'cash';
+
+  public constructor(
+    public readonly cash: CashBalance,
+    public readonly summary: PortfolioSummary,
   ) {}
 }
 
@@ -71,10 +87,10 @@ export class HoldingNode {
 export class HoldingSummaryNode {
   public readonly kind = 'summary';
 
-  public constructor(public readonly summary: HoldingSummary) {}
+  public constructor(public readonly summary: PortfolioSummary) {}
 }
 
-export type HoldingsTreeNode = HoldingNode | HoldingSummaryNode;
+export type HoldingsTreeNode = HoldingNode | HoldingCashNode | HoldingSummaryNode;
 
 export interface HoldingsTreeProviderOptions {
   quoteOf(holding: Holding): Quote | undefined;
@@ -123,6 +139,9 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
   }
 
   public getTreeItem(element: HoldingsTreeNode): TreeItem {
+    if (element instanceof HoldingCashNode) {
+      return this.cashItem(element.cash, element.summary);
+    }
     if (element instanceof HoldingSummaryNode) {
       return this.summaryItem(element.summary);
     }
@@ -136,6 +155,7 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
       ? buildHoldingDescriptionSegments(holding, metrics, {
           fields: this.fieldFlags,
           hkdRate: this.hkdRate,
+          weightPercent: element.weightPercent,
           suspended: element.quote?.suspended === true,
         }).join(' · ')
       : buildPendingHoldingDescription(holding, this.fieldFlags, stateSuffix(element.quote));
@@ -165,22 +185,39 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
     if (element) {
       return [];
     }
-    const holdings = this.repository.getSnapshot().holdings;
-    if (holdings.length === 0) {
+    const state = this.repository.getSnapshot();
+    const holdings = state.holdings;
+    const cash = cashBalanceOf(state);
+    if (holdings.length === 0 && cash.amount <= 0) {
       return [];
     }
     const now = new Date();
     const quoteOf = (holding: Holding): Quote | undefined => this.options.quoteOf(holding);
+    const summary = summarizePortfolio(
+      holdings,
+      cash,
+      quoteOf,
+      now,
+      this.hkdRate,
+    );
     const nodes: HoldingsTreeNode[] = sortHoldings(
       holdings,
       this.sort,
       quoteOf,
       now,
       this.hkdRate,
-    ).map((holding) => new HoldingNode(holding, this.options.quoteOf(holding)));
-    nodes.push(new HoldingSummaryNode(
-      summarizeHoldings(holdings, quoteOf, now, this.hkdRate),
-    ));
+    ).map((holding) => {
+      const quote = quoteOf(holding);
+      return new HoldingNode(
+        holding,
+        quote,
+        holdingWeightPercent(holding, quote, summary, this.hkdRate, now),
+      );
+    });
+    if (cash.amount > 0) {
+      nodes.push(new HoldingCashNode(cash, summary));
+    }
+    nodes.push(new HoldingSummaryNode(summary));
     return nodes;
   }
 
@@ -189,15 +226,17 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
     return undefined;
   }
 
-  private summaryItem(summary: HoldingSummary): TreeItem {
-    const label = summary.currency === null ? '总计' : `总计 (${summary.currency})`;
+  private summaryItem(summary: PortfolioSummary): TreeItem {
+    const label = summary.currency === null ? '总计' : `总资产 (${summary.currency})`;
     const item = new TreeItem(label, TreeItemCollapsibleState.None);
     item.id = 'holding-summary';
     item.iconPath = new ThemeIcon('sum');
     // 汇总行没有可操作对象，单独给一个 contextValue 以排除右键菜单。
     item.contextValue = 'fishStock.holdingSummary';
     if (summary.currency === null) {
-      item.description = buildSummarySegments(summary, { fields: this.fieldFlags }).join(' · ');
+      item.description = buildPortfolioSummarySegments(summary, {
+        fields: this.fieldFlags,
+      }).join(' · ');
       if (this.isAmountSortPaused()) {
         item.description += ' · 金额排序暂用默认顺序';
       }
@@ -209,11 +248,13 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
       item.command = { command: 'fishStock.manageHoldings', title: '查看各币种小计' };
       return item;
     }
-    if (summary.pricedItemCount === 0) {
+    if (summary.pricedItemCount === 0 && summary.itemCount > 0 && (summary.cashValue ?? 0) <= 0) {
       item.description = '等待行情';
+    } else if (summary.pricedItemCount === 0 && summary.itemCount > 0) {
+      item.description = `部分行情 · 总资产 ${formatCompactMarketValue(summary.totalAssets ?? 0)} · 仓位 ${formatWeightPercent(summary.investedPercent)}`;
     } else {
       const partial = summary.pricedItemCount < summary.itemCount ? '部分 · ' : '';
-      item.description = `${partial}${buildSummarySegments(summary, {
+      item.description = `${partial}${buildPortfolioSummarySegments(summary, {
         fields: this.fieldFlags,
       }).join(' · ')}`;
     }
@@ -222,10 +263,35 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
       item.description += ` · 汇率 ${summary.hkdRate}${defaultLabel}`;
     }
     item.tooltip = summary.hkdRate === null
-      ? `按原币种 ${summary.currency} 合计，仅计入有价格的持仓。`
-      : `按 CNY 合计，1 HKD = ${summary.hkdRate} CNY${
+      ? `按原币种 ${summary.currency} 计算总资产与仓位，仅计入有价格的持仓；现金不参与盈亏。`
+      : `按 CNY 计算总资产与仓位，1 HKD = ${summary.hkdRate} CNY${
         summary.hkdRate === DEFAULT_HOLDING_HKD_RATE ? '（默认占位值）' : ''
-      }；仅计入有价格的持仓。`;
+      }；仅计入有价格的持仓，现金不参与盈亏。`;
+    return item;
+  }
+
+  private cashItem(cash: CashBalance, summary: PortfolioSummary): TreeItem {
+    const item = new TreeItem('现金', TreeItemCollapsibleState.None);
+    item.id = 'holding-cash';
+    item.iconPath = new ThemeIcon('credit-card');
+    item.contextValue = 'fishStock.holdingCash';
+    const weight = summary.cashPercent === null
+      ? '未合并'
+      : `占比 ${formatWeightPercent(summary.cashPercent)}`;
+    item.description = `${formatCashAmount(cash)} · ${weight}`;
+    const lines = [
+      `现金余额 ${formatCashAmount(cash)}。`,
+      '现金不参与浮动盈亏或当日盈亏，只计入总资产和仓位。',
+    ];
+    if (cash.currency === 'HKD' && summary.hkdRate !== null) {
+      lines.push(
+        `按 1 HKD = ${summary.hkdRate} CNY 折算为 ${
+          formatCashAmount({ amount: cash.amount * summary.hkdRate, currency: 'CNY' })
+        }。`,
+      );
+    }
+    item.tooltip = lines.join('\n');
+    item.command = { command: 'fishStock.editHoldingCash', title: '设置现金' };
     return item;
   }
 

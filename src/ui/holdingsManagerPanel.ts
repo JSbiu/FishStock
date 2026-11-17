@@ -11,7 +11,7 @@ import {
   materializeHoldingDraft,
   type HoldingDraftInput,
 } from '../domain/holdingDraft';
-import { holdingDayChange } from '../domain/holdings';
+import { cashBalanceOf, holdingDayChange } from '../domain/holdings';
 import { quoteDisplayKind } from '../domain/quotePresentation';
 import {
   applyHoldingAdjustment,
@@ -19,6 +19,7 @@ import {
   type HoldingAdjustmentResult,
 } from '../domain/holdingAdjustment';
 import type {
+  CashBalance,
   Holding,
   HoldingCurrency,
   HoldingSearchResult,
@@ -34,6 +35,7 @@ const MANAGER_DIRTY_TITLE = `${MANAGER_TITLE}（有未保存更改）`;
 
 export type HoldingsManagerFocus =
   | { type: 'search' }
+  | { type: 'cash' }
   | { type: 'holding'; holdingId: string };
 
 export interface HoldingsManagerOptions {
@@ -173,6 +175,22 @@ function readDraftInputs(value: unknown): HoldingDraftInput[] | undefined {
   });
 }
 
+function readCashInput(value: unknown): CashBalance | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const amount = typeof value.amount === 'number'
+    ? value.amount
+    : Number(value.amount);
+  if (!Number.isFinite(amount) || amount < 0) {
+    return undefined;
+  }
+  if (value.currency !== 'CNY' && value.currency !== 'HKD') {
+    return undefined;
+  }
+  return { amount, currency: value.currency };
+}
+
 function toDraftInputs(holdings: readonly Holding[]): HoldingDraftInput[] {
   return holdings.map((holding) => ({
     id: holding.id,
@@ -221,6 +239,8 @@ function quoteStateLabelOf(quote: Quote): string {
 export class HoldingsManagerPanel implements Disposable {
   private panel: WebviewPanel | undefined;
   private draft: HoldingDraftInput[] | undefined;
+  private cashDraft: CashBalance | undefined;
+  private cashDraftInvalid = false;
   private dirty = false;
   private pendingFocus: HoldingsManagerFocus | undefined;
   private searchController: AbortController | undefined;
@@ -295,6 +315,8 @@ export class HoldingsManagerPanel implements Disposable {
       return;
     }
     this.draft = undefined;
+    this.cashDraft = undefined;
+    this.cashDraftInvalid = false;
     this.postState();
   }
 
@@ -307,6 +329,10 @@ export class HoldingsManagerPanel implements Disposable {
 
   private currentDraft(): HoldingDraftInput[] {
     return this.draft ?? toDraftInputs(this.options.repository.getSnapshot().holdings);
+  }
+
+  private currentCash(): CashBalance {
+    return this.cashDraft ?? cashBalanceOf(this.options.repository.getSnapshot());
   }
 
   private managerRows(): ManagerRow[] {
@@ -367,6 +393,7 @@ export class HoldingsManagerPanel implements Disposable {
       saveError: this.saveError,
       colorConvention: this.options.colorConvention(),
       hkdRate: this.options.hkdRate(),
+      cash: this.currentCash(),
       clearSearch,
       watchlistEntries: this.watchlistSnapshot(),
       ...(focus ? { focus } : {}),
@@ -391,6 +418,13 @@ export class HoldingsManagerPanel implements Disposable {
         if (!rows) {
           return;
         }
+        const cash = message.cash === undefined
+          ? undefined
+          : readCashInput(message.cash);
+        if (message.cash !== undefined) {
+          this.cashDraft = cash;
+          this.cashDraftInvalid = !cash;
+        }
         this.draft = rows;
         this.dirty = true;
         this.syncPanelTitle();
@@ -398,6 +432,8 @@ export class HoldingsManagerPanel implements Disposable {
       }
       case 'discard':
         this.draft = undefined;
+        this.cashDraft = undefined;
+        this.cashDraftInvalid = false;
         this.dirty = false;
         this.saveError = undefined;
         this.allowedNewInstruments.clear();
@@ -427,7 +463,28 @@ export class HoldingsManagerPanel implements Disposable {
         if (!rows) {
           return;
         }
+        const cash = message.cash === undefined
+          ? this.currentCash()
+          : readCashInput(message.cash);
+        if (!cash) {
+          this.saveError = '现金金额必须是大于等于 0 的数字';
+          this.cashDraftInvalid = true;
+          this.draft = rows;
+          this.dirty = true;
+          this.syncPanelTitle();
+          void this.panel?.webview.postMessage({
+            type: 'saveError',
+            message: this.saveError,
+          });
+          void this.panel?.webview.postMessage({
+            type: 'saving',
+            value: false,
+          });
+          return;
+        }
         this.draft = rows;
+        this.cashDraft = cash;
+        this.cashDraftInvalid = false;
         this.dirty = true;
         this.syncPanelTitle();
         await this.saveCurrentDraft();
@@ -641,18 +698,30 @@ export class HoldingsManagerPanel implements Disposable {
   }
 
   private async persistDraft(draft: HoldingDraftInput[]): Promise<boolean> {
+    if (this.cashDraftInvalid) {
+      this.saveError = '现金金额必须是大于等于 0 的数字';
+      void this.panel?.webview.postMessage({
+        type: 'saveError',
+        message: this.saveError,
+      });
+      return false;
+    }
     try {
-      const before = this.options.repository.getSnapshot().holdings;
+      const beforeState = this.options.repository.getSnapshot();
+      const before = beforeState.holdings;
+      const cash = this.cashDraft ?? cashBalanceOf(beforeState);
       const holdings = materializeHoldingDraft(
         draft,
         before,
         this.allowedNewInstruments,
         randomUUID,
       );
-      await this.options.repository.replaceHoldings(holdings);
+      await this.options.repository.replacePortfolio(holdings, cash);
       const previousSymbols = new Set(before.map((holding) => holding.symbol));
       const added = holdings.filter((holding) => !previousSymbols.has(holding.symbol));
       this.draft = toDraftInputs(holdings);
+      this.cashDraft = undefined;
+      this.cashDraftInvalid = false;
       this.dirty = false;
       this.syncPanelTitle();
       this.allowedNewInstruments.clear();
@@ -699,6 +768,8 @@ export class HoldingsManagerPanel implements Disposable {
     }
     if (choice === '放弃') {
       this.draft = undefined;
+      this.cashDraft = undefined;
+      this.cashDraftInvalid = false;
       this.dirty = false;
       this.saveError = undefined;
       this.allowedNewInstruments.clear();
@@ -752,6 +823,15 @@ export class HoldingsManagerPanel implements Disposable {
     .subtitle, .muted { color: var(--vscode-descriptionForeground); }
     .summary { white-space: nowrap; padding-top: 5px; color: var(--vscode-descriptionForeground); }
     .card { border: 1px solid var(--vscode-panel-border); border-radius: 6px; background: var(--vscode-sideBar-background); margin-bottom: 18px; }
+    .asset-card { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px 24px; padding: 14px 16px; }
+    .asset-stats { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 10px 24px; flex: 1 1 520px; }
+    .asset-stat { display: flex; flex-direction: column; gap: 3px; }
+    .asset-stat span { color: var(--vscode-descriptionForeground); font-size: 12px; }
+    .asset-stat strong { font-weight: 600; }
+    .cash-field { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--vscode-descriptionForeground); }
+    .cash-field input[type="number"] { width: 112px; }
+    .cash-field select { color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); border-radius: 3px; padding: 6px 8px; font: inherit; }
+    .asset-note { flex: 1 1 100%; color: var(--vscode-descriptionForeground); font-size: 12px; line-height: 1.6; }
     .search-card { padding: 16px; }
     .add-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
     .tab { padding: 5px 14px; font-size: 12px; }
@@ -813,7 +893,7 @@ export class HoldingsManagerPanel implements Disposable {
     .notice { min-height: 22px; padding: 0 14px 10px; color: var(--vscode-descriptionForeground); }
     .notice.error { color: var(--vscode-errorForeground); }
     footer { color: var(--vscode-descriptionForeground); line-height: 1.6; }
-    @media (max-width: 720px) { body { padding: 18px 14px 28px; } header { display: block; } .summary { margin-top: 8px; } .search-row { flex-wrap: wrap; } #searchInput { flex-basis: 100%; } }
+    @media (max-width: 720px) { body { padding: 18px 14px 28px; } header { display: block; } .summary { margin-top: 8px; } .asset-stats { grid-template-columns: repeat(2, minmax(120px, 1fr)); } .search-row { flex-wrap: wrap; } #searchInput { flex-basis: 100%; } }
   </style>
 </head>
 <body>
@@ -824,6 +904,24 @@ export class HoldingsManagerPanel implements Disposable {
     </div>
     <div id="summary" class="summary">0 项持仓</div>
   </header>
+
+  <section class="card asset-card" aria-label="资产概览">
+    <div class="asset-stats">
+      <div class="asset-stat"><span>总资产</span><strong id="assetTotal">—</strong></div>
+      <div class="asset-stat"><span>持仓市值</span><strong id="assetHoldings">—</strong></div>
+      <div class="asset-stat"><span>总仓位</span><strong id="assetInvested">—</strong></div>
+      <div class="asset-stat"><span>现金占比</span><strong id="assetCashPercent">—</strong></div>
+    </div>
+    <div class="cash-field">
+      <label for="cashAmount">现金</label>
+      <input id="cashAmount" type="number" min="0" step="0.01" inputmode="decimal" value="0" aria-label="现金余额">
+      <select id="cashCurrency" aria-label="现金币种">
+        <option value="CNY">CNY</option>
+        <option value="HKD">HKD</option>
+      </select>
+    </div>
+    <div class="asset-note">现金是手动余额，不参与浮动盈亏或当日盈亏；总资产 = 持仓市值 + 现金，单只占比按总资产计算。</div>
+  </section>
 
   <section class="card search-card" aria-label="添加持仓">
     <div class="add-tabs" role="tablist" aria-label="添加方式">
@@ -880,6 +978,7 @@ export class HoldingsManagerPanel implements Disposable {
             <th>平均成本</th>
             <th>现价</th>
             <th>市值</th>
+            <th>仓位</th>
             <th>浮动盈亏</th>
             <th>收益率</th>
             <th>当日盈亏</th>
@@ -890,7 +989,7 @@ export class HoldingsManagerPanel implements Disposable {
         <tbody id="rows"></tbody>
         <tfoot id="totals"></tfoot>
       </table>
-      <div id="emptyState" class="empty">暂无持仓。请搜索标的或从自选股批量添加。</div>
+      <div id="emptyState" class="empty">暂无持仓。请搜索标的或从自选股批量添加；现金余额已计入上方总资产。</div>
     </div>
     <div id="notice" class="notice"></div>
   </section>
@@ -903,6 +1002,11 @@ export class HoldingsManagerPanel implements Disposable {
     const totalsElement = document.getElementById('totals');
     const emptyState = document.getElementById('emptyState');
     const summary = document.getElementById('summary');
+    const assetTotal = document.getElementById('assetTotal');
+    const assetHoldings = document.getElementById('assetHoldings');
+    const assetInvested = document.getElementById('assetInvested');
+    const assetCashPercent = document.getElementById('assetCashPercent');
+    const assetNote = document.getElementById('assetNote');
     const dirtyBadge = document.getElementById('dirtyBadge');
     const validationStatus = document.getElementById('validationStatus');
     const validationMessage = document.getElementById('validationMessage');
@@ -912,6 +1016,8 @@ export class HoldingsManagerPanel implements Disposable {
     const hkdRateEnabled = document.getElementById('hkdRateEnabled');
     const hkdRateInput = document.getElementById('hkdRateInput');
     const hkdRateReset = document.getElementById('hkdRateReset');
+    const cashAmountInput = document.getElementById('cashAmount');
+    const cashCurrencySelect = document.getElementById('cashCurrency');
     const searchButton = document.getElementById('searchButton');
     const searchStatus = document.getElementById('searchStatus');
     const searchResultsElement = document.getElementById('searchResults');
@@ -947,6 +1053,7 @@ export class HoldingsManagerPanel implements Disposable {
     let colorConvention = 'china';
     let hkdRate = null;
     let lastHkdRate = 0.9;
+    let cash = { amount: '0', currency: 'CNY' };
     let openAdjustSymbol = '';
     let adjustState = null;
     let adjustCanApply = false;
@@ -999,7 +1106,7 @@ export class HoldingsManagerPanel implements Disposable {
       const tr = document.createElement('tr');
       tr.className = 'adjust-row';
       const td = document.createElement('td');
-      td.colSpan = 11;
+      td.colSpan = 13;
       const panel = document.createElement('div');
       panel.className = 'adjust-panel';
 
@@ -1129,6 +1236,18 @@ export class HoldingsManagerPanel implements Disposable {
       return Number.isFinite(number) && number > 0 ? number : null;
     }
 
+    function parseCashAmount(value) {
+      const text = String(value).trim();
+      const number = text === '' ? 0 : Number(text);
+      return Number.isFinite(number) && number >= 0 ? number : null;
+    }
+
+    function cashValidationError() {
+      return parseCashAmount(cash.amount) === null
+        ? '现金金额必须是大于等于 0 的数字'
+        : '';
+    }
+
     function serializeRows() {
       return rows.map(function (row) {
         const payload = {
@@ -1141,8 +1260,16 @@ export class HoldingsManagerPanel implements Disposable {
       });
     }
 
+    function serializeCash() {
+      return { amount: cash.amount, currency: cash.currency };
+    }
+
     function postDraft() {
-      vscode.postMessage({ type: 'draftChanged', rows: serializeRows() });
+      vscode.postMessage({
+        type: 'draftChanged',
+        rows: serializeRows(),
+        cash: serializeCash()
+      });
     }
 
     function markDirty() {
@@ -1161,27 +1288,32 @@ export class HoldingsManagerPanel implements Disposable {
       const blocked = busy || saving;
       const invalidRows = rows.filter(function (row) { return validationError(row); });
       const firstInvalid = invalidRows[0];
+      const cashError = cashValidationError();
       const cny = rows.filter(function (row) { return row.currency === 'CNY'; }).length;
       const hkd = rows.length - cny;
       summary.textContent = rows.length + ' 项持仓 · CNY ' + cny + ' · HKD ' + hkd;
       dirtyBadge.textContent = saving ? '正在保存…' : invalidRows.length > 0
         ? invalidRows.length + ' 项待填写' : dirty ? '有未保存更改' : '没有未保存更改';
       dirtyBadge.classList.toggle('dirty', dirty);
-      validationStatus.hidden = !firstInvalid;
-      validationMessage.textContent = firstInvalid
+      validationStatus.hidden = !firstInvalid && !cashError;
+      validationMessage.textContent = cashError
+        ? '现金：' + cashError + '。'
+        : firstInvalid
         ? '第 ' + (rows.indexOf(firstInvalid) + 1) + ' 行 ' + firstInvalid.name + '：' + validationError(firstInvalid) + '。'
         : '';
       focusInvalidButton.disabled = saving;
       discardButton.disabled = !dirty || blocked;
       deleteButton.disabled = selectedRows.size === 0 || blocked;
-      saveButton.disabled = !dirty || invalidRows.length > 0 || blocked;
+      saveButton.disabled = !dirty || invalidRows.length > 0 || Boolean(cashError) || blocked;
       saveButton.textContent = saving ? '保存中…' : '保存全部';
-      saveButton.title = firstInvalid ? validationMessage.textContent
+      saveButton.title = firstInvalid || cashError ? validationMessage.textContent
         : saving ? '正在保存，请稍候' : dirty ? '保存全部更改（Ctrl+S）' : '没有未保存更改';
       refreshButton.disabled = blocked;
       refreshButton.textContent = busy ? '刷新中…' : '刷新行情';
       searchButton.disabled = blocked;
       searchInput.disabled = saving;
+      cashAmountInput.disabled = saving;
+      cashCurrencySelect.disabled = saving;
       selectAll.disabled = saving;
       rowsElement.querySelectorAll('input, select, .adjust-actions .secondary').forEach(function (control) {
         control.disabled = saving;
@@ -1359,6 +1491,7 @@ export class HoldingsManagerPanel implements Disposable {
           tr.appendChild(blankCell());
         }
         tr.appendChild(createCell(priced ? formatNumber(group.marketValue, 2, 2) + ' ' + groupUnit : '—'));
+        tr.appendChild(blankCell());
         tr.appendChild(toneCell(priced ? signedNumber(profit) : '—', priced ? profit : 0));
         tr.appendChild(toneCell(priced ? signedPercent(profit / group.costValue * 100) : '—', priced ? profit : 0));
         const dayCell = toneCell(
@@ -1373,6 +1506,131 @@ export class HoldingsManagerPanel implements Disposable {
         tr.appendChild(blankCell());
         totalsElement.appendChild(tr);
       });
+      renderAssetSummary();
+    }
+
+    function convertCashAmount(value) {
+      return cash.currency === 'HKD' && hkdRate ? value * hkdRate : value;
+    }
+
+    function portfolioSummary() {
+      const cashAmount = parseCashAmount(cash.amount);
+      const cashKnown = cashAmount !== null;
+      const currencies = new Set();
+      rows.forEach(function (row) {
+        currencies.add(row.currency === 'HKD' ? 'HKD' : 'CNY');
+      });
+      if (cashKnown && cashAmount > 0) {
+        currencies.add(cash.currency === 'HKD' ? 'HKD' : 'CNY');
+      }
+      let currency;
+      if (hkdRate) {
+        currency = 'CNY';
+      } else if (currencies.size === 0) {
+        currency = 'CNY';
+      } else if (currencies.size === 1) {
+        currency = Array.from(currencies)[0];
+      } else {
+        currency = null;
+      }
+      let holdingsValue = 0;
+      let pricedCount = 0;
+      let pending = 0;
+      rows.forEach(function (row) {
+        const quantity = parseQuantity(row.quantity);
+        const cost = parseCost(row.averageCost);
+        const priced = Number.isFinite(row.currentPrice)
+          && row.currentPrice > 0
+          && row.quoteState !== 'error'
+          && row.quoteState !== 'missing';
+        if (quantity === null || cost === null || !priced) {
+          pending += 1;
+          return;
+        }
+        pricedCount += 1;
+        if (currency !== null) {
+          holdingsValue += convertAmount(row, quantity * row.currentPrice);
+        }
+      });
+      const cashValue = currency === null || !cashKnown
+        ? null
+        : convertCashAmount(cashAmount);
+      const totalAssets = currency === null || cashValue === null
+        ? null
+        : holdingsValue + cashValue;
+      const investedPercent = totalAssets !== null && totalAssets > 0
+        ? holdingsValue / totalAssets * 100
+        : null;
+      const cashPercent = totalAssets !== null && totalAssets > 0 && cashValue !== null
+        ? cashValue / totalAssets * 100
+        : null;
+      return {
+        currency: currency,
+        holdingsValue: holdingsValue,
+        cashValue: cashValue,
+        totalAssets: totalAssets,
+        investedPercent: investedPercent,
+        cashPercent: cashPercent,
+        pricedCount: pricedCount,
+        pending: pending
+      };
+    }
+
+    function updateWeightCells(summary) {
+      rows.forEach(function (row) {
+        const tr = rowsElement.querySelector('[data-key="' + CSS.escape(rowKey(row)) + '"]');
+        const cell = tr && tr.querySelector('[data-field="weight"]');
+        if (!cell) return;
+        const quantity = parseQuantity(row.quantity);
+        const cost = parseCost(row.averageCost);
+        const priced = Number.isFinite(row.currentPrice)
+          && row.currentPrice > 0
+          && row.quoteState !== 'error'
+          && row.quoteState !== 'missing';
+        if (
+          summary.currency === null
+          || summary.totalAssets === null
+          || summary.totalAssets <= 0
+          || quantity === null
+          || cost === null
+          || !priced
+        ) {
+          cell.textContent = '—';
+          return;
+        }
+        const weight = convertAmount(row, quantity * row.currentPrice) / summary.totalAssets * 100;
+        cell.textContent = formatNumber(weight, 2, 2) + '%';
+      });
+    }
+
+    function renderAssetSummary() {
+      const summaryValue = portfolioSummary();
+      if (summaryValue.currency === null) {
+        assetTotal.textContent = '未合并';
+        assetHoldings.textContent = '未合并';
+        assetInvested.textContent = '—';
+        assetCashPercent.textContent = '—';
+        assetNote.textContent = '未启用港币折算，混币持仓与现金不合并，无法计算总资产和仓位。';
+      } else if (summaryValue.totalAssets === null) {
+        assetTotal.textContent = '—';
+        assetHoldings.textContent = '—';
+        assetInvested.textContent = '—';
+        assetCashPercent.textContent = '—';
+        assetNote.textContent = '现金金额无效，无法计算总资产和仓位。';
+      } else {
+        assetTotal.textContent = formatNumber(summaryValue.totalAssets, 2, 2) + ' ' + summaryValue.currency;
+        assetHoldings.textContent = formatNumber(summaryValue.holdingsValue, 2, 2) + ' ' + summaryValue.currency;
+        assetInvested.textContent = summaryValue.investedPercent === null
+          ? '—'
+          : formatNumber(summaryValue.investedPercent, 2, 2) + '%';
+        assetCashPercent.textContent = summaryValue.cashPercent === null
+          ? '—'
+          : formatNumber(summaryValue.cashPercent, 2, 2) + '%';
+        assetNote.textContent = summaryValue.pending > 0
+          ? '部分持仓未填写完整或缺价，总资产按可用市值计算。现金不参与盈亏。'
+          : '总资产 = 持仓市值 + 现金；现金不参与浮动盈亏或当日盈亏。';
+      }
+      updateWeightCells(summaryValue);
     }
 
     function renderRows(focus) {
@@ -1460,6 +1718,9 @@ export class HoldingsManagerPanel implements Disposable {
         const marketValueCell = createCell('—');
         marketValueCell.dataset.field = 'marketValue';
         tr.appendChild(marketValueCell);
+        const weightCell = createCell('—');
+        weightCell.dataset.field = 'weight';
+        tr.appendChild(weightCell);
         const profitCell = createCell('—');
         profitCell.dataset.field = 'profit';
         tr.appendChild(profitCell);
@@ -1515,6 +1776,9 @@ export class HoldingsManagerPanel implements Disposable {
     function focusInput(focus) {
       if (focus && focus.type === 'search') {
         activatePane('search');
+      } else if (focus && focus.type === 'cash') {
+        cashAmountInput.focus();
+        cashAmountInput.select();
       } else if (focus && focus.type === 'holding') {
         focusRow(rows.find(function (row) { return row.id === focus.holdingId; }), 'quantity');
       }
@@ -1532,6 +1796,11 @@ export class HoldingsManagerPanel implements Disposable {
     }
 
     focusInvalidButton.addEventListener('click', function () {
+      if (cashValidationError()) {
+        cashAmountInput.focus();
+        cashAmountInput.select();
+        return;
+      }
       const firstInvalid = rows.find(function (row) { return validationError(row); });
       if (firstInvalid) focusRow(firstInvalid, parseQuantity(firstInvalid.quantity) === null ? 'quantity' : 'cost');
     });
@@ -1609,6 +1878,19 @@ export class HoldingsManagerPanel implements Disposable {
       }
     }
 
+    function updateCash(value, forceInput) {
+      const amount = value && Number.isFinite(Number(value.amount)) && Number(value.amount) >= 0
+        ? Number(value.amount)
+        : 0;
+      const currency = value && value.currency === 'HKD' ? 'HKD' : 'CNY';
+      cash = { amount: String(amount), currency: currency };
+      if (forceInput || document.activeElement !== cashAmountInput) {
+        cashAmountInput.value = String(amount);
+      }
+      cashCurrencySelect.value = currency;
+      cashAmountInput.classList.toggle('invalid', parseCashAmount(cash.amount) === null);
+    }
+
     function submitHkdRate(value) {
       if (value !== null && (typeof value !== 'number' || !isFinite(value) || value < 0.1 || value > 2)) {
         setNotice('港币汇率需填 0.1 到 2 之间的数字。', true);
@@ -1626,6 +1908,17 @@ export class HoldingsManagerPanel implements Disposable {
     });
     hkdRateReset.addEventListener('click', function () {
       submitHkdRate(0.9);
+    });
+    cashAmountInput.addEventListener('input', function () {
+      cash.amount = cashAmountInput.value;
+      cashAmountInput.classList.toggle('invalid', parseCashAmount(cash.amount) === null);
+      markDirty();
+      renderTotals();
+    });
+    cashCurrencySelect.addEventListener('change', function () {
+      cash.currency = cashCurrencySelect.value === 'HKD' ? 'HKD' : 'CNY';
+      markDirty();
+      renderTotals();
     });
     searchInput.addEventListener('keydown', function (event) {
       if (event.key === 'Enter') {
@@ -1788,7 +2081,11 @@ export class HoldingsManagerPanel implements Disposable {
       saving = true;
       updateControls();
       setNotice('正在保存…', false);
-      vscode.postMessage({ type: 'save', rows: serializeRows() });
+      vscode.postMessage({
+        type: 'save',
+        rows: serializeRows(),
+        cash: serializeCash()
+      });
     }
     saveButton.addEventListener('click', requestSave);
     window.addEventListener('keydown', function (event) {
@@ -1820,6 +2117,7 @@ export class HoldingsManagerPanel implements Disposable {
         colorConvention = message.colorConvention === 'international' ? 'international' : 'china';
         document.body.classList.toggle('international', colorConvention === 'international');
         updateHkdRate(message.hkdRate, true);
+        updateCash(message.cash, true);
         selectedRows.clear();
         renderRows(message.focus);
         renderSearchResults();
