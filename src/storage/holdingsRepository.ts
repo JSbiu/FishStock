@@ -1,6 +1,7 @@
 // 领域函数与下面仓储的同名方法重名，导入时取别名以免遮蔽。
 import { moveHolding as moveHoldingInList } from '../domain/holdings';
 import type {
+  CashBalance,
   Holding,
   HoldingsState,
   HoldingInstrumentKind,
@@ -57,6 +58,29 @@ function readAverageCost(value: unknown): number {
   return value;
 }
 
+function readCash(value: unknown): CashBalance | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!isRecord(value)) {
+    throw new HoldingsValidationError('现金余额格式无效');
+  }
+  if (
+    typeof value.amount !== 'number' ||
+    !Number.isFinite(value.amount) ||
+    value.amount < 0
+  ) {
+    throw new HoldingsValidationError('现金金额必须是大于等于 0 的数字');
+  }
+  if (value.currency !== 'CNY' && value.currency !== 'HKD') {
+    throw new HoldingsValidationError('现金币种无效');
+  }
+  return {
+    amount: value.amount,
+    currency: value.currency,
+  };
+}
+
 function parseHolding(
   value: unknown,
   seenIds: Set<string>,
@@ -107,10 +131,12 @@ export function parseHoldingsState(value: unknown): HoldingsState {
   }
   const seenIds = new Set<string>();
   const seenSymbols = new Set<string>();
+  const cash = readCash(value.cash);
   return {
     version: 1,
     holdings: value.holdings.map((holding) =>
       parseHolding(holding, seenIds, seenSymbols)),
+    ...(cash ? { cash } : {}),
   };
 }
 
@@ -177,7 +203,7 @@ export class HoldingsRepository {
     const state = this.getSnapshot();
     this.requireHolding(state, holdingId);
     const next = moveHoldingInList(state.holdings, holdingId, delta);
-    await this.save({ version: 1, holdings: next });
+    await this.save({ ...state, holdings: next });
   }
 
   public async removeHolding(holdingId: string): Promise<void> {
@@ -188,11 +214,36 @@ export class HoldingsRepository {
   }
 
   public async clear(): Promise<void> {
-    await this.save(emptyState());
+    const state = this.getSnapshot();
+    await this.save({
+      version: 1,
+      holdings: [],
+      ...(state.cash ? { cash: state.cash } : {}),
+    });
   }
 
   public async replaceHoldings(holdings: readonly Holding[]): Promise<void> {
-    await this.save({ version: 1, holdings: [...holdings] });
+    const state = this.getSnapshot();
+    await this.save({
+      version: 1,
+      holdings: [...holdings],
+      ...(state.cash ? { cash: state.cash } : {}),
+    });
+  }
+
+  /** 持仓与现金属于同一份账户快照，必须在同一次写入中提交。 */
+  public async replacePortfolio(
+    holdings: readonly Holding[],
+    cash: CashBalance,
+  ): Promise<void> {
+    const normalizedCash = readCash(cash);
+    await this.save({
+      version: 1,
+      holdings: [...holdings],
+      ...(normalizedCash && normalizedCash.amount > 0
+        ? { cash: normalizedCash }
+        : {}),
+    });
   }
 
   private requireHolding(state: HoldingsState, holdingId: string): Holding {

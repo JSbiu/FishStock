@@ -131,3 +131,78 @@ test('replaces invalid persisted data with an empty safe state', async () => {
   assert.deepEqual(await repository.load(), { version: 1, holdings: [] });
   assert.equal(backing.updateCount, 1);
 });
+
+test('persists cash with holdings and preserves it across holding-only changes', async () => {
+  const backing = new MemoryStateStore({ version: 1, holdings: [holding] });
+  const repository = new HoldingsRepository(backing);
+  await repository.load();
+
+  await repository.replacePortfolio([holding], {
+    amount: 5_000,
+    currency: 'HKD',
+  });
+  const reloaded = new HoldingsRepository(backing);
+  const loaded = await reloaded.load();
+  assert.deepEqual(loaded.cash, { amount: 5_000, currency: 'HKD' });
+
+  await reloaded.replaceHoldings([holding]);
+  assert.deepEqual(reloaded.getSnapshot().cash, { amount: 5_000, currency: 'HKD' });
+
+  await reloaded.clear();
+  assert.deepEqual(reloaded.getSnapshot().holdings, []);
+  assert.deepEqual(reloaded.getSnapshot().cash, { amount: 5_000, currency: 'HKD' });
+});
+
+test('rejects invalid cash without changing memory or persisting a partial portfolio', async () => {
+  const backing = new MemoryStateStore({ version: 1, holdings: [holding] });
+  const repository = new HoldingsRepository(backing);
+  await repository.load();
+  const before = repository.getSnapshot();
+
+  await assert.rejects(
+    repository.replacePortfolio([holding], { amount: -1, currency: 'CNY' }),
+    /现金金额/,
+  );
+  assert.deepEqual(repository.getSnapshot(), before);
+  assert.throws(
+    () => parseHoldingsState({
+      version: 1,
+      holdings: [],
+      cash: { amount: 10, currency: 'USD' },
+    }),
+    /现金币种/,
+  );
+});
+
+test('omits a zero cash balance but keeps a non-zero currency balance', async () => {
+  const backing = new MemoryStateStore();
+  const repository = new HoldingsRepository(backing);
+  await repository.load();
+
+  await repository.replacePortfolio([holding], { amount: 0, currency: 'CNY' });
+  assert.equal(repository.getSnapshot().cash, undefined);
+
+  await repository.replacePortfolio([holding], { amount: 0, currency: 'HKD' });
+  assert.equal(repository.getSnapshot().cash, undefined);
+
+  await repository.replacePortfolio([holding], { amount: 12.5, currency: 'CNY' });
+  assert.deepEqual(repository.getSnapshot().cash, { amount: 12.5, currency: 'CNY' });
+});
+
+test('keeps the previous cash and holdings when the portfolio write fails', async () => {
+  const backing = new MemoryStateStore({
+    version: 1,
+    holdings: [holding],
+    cash: { amount: 100, currency: 'CNY' },
+  });
+  const repository = new HoldingsRepository(backing);
+  await repository.load();
+  const before = repository.getSnapshot();
+
+  backing.failUpdates = true;
+  await assert.rejects(
+    repository.replacePortfolio([holding], { amount: 200, currency: 'CNY' }),
+    /storage failed/,
+  );
+  assert.deepEqual(repository.getSnapshot(), before);
+});

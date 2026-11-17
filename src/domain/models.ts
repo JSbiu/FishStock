@@ -6,6 +6,11 @@ export type HoldingInstrumentKind = 'stock' | 'fund';
 
 export type HoldingCurrency = 'CNY' | 'HKD';
 
+export interface CashBalance {
+  amount: number;
+  currency: HoldingCurrency;
+}
+
 export type QuoteState = 'live' | 'closed' | 'stale' | 'error';
 
 export type QuoteStaleReason =
@@ -50,6 +55,8 @@ export interface Holding {
 export interface HoldingsState {
   version: 1;
   holdings: Holding[];
+  /** 账户现金余额；省略表示 0 CNY。 */
+  cash?: CashBalance;
 }
 
 export interface NormalizedSymbol {

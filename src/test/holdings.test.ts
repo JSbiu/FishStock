@@ -2,15 +2,19 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   buildSummarySegments,
+  buildPortfolioSummarySegments,
   buildHoldingDescriptionSegments,
   calculateHoldingMetrics,
   DEFAULT_HOLDING_HKD_RATE,
   DEFAULT_HOLDING_DESCRIPTION_FIELDS,
   DEFAULT_HOLDING_SORT,
+  formatCashAmount,
+  formatWeightPercent,
   ensureAtLeastOneField,
   holdingAmountSortPaused,
   holdingDayChange,
   holdingIconKindOf,
+  holdingWeightPercent,
   holdingSortLabel,
   holdingTreeContextValue,
   moveHolding,
@@ -18,6 +22,7 @@ import {
   normalizeHoldingHkdRate,
   sortHoldings,
   summarizeHoldings,
+  summarizePortfolio,
   toDisplayAmount,
   type HoldingDescriptionFields,
 } from '../domain/holdings';
@@ -224,6 +229,7 @@ test('defaults to showing every field', () => {
   assert.deepEqual(DEFAULT_HOLDING_DESCRIPTION_FIELDS, {
     quantity: true,
     marketValue: true,
+    weight: true,
     profit: true,
     dayProfit: true,
   });
@@ -233,12 +239,14 @@ test('ensureAtLeastOneField keeps market value when all flags are off', () => {
   const empty: HoldingDescriptionFields = {
     quantity: false,
     marketValue: false,
+    weight: false,
     profit: false,
     dayProfit: false,
   };
   assert.deepEqual(ensureAtLeastOneField(empty), {
     quantity: false,
     marketValue: true,
+    weight: false,
     profit: false,
     dayProfit: false,
   });
@@ -248,6 +256,7 @@ test('ensureAtLeastOneField returns the input as is when something is enabled', 
   const partial: HoldingDescriptionFields = {
     quantity: true,
     marketValue: false,
+    weight: false,
     profit: false,
     dayProfit: false,
   };
@@ -268,6 +277,7 @@ test('normalizes partial and malformed tree View fields against defaults', () =>
   assert.deepEqual(normalizeHoldingDescriptionFields(undefined), {
     quantity: true,
     marketValue: true,
+    weight: true,
     profit: true,
     dayProfit: true,
   });
@@ -277,23 +287,27 @@ test('normalizes partial and malformed tree View fields against defaults', () =>
   }), {
     quantity: false,
     marketValue: true,
+    weight: true,
     profit: true,
     dayProfit: true,
   });
   assert.deepEqual(normalizeHoldingDescriptionFields({
     quantity: false,
     marketValue: false,
+    weight: false,
     profit: false,
     dayProfit: false,
   }), {
     quantity: false,
     marketValue: true,
+    weight: false,
     profit: false,
     dayProfit: false,
   });
   assert.deepEqual(normalizeHoldingDescriptionFields('invalid'), {
     quantity: true,
     marketValue: true,
+    weight: true,
     profit: true,
     dayProfit: true,
   });
@@ -352,6 +366,7 @@ test('buildCurrencySummarySegments never includes quantity', () => {
       fields: {
         quantity: true,
         marketValue: true,
+        weight: false,
         profit: true,
         dayProfit: true,
       },
@@ -632,7 +647,7 @@ test('summarizeHoldings exposes no mixed-currency amounts or rates without conve
     dayProfitPercent: null,
   });
   for (const fields of [DEFAULT_HOLDING_DESCRIPTION_FIELDS, {
-    quantity: true, marketValue: false, profit: false, dayProfit: false,
+    quantity: true, marketValue: false, weight: false, profit: false, dayProfit: false,
   }]) {
     assert.deepEqual(buildSummarySegments(summary, { fields, suspended: true }), [
       '未合并：未启用港币折算',
@@ -846,5 +861,137 @@ test('buildHoldingDescriptionSegments keeps the sign on negative rates', () => {
   assert.deepEqual(
     buildHoldingDescriptionSegments(holding, metrics, { fields: DEFAULT_HOLDING_DESCRIPTION_FIELDS }),
     ['100 股', '14.60万', '-3,000(-2.01%)', '今日-2,000(-1.35%)'],
+  );
+});
+
+test('summarizePortfolio puts cash into total assets and position weights', () => {
+  const summary = summarizePortfolio(
+    [holding],
+    { amount: 500, currency: 'CNY' },
+    () => quote(1_500),
+    NOW,
+  );
+  assert.equal(summary.currency, 'CNY');
+  assert.equal(summary.marketValue, 150_000);
+  assert.equal(summary.cashValue, 500);
+  assert.equal(summary.totalAssets, 150_500);
+  assert.equal(summary.investedPercent, (150_000 / 150_500) * 100);
+  assert.equal(summary.cashPercent, (500 / 150_500) * 100);
+  assert.equal(summary.profit, 1_000);
+  assert.equal(summary.returnPercent, (1_000 / 149_000) * 100);
+  assert.equal(
+    holdingWeightPercent(holding, quote(1_500), summary, null, NOW),
+    (150_000 / 150_500) * 100,
+  );
+  assert.deepEqual(
+    buildPortfolioSummarySegments(summary, {
+      fields: DEFAULT_HOLDING_DESCRIPTION_FIELDS,
+    }),
+    ['15.05万', '仓位 99.67%', '+1,000(+0.67%)', '今日—'],
+  );
+});
+
+test('summarizePortfolio handles cash-only accounts and HKD cash conversion', () => {
+  const cashOnly = summarizePortfolio(
+    [],
+    { amount: 1_000, currency: 'CNY' },
+    () => undefined,
+    NOW,
+  );
+  assert.equal(cashOnly.currency, 'CNY');
+  assert.equal(cashOnly.marketValue, 0);
+  assert.equal(cashOnly.cashValue, 1_000);
+  assert.equal(cashOnly.totalAssets, 1_000);
+  assert.equal(cashOnly.investedPercent, 0);
+  assert.equal(cashOnly.cashPercent, 100);
+
+  const hkLiteral = hkHolding('h');
+  const hkQuote = { ...quoteAt('00700.HK', 10, 10), market: 'HK' as const, currency: 'HKD' };
+  const converted = summarizePortfolio(
+    [hkLiteral],
+    { amount: 100, currency: 'HKD' },
+    () => hkQuote,
+    NOW,
+    0.9,
+  );
+  assert.equal(converted.currency, 'CNY');
+  assert.equal(converted.marketValue, 900);
+  assert.equal(converted.cashValue, 90);
+  assert.equal(converted.totalAssets, 990);
+  assert.equal(converted.investedPercent, (900 / 990) * 100);
+  assert.equal(converted.cashPercent, (90 / 990) * 100);
+
+  const rawHkd = summarizePortfolio(
+    [hkLiteral],
+    { amount: 100, currency: 'HKD' },
+    () => hkQuote,
+    NOW,
+    null,
+  );
+  assert.equal(rawHkd.currency, 'HKD');
+  assert.equal(rawHkd.marketValue, 1_000);
+  assert.equal(rawHkd.cashValue, 100);
+  assert.equal(rawHkd.totalAssets, 1_100);
+  assert.equal(rawHkd.investedPercent, (1_000 / 1_100) * 100);
+  assert.equal(rawHkd.cashPercent, (100 / 1_100) * 100);
+});
+
+test('summarizePortfolio keeps mixed currencies uncombined without a rate', () => {
+  const summary = summarizePortfolio(
+    [holding],
+    { amount: 100, currency: 'HKD' },
+    () => quote(1_500),
+    NOW,
+    null,
+  );
+  assert.equal(summary.currency, null);
+  assert.equal(summary.marketValue, null);
+  assert.equal(summary.cashValue, null);
+  assert.equal(summary.totalAssets, null);
+  assert.equal(summary.investedPercent, null);
+  assert.equal(summary.cashPercent, null);
+  assert.equal(
+    holdingWeightPercent(holding, quote(1_500), summary, null, NOW),
+    null,
+  );
+  assert.deepEqual(
+    buildPortfolioSummarySegments(summary, {
+      fields: DEFAULT_HOLDING_DESCRIPTION_FIELDS,
+    }),
+    ['未合并：未启用港币折算'],
+  );
+});
+
+test('summarizePortfolio does not guess a price for missing holdings', () => {
+  const summary = summarizePortfolio(
+    [holding],
+    { amount: 500, currency: 'CNY' },
+    () => undefined,
+    NOW,
+  );
+  assert.equal(summary.pricedItemCount, 0);
+  assert.equal(summary.marketValue, 0);
+  assert.equal(summary.cashValue, 500);
+  assert.equal(summary.totalAssets, 500);
+  assert.equal(summary.investedPercent, 0);
+  assert.equal(summary.cashPercent, 100);
+  assert.equal(
+    holdingWeightPercent(holding, undefined, summary, null, NOW),
+    null,
+  );
+});
+
+test('formats cash and weights compactly', () => {
+  assert.equal(formatWeightPercent(null), '—');
+  assert.equal(formatWeightPercent(12.345), '12.35%');
+  assert.equal(formatCashAmount({ amount: 12_345.6, currency: 'CNY' }), '12,345.60 CNY');
+  const metrics = calculateHoldingMetrics(holding, quote(1_500), NOW);
+  assert.ok(metrics);
+  assert.deepEqual(
+    buildHoldingDescriptionSegments(holding, metrics, {
+      fields: DEFAULT_HOLDING_DESCRIPTION_FIELDS,
+      weightPercent: 12.344,
+    }),
+    ['100 股', '15.00万', '占比 12.34%', '+1,000(+0.67%)', '今日—'],
   );
 });

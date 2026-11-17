@@ -1,4 +1,5 @@
 import type {
+  CashBalance,
   Holding,
   HoldingCurrency,
   Quote,
@@ -8,6 +9,11 @@ import { shanghaiDateString } from './tradingCalendar';
 export const DEFAULT_HOLDING_HKD_RATE = 0.9;
 export const MIN_HOLDING_HKD_RATE = 0.1;
 export const MAX_HOLDING_HKD_RATE = 2;
+export const EMPTY_CASH_BALANCE: CashBalance = { amount: 0, currency: 'CNY' };
+
+export function cashBalanceOf(state: { cash?: CashBalance }): CashBalance {
+  return state.cash ? { ...state.cash } : { ...EMPTY_CASH_BALANCE };
+}
 
 export interface HoldingMetrics {
   currency: HoldingCurrency;
@@ -36,6 +42,15 @@ export interface HoldingSummary {
   returnPercent: number | null;
   dayProfit: number | null;
   dayProfitPercent: number | null;
+}
+
+/** 账户级汇总：持仓市值与现金共同构成总资产，盈亏仍只统计持仓。 */
+export interface PortfolioSummary extends HoldingSummary {
+  cash: CashBalance;
+  cashValue: number | null;
+  totalAssets: number | null;
+  investedPercent: number | null;
+  cashPercent: number | null;
 }
 
 export function holdingCurrency(holding: Holding): HoldingCurrency {
@@ -150,21 +165,33 @@ export function calculateHoldingMetrics(
 }
 
 /**
- * 有汇率时折算为 CNY；无汇率时只汇总单币种，混币仅返回条目计数。
- * 币种按全部持仓判断，避免缺价时误把混币列表当作单币种总计。
+ * 账户汇总。现金计入总资产和仓位，但浮动盈亏、当日盈亏仍只来自持仓；
+ * 无汇率时只汇总单币种，混币仅返回条目计数。
  */
-export function summarizeHoldings(
+export function summarizePortfolio(
   holdings: readonly Holding[],
+  cash: CashBalance | undefined,
   quoteOf: (holding: Holding) => Quote | undefined,
   now: Date = new Date(),
   hkdRate: number | null = null,
-): HoldingSummary {
+): PortfolioSummary {
   const rate = isValidHkdRate(hkdRate) ? hkdRate : null;
-  const currency = rate !== null
+  const normalizedCash = cash ? { ...cash } : { ...EMPTY_CASH_BALANCE };
+  const cashAmount = normalizedCash.amount > 0 ? normalizedCash.amount : 0;
+  const currencies = new Set<HoldingCurrency>();
+  for (const holding of holdings) {
+    currencies.add(holdingCurrency(holding));
+  }
+  if (cashAmount > 0) {
+    currencies.add(normalizedCash.currency);
+  }
+  const currency: HoldingCurrency | null = rate !== null
     ? 'CNY'
-    : hasMixedHoldingCurrencies(holdings)
-      ? null
-      : holdings.length > 0 ? holdingCurrency(holdings[0]) : 'CNY';
+    : currencies.size === 0
+      ? 'CNY'
+      : currencies.size === 1
+        ? [...currencies][0]
+        : null;
   let pricedItemCount = 0;
   let costValue = 0;
   let marketValue = 0;
@@ -191,19 +218,93 @@ export function summarizeHoldings(
       dayProfitBase += convert(metrics.previousValue);
     }
   }
+  const cashValue = currency === null
+    ? null
+    : toDisplayAmount(cashAmount, normalizedCash.currency, rate);
+  const totalAssets = currency === null || cashValue === null
+    ? null
+    : marketValue + cashValue;
+  const investedPercent = totalAssets !== null && totalAssets > 0
+    ? (marketValue / totalAssets) * 100
+    : null;
+  const cashPercent = totalAssets !== null && totalAssets > 0 && cashValue !== null
+    ? (cashValue / totalAssets) * 100
+    : null;
+  const hasHkd = holdings.some((holding) => holdingCurrency(holding) === 'HKD')
+    || (cashAmount > 0 && normalizedCash.currency === 'HKD');
   return {
     currency,
-    hkdRate: holdings.some((holding) => holdingCurrency(holding) === 'HKD') ? rate : null,
+    hkdRate: hasHkd ? rate : null,
     itemCount: holdings.length,
     pricedItemCount,
     costValue: currency === null ? null : costValue,
     marketValue: currency === null ? null : marketValue,
     profit: currency === null ? null : profit,
-    returnPercent: costValue > 0 ? (profit / costValue) * 100 : null,
-    dayProfit,
+    returnPercent: currency !== null && costValue > 0
+      ? (profit / costValue) * 100
+      : null,
+    dayProfit: currency === null ? null : dayProfit,
     dayProfitPercent:
-      dayProfit !== null && dayProfitBase > 0 ? (dayProfit / dayProfitBase) * 100 : null,
+      currency !== null && dayProfit !== null && dayProfitBase > 0
+        ? (dayProfit / dayProfitBase) * 100
+        : null,
+    cash: normalizedCash,
+    cashValue,
+    totalAssets,
+    investedPercent,
+    cashPercent,
   };
+}
+
+/**
+ * 有汇率时折算为 CNY；无汇率时只汇总单币种，混币仅返回条目计数。
+ * 币种按全部持仓判断，避免缺价时误把混币列表当作单币种总计。
+ */
+export function summarizeHoldings(
+  holdings: readonly Holding[],
+  quoteOf: (holding: Holding) => Quote | undefined,
+  now: Date = new Date(),
+  hkdRate: number | null = null,
+): HoldingSummary {
+  const summary = summarizePortfolio(
+    holdings,
+    EMPTY_CASH_BALANCE,
+    quoteOf,
+    now,
+    hkdRate,
+  );
+  return {
+    currency: summary.currency,
+    hkdRate: summary.hkdRate,
+    itemCount: summary.itemCount,
+    pricedItemCount: summary.pricedItemCount,
+    costValue: summary.costValue,
+    marketValue: summary.marketValue,
+    profit: summary.profit,
+    returnPercent: summary.returnPercent,
+    dayProfit: summary.dayProfit,
+    dayProfitPercent: summary.dayProfitPercent,
+  };
+}
+
+export function holdingWeightPercent(
+  holding: Holding,
+  quote: Quote | undefined,
+  summary: Pick<PortfolioSummary, 'currency' | 'totalAssets'>,
+  hkdRate: number | null = null,
+  now: Date = new Date(),
+): number | null {
+  if (summary.currency === null || summary.totalAssets === null || summary.totalAssets <= 0) {
+    return null;
+  }
+  const metrics = calculateHoldingMetrics(holding, quote, now);
+  if (!metrics) {
+    return null;
+  }
+  const marketValue = toDisplayAmount(metrics.marketValue, metrics.currency, hkdRate);
+  return Number.isFinite(marketValue)
+    ? (marketValue / summary.totalAssets) * 100
+    : null;
 }
 
 /**
@@ -213,6 +314,8 @@ export function summarizeHoldings(
 export interface HoldingDescriptionFields {
   quantity: boolean;
   marketValue: boolean;
+  /** 单只持仓市值占总资产的比例（含现金）。 */
+  weight: boolean;
   /** 浮动盈亏金额（百分比合并在括号里，不需要单独勾选收益率）。 */
   profit: boolean;
   /** 当日盈亏金额（百分比合并在括号里）。 */
@@ -222,6 +325,7 @@ export interface HoldingDescriptionFields {
 export const DEFAULT_HOLDING_DESCRIPTION_FIELDS: HoldingDescriptionFields = {
   quantity: true,
   marketValue: true,
+  weight: true,
   profit: true,
   dayProfit: true,
 };
@@ -247,6 +351,7 @@ export function normalizeHoldingDescriptionFields(
   return ensureAtLeastOneField({
     quantity: field('quantity'),
     marketValue: field('marketValue'),
+    weight: field('weight'),
     profit: field('profit'),
     dayProfit: field('dayProfit'),
   });
@@ -259,7 +364,13 @@ export function normalizeHoldingDescriptionFields(
 export function ensureAtLeastOneField(
   fields: HoldingDescriptionFields,
 ): HoldingDescriptionFields {
-  if (fields.marketValue || fields.profit || fields.dayProfit || fields.quantity) {
+  if (
+    fields.marketValue
+    || fields.weight
+    || fields.profit
+    || fields.dayProfit
+    || fields.quantity
+  ) {
     return fields;
   }
   return { ...fields, marketValue: true };
@@ -292,6 +403,8 @@ export interface HoldingDescriptionOptions {
   fields: HoldingDescriptionFields;
   /** 港币折算人民币的汇率；null 或省略表示不折算。 */
   hkdRate?: number | null;
+  /** 单只持仓占总资产的比例；省略表示当前上下文不展示。 */
+  weightPercent?: number | null;
   /** 停牌：当日无成交，用「停牌」替代「今日—」。 */
   suspended?: boolean;
 }
@@ -310,6 +423,9 @@ export function buildHoldingDescriptionSegments(
   }
   if (fields.marketValue) {
     segments.push(formatCompactMarketValue(display(metrics.marketValue)));
+  }
+  if (fields.weight && options.weightPercent !== undefined) {
+    segments.push(`占比 ${formatWeightPercent(options.weightPercent)}`);
   }
   if (fields.profit) {
     segments.push(formatProfitCell(display(metrics.profit), metrics.returnPercent));
@@ -353,6 +469,52 @@ export function buildSummarySegments(
     );
   }
   return segments;
+}
+
+/** 总资产口径的汇总行：现金只影响资产与仓位，不影响盈亏。 */
+export function buildPortfolioSummarySegments(
+  summary: PortfolioSummary,
+  options: HoldingDescriptionOptions,
+): string[] {
+  if (summary.currency === null) {
+    return ['未合并：未启用港币折算'];
+  }
+  const { fields, suspended = false } = options;
+  const segments: string[] = [];
+  if (fields.marketValue && summary.totalAssets !== null) {
+    segments.push(formatCompactMarketValue(summary.totalAssets));
+  }
+  if (fields.weight && summary.investedPercent !== null) {
+    segments.push(`仓位 ${formatWeightPercent(summary.investedPercent)}`);
+  }
+  if (fields.profit && summary.profit !== null) {
+    segments.push(formatProfitCell(summary.profit, summary.returnPercent));
+  }
+  if (fields.dayProfit) {
+    segments.push(
+      suspended
+        ? '停牌'
+        : formatDayCell(summary.dayProfit, summary.dayProfitPercent),
+    );
+  }
+  return segments;
+}
+
+export function formatWeightPercent(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) {
+    return '—';
+  }
+  return `${value.toLocaleString('zh-CN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}%`;
+}
+
+export function formatCashAmount(cash: CashBalance): string {
+  return `${cash.amount.toLocaleString('zh-CN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} ${cash.currency}`;
 }
 
 /** 市值用万 / 亿压缩，避免 Tree View 一行里出现一长串数字。 */
