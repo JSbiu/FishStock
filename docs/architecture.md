@@ -17,22 +17,23 @@ FishStock（Activity Bar 容器）
 └─ Holdings（fishStock.holdings）
    ├─ A 股、港股或境内交易所 ETF 持仓（统一列表）
    ├─ 现金（可选，计入总资产但不参与盈亏）
+   ├─ 分组汇总（读取 Stock / Fund 自选分组，可折叠）
    └─ 总资产（按汇率与币种决定是否合并）
 ```
 
-`Stock`、`Fund`、`Futures` 和 `Holdings` 是 FishStock 容器中的四个同级 View。股票和市场指数共享 Stock 分组；沪深交易所 ETF 使用 Fund；期货因交易时段、代码和行情字段不同使用 Futures；持仓使用跨币种统一列表，港股带「港」角标，末尾保留现金节点与总资产行。前三个自选品类各自拥有命令、存储、视图状态和刷新状态，Holdings 使用独立存储，但复用 Stock/Fund 行情服务与缓存。
+`Stock`、`Fund`、`Futures` 和 `Holdings` 是 FishStock 容器中的四个同级 View。股票和市场指数共享 Stock 分组；沪深交易所 ETF 使用 Fund；期货因交易时段、代码和行情字段不同使用 Futures；持仓使用跨币种统一列表，港股带「港」角标，末尾保留现金节点、分组汇总与总资产行。前三个自选品类各自拥有命令、存储、视图状态和刷新状态，Holdings 使用独立存储，但复用 Stock/Fund 行情服务、缓存与分组归属。
 
 ## 模块
 
 | 模块 | 目录 | 责任 |
 | --- | --- | --- |
-| 领域模型 | `src/domain` | 股票、分组、持仓与行情结构；代码规范化；收益与持仓调仓计算；停牌优先的行情展示状态；顺序调整；交易日历与休市判断；视图展示方式；行情页 URL 模板；脱敏诊断汇总与格式化 |
+| 领域模型 | `src/domain` | 股票、分组、持仓与行情结构；代码规范化；收益与持仓调仓计算；描述字段顺序、仓位排序与自选分组汇总；停牌优先的行情展示状态；顺序调整；交易日历与休市判断；视图展示方式；行情页 URL 模板；脱敏诊断汇总与格式化 |
 | 行情数据 | `src/data` | 提供器接口、腾讯股票/ETF 行情、新浪期货行情、北交所证券目录、节假日休市数据、缓存及请求合并 |
 | 本地存储 | `src/storage` | 股票、基金、期货与持仓的独立版本化结构、视图展示方式、状态栏轮播分组与展示模式选择、校验和读写 |
 | 刷新调度 | `src/services` | 自动刷新间隔、同一任务合并与交易时段边界监控 |
 | 行情展示 | `src/ui/quoteTooltip.ts`、`src/ui/holdingTooltip.ts` | 自选行情与持仓收益的原生浮窗；共享价格、状态和时间格式 |
-| Tree View | `src/ui/watchlistTreeProvider.ts`、`src/ui/holdingsTreeProvider.ts` | 自选分组树、统一持仓列表、现金节点、总资产与仓位、状态文案和主题颜色 |
-| 持仓管理器 | `src/ui/holdingsManagerPanel.ts` | 编辑器 Webview、批量草稿交互、现金与仓位概览、搜索消息、行情与汇率同步、按币种小计与统一保存编排 |
+| Tree View | `src/ui/watchlistTreeProvider.ts`、`src/ui/holdingsTreeProvider.ts` | 自选分组树、统一持仓列表、现金节点、自选分组汇总、总资产与仓位、状态文案和主题颜色 |
+| 持仓管理器 | `src/ui/holdingsManagerPanel.ts` | 编辑器 Webview、批量草稿交互、现金与仓位概览、描述字段显示与顺序、搜索消息、行情与汇率同步、按币种小计与统一保存编排 |
 | 状态栏 | `src/ui/statusBarController.ts` | 在一个状态栏项目中展示自选行情轮播或持仓盈亏轮播 |
 | 命令 | `src/commands` | 装配股票/基金/期货自选命令，以及持仓增删改、清空、刷新、展示模式和行情页跳转 |
 | 装配入口 | `src/extension.ts` | 激活、配置响应、模块生命周期 |
@@ -99,15 +100,15 @@ flowchart LR
 
 所有界面通过 `quotePresentation` 的统一状态判断优先展示停牌，普通行情悬浮卡、Stock / Fund / Futures Tree View、状态栏、Holdings 及其悬浮卡不再各自重复判断。停牌期间当日盈亏不可用且状态栏不展示零涨跌，复牌后恢复对应行情状态。配置写入失败会向页面返回当前有效汇率，恢复控件并说明错误。
 
-| 当前汇率与持仓币种 | Tree View 总资产 | 金额排序 |
+| 当前汇率与持仓币种 | Tree View 总资产 | 金额 / 仓位排序 |
 | --- | --- | --- |
-| 有效汇率 | 港币持仓和港币现金乘汇率后与人民币合并，标明 CNY 与所用汇率；显示总仓位和现金占比 | 浮动盈亏金额、今日盈亏金额按折算值比较 |
-| `null`，单币种 | 使用原币种计算持仓市值、现金和总资产，标明 CNY 或 HKD | 按该币种金额比较 |
-| `null`，混币 | 显示「未合并：未启用港币折算」，无总资产、合计金额或占比 | 暂用默认顺序，说明原因并保留已选维度与升降序；恢复有效汇率后继续应用 |
+| 有效汇率 | 港币持仓和港币现金乘汇率后与人民币合并，标明 CNY 与所用汇率；显示总仓位和现金占比 | 金额按折算值比较；仓位按含现金总资产比较 |
+| `null`，单币种 | 使用原币种计算持仓市值、现金和总资产，标明 CNY 或 HKD | 金额按该币种比较；仓位按含现金总资产比较 |
+| `null`，混币 | 显示「未合并：未启用港币折算」，无总资产、合计金额或占比 | 金额与仓位排序暂用默认顺序，说明原因并保留已选维度与升降序；恢复有效汇率后继续应用 |
 
 持仓始终保持统一列表，默认顺序支持跨币种手动移动。管理页继续按币种生成小计；有效汇率下港币小计标明折算为 CNY，关闭折算后标明 HKD。状态栏继续逐条展示原币种盈亏金额与币种标签。
 
-`fishStock.holdings.treeViewFields` 在读取时按字段合并默认值，只接受 boolean；缺失或非法字段使用默认开启值，五项全关时强制保留市值。字段包括数量、市值、仓位、浮动盈亏和当日盈亏。非默认排序的 Tree Item 仍使用独立 `holdingSorted` context，但扩展清单让编辑和删除同时匹配两个 context，只让上移 / 下移留在默认顺序 context。
+`fishStock.holdings.treeViewFields` 在读取时按字段合并默认值，只接受 boolean；缺失或非法字段使用默认开启值，五项全关时强制保留市值。`fishStock.holdings.treeViewFieldOrder` 保存同样五项的顺序，读取时去重、过滤未知字段，并把未列出的字段按默认顺序补齐。管理页勾选与 ↑ ↓ 调整使用同一归一化函数，配置变化立即刷新已打开的 Tree View。非默认排序的 Tree Item 仍使用独立 `holdingSorted` context，但扩展清单让编辑和删除同时匹配两个 context，只让上移 / 下移留在默认顺序 context。
 
 单条收益率、当日涨跌比例与百分比排序不随汇率改变。总计收益率按合计浮动盈亏除以合计成本市值计算；有效汇率下两者先统一为人民币，混币持仓的权重随汇率变化，总计百分比可能变化。无有效价格的条目不参与总计，停牌和当日盈亏可用性继续沿用既有行情规则。
 
@@ -137,6 +138,8 @@ flowchart LR
 存储位置是扩展的 `globalState`，股票使用 `fishStock.watchlist.v1`，基金使用 `fishStock.funds.v1`，期货使用 `fishStock.futures.v1`，状态栏轮播排除项使用 `fishStock.statusBarRotation.v1`；没有调用 `setKeysForSync`。卸载或升级扩展通常保留数据。载入时会校验版本、分组、ID、代码格式和全局重复代码；有效状态只读取到内存，不在每次激活时重复写回。无效数据回退并持久化为该品类的默认状态。股票可恢复三组共 11 个默认条目；基金默认包含沪深300ETF示例；期货默认包含五个主连合约。三个仓库均可独立清空或恢复默认。
 
 持仓使用 `fishStock.holdings.v1`，状态栏展示模式使用 `fishStock.statusBarDisplay.v1`。持仓结构单独保存 `id`、`symbol`、`market`、`kind`、`name`、`quantity` 和 `averageCost`；数量必须是正安全整数，平均成本必须是有限正数，代码全局去重。可选 `cash` 保存 `{ amount, currency }`，金额必须是有限非负数，币种只能是 `CNY` 或 `HKD`；省略即 0 CNY。现金和持仓在同一份状态中保存，替换持仓时保留已有现金，替换组合时一次性写入两者。仓库默认空白，无效状态安全回退为空列表。状态栏展示模式默认 `quotes`，可显式保存为 `holdings`。这些新键不迁移或改写既有自选键，也未启用 VS Code Settings Sync。
+
+Holdings 不保存自己的分组字段。装配层从 Stock 与 Fund 仓库的内存快照生成 `kind + symbol → 分组名` 目录：个股读取 Stock，ETF 读取 Fund；同名分组合并，找不到条目时归入「默认」。Stock / Fund 的增删、移动、重命名和分组删除通过命令层回调重建目录并请求 Holdings 刷新，因此不会留下过期分组名。该目录只服务展示，不写入 `fishStock.holdings.v1`。
 
 期货仓库为了复用版本 1 的最小结构，内部字段仍名为 `stocks`，但它只存放 `.CNF` 条目且位于独立命名空间。这是内部持久化兼容细节，不代表期货被放入 Stock View，也不是公开 JSON 导入导出格式。
 
@@ -208,7 +211,8 @@ flowchart LR
 - 停牌在 `live`、`closed`、`stale` 中的统一优先级、复牌恢复，以及普通 / 持仓悬浮窗、Tree View 和状态栏的实际文案与图标
 - 行情页跳转的六类市场 URL 模板
 - 视图排序与筛选的纯函数行为，以及视图选项存储的读写与非法值回退
-- 汇率、现金、总资产口径与 `treeViewFields` 的运行时不合法值归一化，以及持仓菜单 context 条件
+- 汇率、现金、总资产口径、`treeViewFields` / `treeViewFieldOrder` 的运行时不合法值归一化，以及持仓菜单 context 条件
+- 仓位排序、缺价末尾、混币暂停、Stock / Fund 分组归属、同名合并、默认回退与分组汇总权重
 - 持仓管理页页签未保存标记和 `Ctrl+S` 与按钮共用保存保护
 - 股票、基金、期货与持仓命令 ID、四个 View、菜单条件与扩展清单声明的一致性
 - 状态栏行情/持仓展示模式的默认值、持久化和非法值回退
@@ -216,4 +220,4 @@ flowchart LR
 
 独立 VS Code Extension Host 冒烟测试覆盖扩展激活、Stock/Fund/Futures/Holdings 打开、持仓管理器创建、关键命令注册和全部展开命令执行。`pnpm run release:check` 把单元测试、Extension Host 冒烟、版本一致性、VSIX 文件清单与打包结果组合成统一发布门槛。
 
-0.8.6 回归要求见[发布验收清单](release-checklist.md)：领域与 UI 样本须覆盖现金与持仓原子保存、单只占比、总仓位、现金占比、混币未折算、缺价持仓、Tree View 现金节点与管理页资产概览。配置事件的即时同步继续在隔离 Extension Host 中验证，实际结果记录在产品计划中。
+0.8.7 回归要求见[发布验收清单](release-checklist.md)：领域与 UI 样本须覆盖描述字段顺序、仓位排序、缺价与混币暂停、Stock / Fund 分组归属、同名合并、默认回退、分组现金权重，以及管理页字段调整的配置错误恢复。自选分组变化后的 Holdings 刷新和配置即时同步继续在隔离 Extension Host 或命令装配回归中验证，实际结果记录在产品计划中。
