@@ -43,6 +43,21 @@ class FakeThemeColor {
   public constructor(public readonly id: string) {}
 }
 
+class FakeMarkdownString {
+  public value = '';
+  public supportThemeIcons = false;
+
+  public appendMarkdown(value: string): FakeMarkdownString {
+    this.value += value;
+    return this;
+  }
+
+  public appendText(value: string): FakeMarkdownString {
+    this.value += value;
+    return this;
+  }
+}
+
 class FakeUri {
   public constructor(public readonly value: string) {}
 
@@ -64,6 +79,7 @@ const vscodeMock = {
   EventEmitter: FakeEventEmitter,
   ThemeColor: FakeThemeColor,
   ThemeIcon: FakeThemeIcon,
+  MarkdownString: FakeMarkdownString,
   TreeItem: FakeTreeItem,
   TreeItemCollapsibleState: {
     None: 0,
@@ -415,11 +431,11 @@ test('Holdings Tree View applies the configured description field order', () => 
   );
 });
 
-test('Holdings Tree View shows collapsible group summaries from watchlist groups', () => {
+test('Holdings Tree View shows group and tag breakdowns in the total tooltip', () => {
   type HoldingsProvider = {
-    getChildren(element?: unknown): Array<{ kind?: string }>;
+    getChildren(): Array<{ kind?: string }>;
     getTreeItem(element: unknown): FakeTreeItem;
-    getParent(element: unknown): unknown;
+    setSummaryMode(mode: 'group' | 'tag'): void;
   };
   const module = loadUiModule('../ui/holdingsTreeProvider', {
     vscode: vscodeMock,
@@ -444,6 +460,7 @@ test('Holdings Tree View shows collapsible group summaries from watchlist groups
     market: 'CN',
     kind: 'stock',
     name: '工商银行',
+    tag: '核心',
     quantity: 100,
     averageCost: 5,
   };
@@ -486,22 +503,26 @@ test('Holdings Tree View shows collapsible group summaries from watchlist groups
     null,
   );
   const root = provider.getChildren();
-  const parent = root.find((node) => node.kind === 'groupParent');
   const summary = root.find((node) => node.kind === 'summary');
-  assert.ok(parent);
   assert.ok(summary);
-  assert.equal(provider.getTreeItem(parent).label, '分组汇总');
-  assert.equal(provider.getTreeItem(parent).description, '2 组');
+  assert.equal(
+    root.some((node) => node.kind === 'groupParent' || node.kind === 'group'),
+    false,
+  );
+  const groupTooltip = provider.getTreeItem(summary).tooltip as { value?: string };
+  assert.match(groupTooltip.value ?? '', /按分组汇总/);
+  assert.match(groupTooltip.value ?? '', /\*\*银行\*\*/);
+  assert.match(groupTooltip.value ?? '', /仓位 28\.57%/);
+  assert.match(groupTooltip.value ?? '', /\*\*现金（未分组）\*\*/);
+  assert.match(groupTooltip.value ?? '', /仓位 14\.29%/);
 
-  const groups = provider.getChildren(parent);
-  assert.deepEqual(groups.map((node) => node.kind), ['group', 'group', 'groupCash']);
-  const bankGroup = groups[0];
-  assert.equal(provider.getTreeItem(bankGroup).label, '银行');
-  assert.match(String(provider.getTreeItem(bankGroup).description), /仓位 28\.57%/);
-  assert.equal(provider.getParent(bankGroup), parent);
-  const cashGroup = groups[2];
-  assert.equal(provider.getTreeItem(cashGroup).label, '现金（未分组）');
-  assert.match(String(provider.getTreeItem(cashGroup).description), /仓位 14\.29%/);
+  provider.setSummaryMode('tag');
+  const tagSummary = provider.getChildren().find((node) => node.kind === 'summary');
+  assert.ok(tagSummary);
+  const tagTooltip = provider.getTreeItem(tagSummary).tooltip as { value?: string };
+  assert.match(tagTooltip.value ?? '', /按标签汇总/);
+  assert.match(tagTooltip.value ?? '', /\*\*核心\*\*/);
+  assert.match(tagTooltip.value ?? '', /\*\*未标注\*\*/);
 });
 
 test('Holdings Tree View passes total assets into position-weight sorting', () => {

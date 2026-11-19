@@ -348,6 +348,11 @@
         "icon": "$(list-selection)"
       },
       {
+        "command": "fishStock.selectHoldingsSummaryMode",
+        "title": "FishStock: 持仓汇总方式",
+        "icon": "$(list-tree)"
+      },
+      {
         "command": "fishStock.editHolding",
         "title": "FishStock: 编辑持仓",
         "icon": "$(edit)"
@@ -561,6 +566,11 @@
           "command": "fishStock.selectHoldingsTreeViewFields",
           "when": "view == fishStock.holdings",
           "group": "2_view@2"
+        },
+        {
+          "command": "fishStock.selectHoldingsSummaryMode",
+          "when": "view == fishStock.holdings",
+          "group": "2_view@3"
         },
         {
           "command": "fishStock.selectStatusBarMode",
@@ -826,6 +836,19 @@
             "dayProfit"
           ],
           "description": "Holdings Tree View 描述行的字段顺序。缺失、重复或未知字段会自动去重并把未列出的字段按默认顺序补在末尾；可在持仓管理页用上移 / 下移调整。"
+        },
+        "fishStock.holdings.summaryMode": {
+          "type": "string",
+          "enum": [
+            "group",
+            "tag"
+          ],
+          "enumDescriptions": [
+            "按 Stock / Fund 自选分组汇总",
+            "按持仓管理页手动填写的标签汇总"
+          ],
+          "default": "group",
+          "description": "Holdings 总资产悬窗的持仓汇总方式。按分组时读取 Stock / Fund 自选分组，未关注或找不到归属的持仓归入「默认」；按标签时读取管理页填写的单一标签，未填写时归入「未标注」。"
         },
         "fishStock.holdings.hkdToCnyRate": {
           "type": [

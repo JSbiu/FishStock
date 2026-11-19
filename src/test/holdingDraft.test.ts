@@ -32,11 +32,13 @@ test('materializes multiple edits and additions as one validated holdings list',
       {
         id: existing.id,
         symbol: existing.symbol,
+        tag: '核心',
         quantity: '120',
         averageCost: '1480.5',
       },
       {
         symbol: fund.symbol,
+        tag: 'ETF',
         quantity: '1000',
         averageCost: '3.82',
       },
@@ -47,17 +49,52 @@ test('materializes multiple edits and additions as one validated holdings list',
   );
 
   assert.deepEqual(result, [
-    { ...existing, quantity: 120, averageCost: 1_480.5 },
+    { ...existing, tag: '核心', quantity: 120, averageCost: 1_480.5 },
     {
       id: 'new-id',
       symbol: fund.symbol,
       market: fund.market,
       kind: fund.kind,
       name: fund.name,
+      tag: 'ETF',
       quantity: 1_000,
       averageCost: 3.82,
     },
   ]);
+});
+
+test('clears an existing tag when the draft field is empty', () => {
+  const tagged = { ...existing, tag: '旧标签' };
+  const [result] = materializeHoldingDraft(
+    [{
+      id: tagged.id,
+      symbol: tagged.symbol,
+      tag: '   ',
+      quantity: tagged.quantity,
+      averageCost: tagged.averageCost,
+    }],
+    [tagged],
+    new Map(),
+    () => 'unused',
+  );
+  assert.equal(result.tag, undefined);
+});
+
+test('rejects a non-string tag instead of coercing it', () => {
+  assert.throws(
+    () => materializeHoldingDraft(
+      [{
+        symbol: fund.symbol,
+        tag: 42,
+        quantity: 100,
+        averageCost: 3.82,
+      }],
+      [existing],
+      new Map([[fund.symbol, fund]]),
+      () => 'new-id',
+    ),
+    /标签必须是字符串/,
+  );
 });
 
 test('rejects the whole draft when any row is incomplete or duplicated', () => {

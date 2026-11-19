@@ -48,6 +48,8 @@ export interface Holding {
   market: 'CN' | 'HK';
   kind: HoldingInstrumentKind;
   name?: string;
+  /** 用户手动维护的单一标签；省略表示未标注。 */
+  tag?: string;
   quantity: number;
   averageCost: number;
 }

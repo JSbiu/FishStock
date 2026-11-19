@@ -69,6 +69,27 @@ test('loads valid state without a redundant storage write', async () => {
   assert.equal(backing.updateCount, 0);
 });
 
+test('persists an optional manual tag and allows clearing it', async () => {
+  const backing = new MemoryStateStore();
+  const first = new HoldingsRepository(backing);
+  await first.load();
+  await first.addHolding({ ...holding, tag: '核心' });
+
+  const second = new HoldingsRepository(backing);
+  assert.equal((await second.load()).holdings[0].tag, '核心');
+  await second.replacePortfolio([holding], { amount: 0, currency: 'CNY' });
+
+  const third = new HoldingsRepository(backing);
+  assert.equal((await third.load()).holdings[0].tag, undefined);
+  assert.throws(
+    () => parseHoldingsState({
+      version: 1,
+      holdings: [{ ...holding, tag: 42 }],
+    }),
+    /标签必须是字符串/,
+  );
+});
+
 test('replaces multiple holdings atomically and keeps memory unchanged on storage failure', async () => {
   const backing = new MemoryStateStore({ version: 1, holdings: [holding] });
   const repository = new HoldingsRepository(backing);

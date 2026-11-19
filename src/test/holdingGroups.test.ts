@@ -1,17 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  buildHoldingBreakdownDetail,
+  buildHoldingCashBreakdownDetail,
   buildHoldingGroupCatalog,
-  buildHoldingGroupCashDescription,
-  buildHoldingGroupDescriptionSegments,
   DEFAULT_HOLDING_GROUP_NAME,
   holdingGroupAssignment,
-  summarizeHoldingGroups,
+  holdingTagName,
+  normalizeHoldingSummaryMode,
+  summarizeHoldingBreakdowns,
+  UNTAGGED_HOLDING_NAME,
 } from '../domain/holdingGroups';
-import {
-  DEFAULT_HOLDING_DESCRIPTION_FIELDS,
-  summarizePortfolio,
-} from '../domain/holdings';
+import { summarizePortfolio } from '../domain/holdings';
 import type {
   Holding,
   Quote,
@@ -161,35 +161,33 @@ test('summarizes groups by their own amounts and portfolio weights with cash', (
   const quoteOf = (holding: Holding): Quote | undefined => quotes.get(holding.symbol);
   const cash = { amount: 500, currency: 'CNY' as const };
   const portfolio = summarizePortfolio([bank, tech], cash, quoteOf);
-  const overview = summarizeHoldingGroups(
+  const groups = summarizeHoldingBreakdowns(
     [bank, tech],
-    cash,
     quoteOf,
-    (holding) => holdingGroupAssignment(holding, catalog),
     portfolio,
+    {
+      mode: 'group',
+      groupOf: (holding) => holdingGroupAssignment(holding, catalog),
+    },
   );
 
-  assert.deepEqual(overview.groups.map((group) => group.name), ['银行', '科技']);
-  assert.equal(overview.groups[0].summary.marketValue, 2_000);
-  assert.equal(overview.groups[0].weightPercent, 50);
-  assert.equal(overview.groups[1].summary.marketValue, 1_500);
-  assert.equal(overview.groups[1].weightPercent, 37.5);
-  assert.equal(overview.cashWeightPercent, 12.5);
-  assert.equal(overview.shouldShow, true);
-  assert.deepEqual(
-    buildHoldingGroupDescriptionSegments(
-      overview.groups[0],
-      DEFAULT_HOLDING_DESCRIPTION_FIELDS,
-    ),
-    ['1 项', '2,000', '仓位 50.00%', '+1,000(+100.00%)', '今日—'],
+  assert.deepEqual(groups.map((group) => group.name), ['银行', '科技']);
+  assert.equal(groups[0].summary.marketValue, 2_000);
+  assert.equal(groups[0].weightPercent, 50);
+  assert.equal(groups[1].summary.marketValue, 1_500);
+  assert.equal(groups[1].weightPercent, 37.5);
+  assert.equal(portfolio.cashPercent, 12.5);
+  assert.equal(
+    buildHoldingBreakdownDetail(groups[0]),
+    '1 项 · 2,000 · 仓位 50.00% · +1,000(+100.00%)',
   );
   assert.equal(
-    buildHoldingGroupCashDescription(cash, overview.cashWeightPercent),
+    buildHoldingCashBreakdownDetail(cash, portfolio.cashPercent),
     '500.00 CNY · 仓位 12.50%',
   );
 });
 
-test('merges same-name Stock and Fund groups and hides a default-only total', () => {
+test('merges same-name Stock and Fund groups', () => {
   const stockHolding = stock('601398.SH');
   const fundHolding = fund('510300.SH');
   const stockWatchlist = watchlist([
@@ -210,41 +208,32 @@ test('merges same-name Stock and Fund groups and hides a default-only total', ()
     cash,
     quoteOf,
   );
-  const overview = summarizeHoldingGroups(
+  const groups = summarizeHoldingBreakdowns(
     [stockHolding, fundHolding],
-    cash,
     quoteOf,
-    (holding) => holdingGroupAssignment(holding, catalog),
     portfolio,
+    {
+      mode: 'group',
+      groupOf: (holding) => holdingGroupAssignment(holding, catalog),
+    },
   );
-  assert.equal(overview.groups.length, 1);
-  assert.equal(overview.groups[0].name, '共同');
-  assert.equal(overview.groups[0].summary.itemCount, 2);
-  assert.equal(overview.groups[0].summary.marketValue, 3_000);
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].name, '共同');
+  assert.equal(groups[0].summary.itemCount, 2);
+  assert.equal(groups[0].summary.marketValue, 3_000);
 
   const unwatched = stock('000001.SZ');
   const defaultCatalog = buildHoldingGroupCatalog(watchlist([]), watchlist([]));
-  const defaultOnly = summarizeHoldingGroups(
+  const defaultOnly = summarizeHoldingBreakdowns(
     [unwatched],
-    cash,
     () => quote(unwatched.symbol, 10),
-    (holding) => holdingGroupAssignment(holding, defaultCatalog),
     summarizePortfolio([unwatched], cash, () => quote(unwatched.symbol, 10)),
+    {
+      mode: 'group',
+      groupOf: (holding) => holdingGroupAssignment(holding, defaultCatalog),
+    },
   );
-  assert.equal(defaultOnly.groups[0].name, '默认');
-  assert.equal(defaultOnly.shouldShow, false);
-  const withCash = summarizeHoldingGroups(
-    [unwatched],
-    { amount: 100, currency: 'CNY' },
-    () => quote(unwatched.symbol, 10),
-    (holding) => holdingGroupAssignment(holding, defaultCatalog),
-    summarizePortfolio(
-      [unwatched],
-      { amount: 100, currency: 'CNY' },
-      () => quote(unwatched.symbol, 10),
-    ),
-  );
-  assert.equal(withCash.shouldShow, true);
+  assert.equal(defaultOnly[0].name, '默认');
 });
 
 test('marks a mixed-currency group uncombined without a rate', () => {
@@ -270,23 +259,22 @@ test('marks a mixed-currency group uncombined without a rate', () => {
   const quoteOf = (holding: Holding): Quote | undefined => quotes.get(holding.symbol);
   const cash = { amount: 0, currency: 'CNY' as const };
   const portfolio = summarizePortfolio([cny, hkd], cash, quoteOf, new Date(), null);
-  const overview = summarizeHoldingGroups(
+  const groups = summarizeHoldingBreakdowns(
     [cny, hkd],
-    cash,
     quoteOf,
-    (holding) => holdingGroupAssignment(holding, catalog),
     portfolio,
-    new Date(),
-    null,
+    {
+      mode: 'group',
+      groupOf: (holding) => holdingGroupAssignment(holding, catalog),
+      now: new Date(),
+      hkdRate: null,
+    },
   );
-  assert.equal(overview.groups[0].summary.currency, null);
-  assert.equal(overview.groups[0].weightPercent, null);
-  assert.deepEqual(
-    buildHoldingGroupDescriptionSegments(
-      overview.groups[0],
-      DEFAULT_HOLDING_DESCRIPTION_FIELDS,
-    ),
-    ['2 项', '未合并：未启用港币折算'],
+  assert.equal(groups[0].summary.currency, null);
+  assert.equal(groups[0].weightPercent, null);
+  assert.equal(
+    buildHoldingBreakdownDetail(groups[0]),
+    '2 项 · 未合并：未启用港币折算',
   );
 });
 
@@ -311,19 +299,18 @@ test('marks group rows with partial or entirely missing quotes', () => {
     cash,
     partialQuoteOf,
   );
-  const partial = summarizeHoldingGroups(
+  const partial = summarizeHoldingBreakdowns(
     [first, second],
-    cash,
     partialQuoteOf,
-    (holding) => holdingGroupAssignment(holding, catalog),
     partialPortfolio,
+    {
+      mode: 'group',
+      groupOf: (holding) => holdingGroupAssignment(holding, catalog),
+    },
   );
-  assert.deepEqual(
-    buildHoldingGroupDescriptionSegments(
-      partial.groups[0],
-      DEFAULT_HOLDING_DESCRIPTION_FIELDS,
-    ),
-    ['2 项', '部分行情', '2,000', '仓位 100.00%', '+1,000(+100.00%)', '今日—'],
+  assert.equal(
+    buildHoldingBreakdownDetail(partial[0]),
+    '2 项 · 部分行情 · 2,000 · 仓位 100.00% · +1,000(+100.00%)',
   );
 
   const missingPortfolio = summarizePortfolio(
@@ -331,18 +318,48 @@ test('marks group rows with partial or entirely missing quotes', () => {
     cash,
     () => undefined,
   );
-  const missing = summarizeHoldingGroups(
+  const missing = summarizeHoldingBreakdowns(
     [first, second],
-    cash,
     () => undefined,
-    (holding) => holdingGroupAssignment(holding, catalog),
     missingPortfolio,
+    {
+      mode: 'group',
+      groupOf: (holding) => holdingGroupAssignment(holding, catalog),
+    },
   );
+  assert.equal(buildHoldingBreakdownDetail(missing[0]), '2 项 · 等待行情');
+});
+
+test('summarizes manual tags and places untagged holdings last', () => {
+  const first = { ...stock('600000.SH'), tag: '核心' };
+  const second = { ...fund('510300.SH'), tag: '  核心  ' };
+  const third = { ...stock('000333.SZ'), tag: '银行' };
+  const untagged = stock('600519.SH');
+  const quoteOf = (holding: Holding): Quote => quote(holding.symbol, 10);
+  const cash = { amount: 0, currency: 'CNY' as const };
+  const holdings = [first, second, third, untagged];
+  const portfolio = summarizePortfolio(holdings, cash, quoteOf);
+  const groups = summarizeHoldingBreakdowns(
+    holdings,
+    quoteOf,
+    portfolio,
+    { mode: 'tag' },
+  );
+
   assert.deepEqual(
-    buildHoldingGroupDescriptionSegments(
-      missing.groups[0],
-      DEFAULT_HOLDING_DESCRIPTION_FIELDS,
-    ),
-    ['2 项', '等待行情'],
+    groups.map((group) => [group.name, group.summary.itemCount]),
+    [
+      ['核心', 2],
+      ['银行', 1],
+      [UNTAGGED_HOLDING_NAME, 1],
+    ],
   );
+  assert.equal(holdingTagName(second), '核心');
+});
+
+test('normalizes the summary mode to group unless tag is explicit', () => {
+  assert.equal(normalizeHoldingSummaryMode('tag'), 'tag');
+  assert.equal(normalizeHoldingSummaryMode('group'), 'group');
+  assert.equal(normalizeHoldingSummaryMode('invalid'), 'group');
+  assert.equal(normalizeHoldingSummaryMode(undefined), 'group');
 });

@@ -6,6 +6,7 @@ import type {
 export interface HoldingDraftInput {
   id?: unknown;
   symbol?: unknown;
+  tag?: unknown;
   quantity?: unknown;
   averageCost?: unknown;
 }
@@ -48,6 +49,16 @@ function readAverageCost(value: unknown, rowNumber: number): number {
   return parsed;
 }
 
+function readTag(value: unknown, rowNumber: number): string | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value !== 'string') {
+    throw new HoldingDraftValidationError(`第 ${rowNumber} 行的标签必须是字符串`);
+  }
+  return value.trim() || undefined;
+}
+
 export function materializeHoldingDraft(
   inputs: readonly HoldingDraftInput[],
   existingHoldings: readonly Holding[],
@@ -61,6 +72,7 @@ export function materializeHoldingDraft(
   return inputs.map((input, index) => {
     const rowNumber = index + 1;
     const symbol = readSymbol(input.symbol, rowNumber);
+    const tag = readTag(input.tag, rowNumber);
     const quantity = readQuantity(input.quantity, rowNumber);
     const averageCost = readAverageCost(input.averageCost, rowNumber);
     let holding: Holding;
@@ -74,6 +86,11 @@ export function materializeHoldingDraft(
         throw new HoldingDraftValidationError(`第 ${rowNumber} 行不是可编辑的现有持仓`);
       }
       holding = { ...existing, quantity, averageCost };
+      if (tag) {
+        holding.tag = tag;
+      } else {
+        delete holding.tag;
+      }
     } else {
       const instrument = allowedNewInstruments.get(symbol);
       if (!instrument) {
@@ -85,6 +102,7 @@ export function materializeHoldingDraft(
         market: instrument.market,
         kind: instrument.kind,
         name: instrument.name,
+        ...(tag ? { tag } : {}),
         quantity,
         averageCost,
       };

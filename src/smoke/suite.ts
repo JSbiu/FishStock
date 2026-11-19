@@ -3,6 +3,7 @@ import { commands, ConfigurationTarget, extensions, workspace, type StatusBarIte
 import {
   readHoldingDescriptionFieldOrder,
   readHoldingHkdRate,
+  readHoldingSummaryMode,
 } from '../config';
 import {
   DEFAULT_HOLDING_DESCRIPTION_FIELDS,
@@ -37,6 +38,7 @@ const REQUIRED_COMMANDS = [
   'fishStock.removeHolding',
   'fishStock.refreshHoldings',
   'fishStock.openHoldings',
+  'fishStock.selectHoldingsSummaryMode',
   'fishStock.selectStatusBarMode',
 ] as const;
 
@@ -140,6 +142,42 @@ export async function run(): Promise<void> {
       ConfigurationTarget.Global,
     );
   }
+  const originalSummaryMode = config.inspect<string>('summaryMode')?.globalValue;
+  const setSummaryMode = HoldingsTreeProvider.prototype.setSummaryMode;
+  const summaryModeChanged = HoldingsManagerPanel.prototype.summaryModeChanged;
+  let appliedSummaryMode: string | undefined;
+  let managerSummaryUpdates = 0;
+  HoldingsTreeProvider.prototype.setSummaryMode = function (mode) {
+    appliedSummaryMode = mode;
+    setSummaryMode.call(this, mode);
+  };
+  HoldingsManagerPanel.prototype.summaryModeChanged = function () {
+    managerSummaryUpdates += 1;
+    summaryModeChanged.call(this);
+  };
+  try {
+    const changed = new Promise<void>((resolve) => {
+      const listener = workspace.onDidChangeConfiguration((event) => {
+        if (event.affectsConfiguration('fishStock.holdings.summaryMode')) {
+          listener.dispose();
+          resolve();
+        }
+      });
+    });
+    await config.update('summaryMode', 'tag', ConfigurationTarget.Global);
+    await changed;
+    assert.equal(readHoldingSummaryMode(), 'tag');
+    assert.equal(appliedSummaryMode, 'tag', 'Tree View 未即时收到汇总方式');
+    assert.ok(managerSummaryUpdates > 0, '持仓管理页未即时收到汇总方式');
+  } finally {
+    HoldingsTreeProvider.prototype.setSummaryMode = setSummaryMode;
+    HoldingsManagerPanel.prototype.summaryModeChanged = summaryModeChanged;
+    await config.update(
+      'summaryMode',
+      originalSummaryMode,
+      ConfigurationTarget.Global,
+    );
+  }
   await config.update('hkdToCnyRate', 0.8557, ConfigurationTarget.Global);
   await verifySavedHoldingViews();
 }
@@ -163,14 +201,27 @@ async function verifySavedHoldingViews(): Promise<void> {
   }, 'china');
   const status = new StatusBarController(60_000, 'holdings');
   let applied = 0;
+  let summaryMode = readHoldingSummaryMode();
+  let treeViewFields = { ...DEFAULT_HOLDING_DESCRIPTION_FIELDS };
+  let treeViewFieldOrder = [...DEFAULT_HOLDING_DESCRIPTION_FIELD_ORDER];
   const manager = new HoldingsManagerPanel({
     repository, quoteOf: () => quote,
     search: async () => [instrument], watchlistEntries: () => [],
     refresh: async () => {}, colorConvention: () => 'china',
     hkdRate: () => 0.9, setHkdRate: async () => {},
-    descriptionFields: () => ({ ...DEFAULT_HOLDING_DESCRIPTION_FIELDS }),
-    descriptionFieldOrder: () => [...DEFAULT_HOLDING_DESCRIPTION_FIELD_ORDER],
-    setDescriptionDisplay: async () => {},
+    descriptionFields: () => ({ ...treeViewFields }),
+    descriptionFieldOrder: () => [...treeViewFieldOrder],
+    setDescriptionDisplay: async (fields, order) => {
+      treeViewFields = { ...fields };
+      treeViewFieldOrder = [...order];
+      tree.setFieldFlags(treeViewFields);
+      tree.setFieldOrder(treeViewFieldOrder);
+    },
+    summaryMode: () => summaryMode,
+    setSummaryMode: async (mode) => {
+      summaryMode = mode;
+      tree.setSummaryMode(mode);
+    },
     afterSave: async (added) => {
       assert.equal(added.length, 1);
       applied += 1;
@@ -189,11 +240,18 @@ async function verifySavedHoldingViews(): Promise<void> {
     await receiver.handleMessage({ type: 'ready' });
     await receiver.handleMessage({ type: 'search', query: instrument.name, requestId: 1 });
     await receiver.handleMessage({
-      type: 'save', rows: [{ symbol: instrument.symbol, quantity: '123', averageCost: '50' }],
+      type: 'save',
+      rows: [{
+        symbol: instrument.symbol,
+        tag: '核心',
+        quantity: '123',
+        averageCost: '50',
+      }],
       cash: { amount: '1000', currency: 'CNY' },
     });
     assert.equal(applied, 1, '保存后没有同步持仓视图');
     assert.equal(repository.getSnapshot().holdings[0].quantity, 123);
+    assert.equal(repository.getSnapshot().holdings[0].tag, '核心');
     assert.equal(repository.getSnapshot().cash?.amount, 1_000);
     const nodes = tree.getChildren();
     const node = nodes[0];
@@ -205,22 +263,29 @@ async function verifySavedHoldingViews(): Promise<void> {
       String(tree.getTreeItem(cashNode).description),
       /1,000\.00 CNY/,
     );
-    const groupParent = nodes.find((item) => item.kind === 'groupParent');
-    assert.ok(groupParent, '保存现金后没有生成分组汇总节点');
-    const groupNodes = tree.getChildren(groupParent);
-    const defaultGroup = groupNodes.find((item) => item.kind === 'group');
-    assert.ok(defaultGroup, '分组汇总缺少默认分组');
-    assert.equal(tree.getTreeItem(defaultGroup).label, '默认');
-    assert.ok(
-      groupNodes.some((item) => item.kind === 'groupCash'),
-      '分组汇总缺少现金行',
-    );
     const summaryNode = nodes.find((item) => item.kind === 'summary');
     assert.ok(summaryNode, '保存现金后没有生成总资产行');
     assert.match(
       String(tree.getTreeItem(summaryNode).description),
       /仓位 87\.12%/,
     );
+    tree.setSummaryMode('tag');
+    const tagSummary = tree.getChildren().find((item) => item.kind === 'summary');
+    assert.ok(tagSummary);
+    const summaryTooltip = tree.getTreeItem(tagSummary).tooltip as { value?: string };
+    assert.match(summaryTooltip.value ?? '', /按标签汇总/);
+    assert.match(summaryTooltip.value ?? '', /\*\*核心\*\*/);
+    assert.match(summaryTooltip.value ?? '', /现金（未分组）/);
+    await receiver.handleMessage({
+      type: 'setDescriptionDisplay',
+      fields: treeViewFields,
+      order: ['profit', 'quantity', 'marketValue', 'weight', 'dayProfit'],
+    });
+    const reorderedHolding = tree.getChildren().find((item) => item.kind === 'holding');
+    assert.ok(reorderedHolding);
+    const reorderedDescription = String(tree.getTreeItem(reorderedHolding).description);
+    assert.match(reorderedDescription, /^\+?[-\d,]+\(\+?[\d.]+%\)/);
+    assert.doesNotMatch(reorderedDescription, /^123 股/);
     const item = Reflect.get(status, 'item') as StatusBarItem;
     assert.match(item.text, /\+615\.00 CNY/, '状态栏没有显示保存后的持仓盈亏');
   } finally {

@@ -139,6 +139,7 @@ test('HKD holding tooltip keeps unit price in HKD while converting amounts', () 
     market: 'HK',
     kind: 'stock',
     name: '腾讯控股',
+    tag: '核心',
     quantity: 100,
     averageCost: 400,
   };
@@ -161,6 +162,7 @@ test('HKD holding tooltip keeps unit price in HKD while converting amounts', () 
     0.8557,
   ).value;
   assert.match(converted, /\| 平均成本 \| 400\.00 HKD \|/);
+  assert.match(converted, /\| 标签 \| 核心 \|/);
   assert.match(converted, /\| 当前价格 \| 420\.00 HKD \|/);
   assert.match(converted, /\| 成本金额 \| 34,228\.00 CNY \|/);
   assert.match(converted, /\| 当前市值 \| 35,939\.40 CNY \|/);

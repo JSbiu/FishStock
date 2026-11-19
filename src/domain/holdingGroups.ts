@@ -1,11 +1,9 @@
 import {
   formatCashAmount,
   formatCompactMarketValue,
-  formatDayCell,
   formatProfitCell,
   formatWeightPercent,
   summarizeHoldings,
-  type HoldingDescriptionFields,
   type HoldingSummary,
   type PortfolioSummary,
 } from './holdings';
@@ -17,6 +15,13 @@ import type {
 } from './models';
 
 export const DEFAULT_HOLDING_GROUP_NAME = '默认';
+export const UNTAGGED_HOLDING_NAME = '未标注';
+
+export type HoldingSummaryMode = 'group' | 'tag';
+
+export function normalizeHoldingSummaryMode(value: unknown): HoldingSummaryMode {
+  return value === 'tag' ? 'tag' : 'group';
+}
 
 export interface HoldingGroupAssignment {
   name: string;
@@ -28,7 +33,7 @@ export interface HoldingGroupCatalog {
   orderByName: ReadonlyMap<string, number>;
 }
 
-export interface HoldingGroupBreakdown {
+export interface HoldingBreakdown {
   name: string;
   order: number;
   summary: HoldingSummary;
@@ -36,10 +41,11 @@ export interface HoldingGroupBreakdown {
   weightPercent: number | null;
 }
 
-export interface HoldingGroupsOverview {
-  groups: HoldingGroupBreakdown[];
-  cashWeightPercent: number | null;
-  shouldShow: boolean;
+export interface SummarizeHoldingBreakdownsOptions {
+  mode: HoldingSummaryMode;
+  groupOf?(holding: Holding): HoldingGroupAssignment;
+  now?: Date;
+  hkdRate?: number | null;
 }
 
 function instrumentKey(
@@ -93,22 +99,51 @@ export function holdingGroupAssignment(
   };
 }
 
-export function summarizeHoldingGroups(
+export function holdingTagName(holding: Pick<Holding, 'tag'>): string {
+  return holding.tag?.trim() || UNTAGGED_HOLDING_NAME;
+}
+
+function tagAssignmentOf(
   holdings: readonly Holding[],
-  cash: CashBalance,
+): (holding: Holding) => HoldingGroupAssignment {
+  const orderByName = new Map<string, number>();
+  for (const holding of holdings) {
+    const name = holdingTagName(holding);
+    if (name !== UNTAGGED_HOLDING_NAME && !orderByName.has(name)) {
+      orderByName.set(name, orderByName.size);
+    }
+  }
+  if (holdings.some((holding) => holdingTagName(holding) === UNTAGGED_HOLDING_NAME)) {
+    orderByName.set(UNTAGGED_HOLDING_NAME, orderByName.size);
+  }
+  return (holding) => {
+    const name = holdingTagName(holding);
+    return {
+      name,
+      order: orderByName.get(name) ?? Number.MAX_SAFE_INTEGER,
+    };
+  };
+}
+
+export function summarizeHoldingBreakdowns(
+  holdings: readonly Holding[],
   quoteOf: (holding: Holding) => Quote | undefined,
-  groupOf: (holding: Holding) => HoldingGroupAssignment,
-  portfolio: Pick<PortfolioSummary, 'totalAssets' | 'cashPercent'>,
-  now: Date = new Date(),
-  hkdRate: number | null = null,
-): HoldingGroupsOverview {
+  portfolio: Pick<PortfolioSummary, 'totalAssets'>,
+  options: SummarizeHoldingBreakdownsOptions,
+): HoldingBreakdown[] {
+  const assignmentOf = options.mode === 'tag'
+    ? tagAssignmentOf(holdings)
+    : options.groupOf;
   const buckets = new Map<string, {
     name: string;
     order: number;
     holdings: Holding[];
   }>();
   for (const holding of holdings) {
-    const assignment = groupOf(holding);
+    const assignment = assignmentOf?.(holding) ?? {
+      name: DEFAULT_HOLDING_GROUP_NAME,
+      order: 0,
+    };
     const bucket = buckets.get(assignment.name);
     if (bucket) {
       bucket.holdings.push(holding);
@@ -121,15 +156,15 @@ export function summarizeHoldingGroups(
       });
     }
   }
-  const groups = [...buckets.values()]
+  return [...buckets.values()]
     .sort((left, right) =>
       left.order - right.order || left.name.localeCompare(right.name, 'zh-CN'))
-    .map((bucket): HoldingGroupBreakdown => {
+    .map((bucket): HoldingBreakdown => {
       const summary = summarizeHoldings(
         bucket.holdings,
         quoteOf,
-        now,
-        hkdRate,
+        options.now,
+        options.hkdRate ?? null,
       );
       const weightPercent = portfolio.totalAssets !== null
         && portfolio.totalAssets > 0
@@ -143,52 +178,37 @@ export function summarizeHoldingGroups(
         weightPercent,
       };
     });
-  return {
-    groups,
-    cashWeightPercent: cash.amount > 0 ? portfolio.cashPercent : null,
-    shouldShow: groups.length > 0 && (
-      groups.length > 1
-      || groups[0].name !== DEFAULT_HOLDING_GROUP_NAME
-      || cash.amount > 0
-    ),
-  };
 }
 
-export function buildHoldingGroupDescriptionSegments(
-  group: HoldingGroupBreakdown,
-  fields: HoldingDescriptionFields,
-): string[] {
-  const summary = group.summary;
+export function buildHoldingBreakdownDetail(
+  breakdown: HoldingBreakdown,
+): string {
+  const summary = breakdown.summary;
   const segments = [`${summary.itemCount} 项`];
   if (summary.currency === null) {
     segments.push('未合并：未启用港币折算');
-    return segments;
+    return segments.join(' · ');
   }
   if (summary.pricedItemCount === 0) {
     segments.push('等待行情');
-    return segments;
+    return segments.join(' · ');
   }
   if (summary.pricedItemCount < summary.itemCount) {
     segments.push('部分行情');
   }
-  if (fields.marketValue && summary.marketValue !== null) {
+  if (summary.marketValue !== null) {
     segments.push(formatCompactMarketValue(summary.marketValue));
   }
-  if (fields.weight) {
-    segments.push(group.weightPercent === null
-      ? '仓位 未合并'
-      : `仓位 ${formatWeightPercent(group.weightPercent)}`);
-  }
-  if (fields.profit && summary.profit !== null) {
+  segments.push(breakdown.weightPercent === null
+    ? '仓位 未合并'
+    : `仓位 ${formatWeightPercent(breakdown.weightPercent)}`);
+  if (summary.profit !== null) {
     segments.push(formatProfitCell(summary.profit, summary.returnPercent));
   }
-  if (fields.dayProfit) {
-    segments.push(formatDayCell(summary.dayProfit, summary.dayProfitPercent));
-  }
-  return segments;
+  return segments.join(' · ');
 }
 
-export function buildHoldingGroupCashDescription(
+export function buildHoldingCashBreakdownDetail(
   cash: CashBalance,
   weightPercent: number | null,
 ): string {

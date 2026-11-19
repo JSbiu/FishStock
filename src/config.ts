@@ -1,5 +1,9 @@
 import { workspace } from 'vscode';
 import {
+  normalizeHoldingSummaryMode,
+  type HoldingSummaryMode,
+} from './domain/holdingGroups';
+import {
   normalizeHoldingDescriptionFieldOrder,
   normalizeHoldingDescriptionFields,
   normalizeHoldingHkdRate,
@@ -35,6 +39,12 @@ export function readHoldingDescriptionFieldOrder(): HoldingDescriptionField[] {
   const value = workspace.getConfiguration('fishStock.holdings')
     .get<unknown>('treeViewFieldOrder');
   return normalizeHoldingDescriptionFieldOrder(value);
+}
+
+export function readHoldingSummaryMode(): HoldingSummaryMode {
+  const value = workspace.getConfiguration('fishStock.holdings')
+    .get<unknown>('summaryMode');
+  return normalizeHoldingSummaryMode(value);
 }
 
 export function readConfig(): FishStockConfig {

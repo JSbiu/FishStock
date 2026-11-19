@@ -19,6 +19,10 @@ import {
   type HoldingDescriptionField,
   type HoldingDescriptionFields,
 } from '../domain/holdings';
+import {
+  normalizeHoldingSummaryMode,
+  type HoldingSummaryMode,
+} from '../domain/holdingGroups';
 import { quoteDisplayKind } from '../domain/quotePresentation';
 import {
   applyHoldingAdjustment,
@@ -57,10 +61,12 @@ export interface HoldingsManagerOptions {
   setHkdRate(rate: number | null): Promise<void>;
   descriptionFields(): HoldingDescriptionFields;
   descriptionFieldOrder(): readonly HoldingDescriptionField[];
+  summaryMode(): HoldingSummaryMode;
   setDescriptionDisplay(
     fields: HoldingDescriptionFields,
     order: readonly HoldingDescriptionField[],
   ): Promise<void>;
+  setSummaryMode(mode: HoldingSummaryMode): Promise<void>;
 }
 
 interface ManagerQuoteFields {
@@ -79,6 +85,7 @@ interface ManagerRow extends ManagerQuoteFields {
   name: string;
   quantity: unknown;
   averageCost: unknown;
+  tag: unknown;
 }
 
 interface ManagerSearchResult extends ManagerQuoteFields {
@@ -182,6 +189,7 @@ function readDraftInputs(value: unknown): HoldingDraftInput[] | undefined {
     return {
       ...(row.id !== undefined ? { id: row.id } : {}),
       symbol: row.symbol,
+      tag: row.tag,
       quantity: row.quantity,
       averageCost: row.averageCost,
     };
@@ -208,6 +216,7 @@ function toDraftInputs(holdings: readonly Holding[]): HoldingDraftInput[] {
   return holdings.map((holding) => ({
     id: holding.id,
     symbol: holding.symbol,
+    tag: holding.tag ?? '',
     quantity: String(holding.quantity),
     averageCost: String(holding.averageCost),
   }));
@@ -339,6 +348,12 @@ export class HoldingsManagerPanel implements Disposable {
     }
   }
 
+  public summaryModeChanged(): void {
+    if (this.panel && this.webviewReady) {
+      this.postSummaryMode();
+    }
+  }
+
   public dispose(): void {
     this.disposing = true;
     this.cancelSearch();
@@ -373,6 +388,7 @@ export class HoldingsManagerPanel implements Disposable {
         market: instrument.market,
         kind: instrument.kind,
         name: instrument.name ?? instrument.symbol,
+        tag: input.tag,
         quantity: input.quantity,
         averageCost: input.averageCost,
         ...quoteFields(instrument, this.options.quoteOf),
@@ -414,6 +430,7 @@ export class HoldingsManagerPanel implements Disposable {
       hkdRate: this.options.hkdRate(),
       descriptionFields: this.options.descriptionFields(),
       descriptionFieldOrder: this.options.descriptionFieldOrder(),
+      summaryMode: this.options.summaryMode(),
       cash: this.currentCash(),
       clearSearch,
       watchlistEntries: this.watchlistSnapshot(),
@@ -427,6 +444,13 @@ export class HoldingsManagerPanel implements Disposable {
       type: 'descriptionDisplay',
       fields: this.options.descriptionFields(),
       order: this.options.descriptionFieldOrder(),
+    });
+  }
+
+  private postSummaryMode(): void {
+    void this.panel?.webview.postMessage({
+      type: 'summaryMode',
+      mode: this.options.summaryMode(),
     });
   }
 
@@ -499,6 +523,20 @@ export class HoldingsManagerPanel implements Disposable {
             message: messageOf(error),
             descriptionFields: this.options.descriptionFields(),
             descriptionFieldOrder: this.options.descriptionFieldOrder(),
+          });
+        }
+        return;
+      }
+      case 'setSummaryMode': {
+        const mode = normalizeHoldingSummaryMode(message.mode);
+        try {
+          await this.options.setSummaryMode(mode);
+          this.postSummaryMode();
+        } catch (error: unknown) {
+          void this.panel?.webview.postMessage({
+            type: 'operationError',
+            message: messageOf(error),
+            summaryMode: this.options.summaryMode(),
           });
         }
         return;
@@ -860,7 +898,7 @@ export class HoldingsManagerPanel implements Disposable {
     button.secondary:hover:not(:disabled) { background: var(--vscode-button-secondaryHoverBackground); }
     button.danger { color: var(--vscode-errorForeground); background: transparent; border-color: var(--vscode-inputValidation-errorBorder); }
     button:disabled { cursor: default; opacity: .55; }
-    input[type="search"], input[type="number"] { color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); border-radius: 3px; padding: 6px 8px; outline: none; }
+    input[type="search"], input[type="number"], input[type="text"] { color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); border-radius: 3px; padding: 6px 8px; outline: none; }
     input:focus { border-color: var(--vscode-focusBorder); }
     input.invalid { border-color: var(--vscode-inputValidation-errorBorder); background: var(--vscode-inputValidation-errorBackground); }
     header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 22px; }
@@ -906,18 +944,21 @@ export class HoldingsManagerPanel implements Disposable {
     .rate-field { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--vscode-descriptionForeground); white-space: nowrap; }
     .rate-field input[type="number"] { width: 74px; }
     .rate-field label { display: inline-flex; align-items: center; gap: 4px; }
+    .summary-field { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--vscode-descriptionForeground); white-space: nowrap; }
+    .summary-field select { color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); border-radius: 3px; padding: 5px 7px; font: inherit; }
     #dirtyBadge { color: var(--vscode-descriptionForeground); }
     #dirtyBadge.dirty { color: var(--vscode-notificationsWarningIcon-foreground); }
     .validation-status { padding: 10px 14px; border-bottom: 1px solid var(--vscode-panel-border); color: var(--vscode-notificationsWarningIcon-foreground); }
     .validation-status button { margin-left: 8px; padding: 3px 9px; }
     .table-wrap { overflow-x: auto; }
-    table { width: 100%; min-width: 1180px; border-collapse: collapse; }
+    table { width: 100%; min-width: 1240px; border-collapse: collapse; }
     th, td { padding: 9px 10px; border-bottom: 1px solid var(--vscode-panel-border); text-align: right; vertical-align: middle; }
     th { position: sticky; top: 0; z-index: 1; color: var(--vscode-descriptionForeground); background: var(--vscode-sideBar-background); font-size: 12px; font-weight: 500; }
     th:first-child, td:first-child { width: 38px; text-align: center; }
     th:nth-child(2), td:nth-child(2) { min-width: 180px; text-align: left; }
     th:nth-child(3), td:nth-child(3) { text-align: left; }
     td input[type="number"] { width: 112px; text-align: right; }
+    td input[type="text"] { width: 96px; }
     .instrument { padding: 0; color: var(--vscode-textLink-foreground); background: transparent; border: 0; cursor: pointer; }
     .instrument:hover { text-decoration: underline; }
     .symbol { margin-top: 2px; color: var(--vscode-descriptionForeground); font-size: 12px; }
@@ -1015,6 +1056,13 @@ export class HoldingsManagerPanel implements Disposable {
     <div class="toolbar">
       <span id="dirtyBadge">没有未保存更改</span>
       <span class="spacer"></span>
+      <div class="summary-field" title="控制总资产悬窗按 Stock / Fund 自选分组或持仓标签汇总。">
+        <label for="summaryMode">汇总</label>
+        <select id="summaryMode" aria-label="持仓汇总方式">
+          <option value="group">按自选分组</option>
+          <option value="tag">按标签</option>
+        </select>
+      </div>
       <div class="rate-field" title="1 港币对应多少人民币。取消勾选按原币种显示；默认 0.9 是占位近似值，请按实际汇率调整。">
         <label><input id="hkdRateEnabled" type="checkbox" checked>港币折算</label>
         <input id="hkdRateInput" type="number" min="0.1" max="2" step="0.0001" inputmode="decimal" placeholder="已关闭" aria-label="1 港币对应的人民币金额">
@@ -1036,6 +1084,7 @@ export class HoldingsManagerPanel implements Disposable {
             <th><input id="selectAll" type="checkbox" aria-label="选择全部持仓"></th>
             <th>名称 / 代码</th>
             <th>市场</th>
+            <th>标签</th>
             <th>数量</th>
             <th>平均成本</th>
             <th>现价</th>
@@ -1079,6 +1128,7 @@ export class HoldingsManagerPanel implements Disposable {
     const hkdRateEnabled = document.getElementById('hkdRateEnabled');
     const hkdRateInput = document.getElementById('hkdRateInput');
     const hkdRateReset = document.getElementById('hkdRateReset');
+    const summaryModeSelect = document.getElementById('summaryMode');
     const cashAmountInput = document.getElementById('cashAmount');
     const cashCurrencySelect = document.getElementById('cashCurrency');
     const searchButton = document.getElementById('searchButton');
@@ -1116,6 +1166,7 @@ export class HoldingsManagerPanel implements Disposable {
     let colorConvention = 'china';
     let hkdRate = null;
     let lastHkdRate = 0.9;
+    let summaryMode = 'group';
     let cash = { amount: '0', currency: 'CNY' };
     const descriptionFieldLabels = {
       quantity: '数量',
@@ -1186,7 +1237,7 @@ export class HoldingsManagerPanel implements Disposable {
       const tr = document.createElement('tr');
       tr.className = 'adjust-row';
       const td = document.createElement('td');
-      td.colSpan = 13;
+      td.colSpan = 14;
       const panel = document.createElement('div');
       panel.className = 'adjust-panel';
 
@@ -1332,6 +1383,7 @@ export class HoldingsManagerPanel implements Disposable {
       return rows.map(function (row) {
         const payload = {
           symbol: row.symbol,
+          tag: row.tag,
           quantity: row.quantity,
           averageCost: row.averageCost
         };
@@ -1394,6 +1446,7 @@ export class HoldingsManagerPanel implements Disposable {
       searchInput.disabled = saving;
       cashAmountInput.disabled = saving;
       cashCurrencySelect.disabled = saving;
+      summaryModeSelect.disabled = saving;
       selectAll.disabled = saving;
       rowsElement.querySelectorAll('input, select, .adjust-actions .secondary').forEach(function (control) {
         control.disabled = saving;
@@ -1667,7 +1720,7 @@ export class HoldingsManagerPanel implements Disposable {
           labelCell.appendChild(mutedNote(' · ' + group.pending + ' 项待填写'));
         }
         tr.appendChild(labelCell);
-        for (let index = 0; index < 4; index += 1) {
+        for (let index = 0; index < 5; index += 1) {
           tr.appendChild(blankCell());
         }
         tr.appendChild(createCell(priced ? formatNumber(group.marketValue, 2, 2) + ' ' + groupUnit : '—'));
@@ -1853,6 +1906,20 @@ export class HoldingsManagerPanel implements Disposable {
         tr.appendChild(instrumentCell);
 
         tr.appendChild(createCell(row.market === 'HK' ? '港股 / HKD' : 'A 股 / CNY'));
+
+        const tagCell = document.createElement('td');
+        const tagInput = document.createElement('input');
+        tagInput.type = 'text';
+        tagInput.value = String(row.tag ?? '');
+        tagInput.placeholder = '可选';
+        tagInput.dataset.role = 'tag';
+        tagInput.setAttribute('aria-label', row.name + ' 标签');
+        tagInput.addEventListener('input', function () {
+          row.tag = tagInput.value;
+          markDirty();
+        });
+        tagCell.appendChild(tagInput);
+        tr.appendChild(tagCell);
 
         const quantityCell = document.createElement('td');
         const quantityInput = document.createElement('input');
@@ -2089,6 +2156,9 @@ export class HoldingsManagerPanel implements Disposable {
     hkdRateReset.addEventListener('click', function () {
       submitHkdRate(0.9);
     });
+    summaryModeSelect.addEventListener('change', function () {
+      vscode.postMessage({ type: 'setSummaryMode', mode: summaryModeSelect.value });
+    });
     cashAmountInput.addEventListener('input', function () {
       cash.amount = cashAmountInput.value;
       cashAmountInput.classList.toggle('invalid', parseCashAmount(cash.amount) === null);
@@ -2116,7 +2186,11 @@ export class HoldingsManagerPanel implements Disposable {
         return selected.has(entry.symbol) && !existingSymbols.has(entry.symbol);
       });
       added.forEach(function (entry) {
-        rows.push(Object.assign({}, entry, { quantity: '', averageCost: '' }));
+        rows.push(Object.assign({}, entry, {
+          tag: '',
+          quantity: '',
+          averageCost: ''
+        }));
       });
       selected.clear();
       if (added.length > 0) {
@@ -2297,6 +2371,8 @@ export class HoldingsManagerPanel implements Disposable {
         colorConvention = message.colorConvention === 'international' ? 'international' : 'china';
         document.body.classList.toggle('international', colorConvention === 'international');
         updateHkdRate(message.hkdRate, true);
+        summaryMode = message.summaryMode === 'tag' ? 'tag' : 'group';
+        summaryModeSelect.value = summaryMode;
         updateCash(message.cash, true);
         updateDescriptionState(message.descriptionFields, message.descriptionFieldOrder);
         descriptionSaving = false;
@@ -2312,6 +2388,11 @@ export class HoldingsManagerPanel implements Disposable {
         updateDescriptionState(message.fields, message.order);
         descriptionSaving = false;
         renderDescriptionFields();
+        return;
+      }
+      if (message.type === 'summaryMode') {
+        summaryMode = message.mode === 'tag' ? 'tag' : 'group';
+        summaryModeSelect.value = summaryMode;
         return;
       }
       if (message.type === 'adjustPreviewResult') {
@@ -2387,6 +2468,10 @@ export class HoldingsManagerPanel implements Disposable {
           updateDescriptionState(message.descriptionFields, message.descriptionFieldOrder);
           descriptionSaving = false;
           renderDescriptionFields();
+        }
+        if ('summaryMode' in message) {
+          summaryMode = message.summaryMode === 'tag' ? 'tag' : 'group';
+          summaryModeSelect.value = summaryMode;
         }
         setNotice(message.message || '操作失败', true);
       }

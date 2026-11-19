@@ -11,6 +11,7 @@ import {
   type HoldingDescriptionField,
   type HoldingDescriptionFields,
 } from '../domain/holdings';
+import type { HoldingSummaryMode } from '../domain/holdingGroups';
 import type { HoldingsManagerOptions, HoldingsManagerPanel as ManagerPanel } from '../ui/holdingsManagerPanel';
 
 async function managerHarness(
@@ -19,7 +20,7 @@ async function managerHarness(
   refresh: HoldingsManagerOptions['refresh'] = async () => {},
   overrides: Partial<Pick<
     HoldingsManagerOptions,
-    'search' | 'watchlistEntries' | 'setDescriptionDisplay'
+    'search' | 'watchlistEntries' | 'setDescriptionDisplay' | 'setSummaryMode'
   >> & {
     persist?: () => Promise<void>;
     choose?: () => Promise<string | undefined>;
@@ -42,6 +43,7 @@ async function managerHarness(
   let descriptionFieldOrder: HoldingDescriptionField[] = [
     ...DEFAULT_HOLDING_DESCRIPTION_FIELD_ORDER,
   ];
+  let summaryMode: HoldingSummaryMode = 'group';
   let receive: (message: unknown) => void = () => {};
   let onDispose = () => {};
   const panel = {
@@ -103,6 +105,12 @@ async function managerHarness(
         descriptionFields = { ...fields };
         descriptionFieldOrder = [...order];
       }),
+    summaryMode: () => summaryMode,
+    setSummaryMode:
+      overrides.setSummaryMode
+      ?? (async (mode) => {
+        summaryMode = mode;
+      }),
   });
   manager.show();
   receive({ type: 'ready' });
@@ -115,6 +123,7 @@ async function managerHarness(
     setRate: (value: number | null) => { rate = value; },
     descriptionFields: () => ({ ...descriptionFields }),
     descriptionFieldOrder: () => [...descriptionFieldOrder],
+    summaryMode: () => summaryMode,
     send: async (message: unknown) => {
       receive(message);
       await new Promise<void>((resolve) => setImmediate(resolve));
@@ -181,6 +190,10 @@ test('manager page exposes cash and position controls with parseable script', as
   assert.match(html, /id="assetTotal"/);
   assert.match(html, /id="assetNote"/);
   assert.match(html, /id="fieldOrderList"/);
+  assert.match(html, /id="summaryMode"/);
+  assert.match(html, /<th>标签<\/th>/);
+  assert.match(html, /td\.colSpan = 14/);
+  assert.match(html, /for \(let index = 0; index < 5; index \+= 1\)/);
   assert.match(html, /<th>仓位<\/th>/);
   assert.match(html, /现金不参与浮动盈亏或当日盈亏/);
   assert.match(html, /用 ↑ ↓ 调整左右顺序/);
@@ -207,6 +220,7 @@ test('manager carries description field visibility and order in the page state',
     'profit',
     'dayProfit',
   ]);
+  assert.equal(state?.summaryMode, 'group');
 });
 
 test('manager normalizes field order and keeps at least one visible field', async () => {
@@ -278,15 +292,33 @@ test('manager reports field display write errors with the current values', async
   ]);
 });
 
+test('manager switches the total tooltip summary mode', async () => {
+  const harness = await managerHarness();
+  assert.equal(harness.summaryMode(), 'group');
+  await harness.send({ type: 'setSummaryMode', mode: 'tag' });
+  assert.equal(harness.summaryMode(), 'tag');
+  assert.equal(harness.messages.at(-1)?.type, 'summaryMode');
+  assert.equal(harness.messages.at(-1)?.mode, 'tag');
+  await harness.send({ type: 'setSummaryMode', mode: 'invalid' });
+  assert.equal(harness.summaryMode(), 'group');
+});
+
 test('manager saves cash together with holdings in one portfolio write', async () => {
   const harness = await managerHarness(undefined, undefined, undefined, {
     persist: async () => {},
   });
   await harness.send({
     type: 'save',
-    rows: [{ id: 'hk', symbol: '00700.HK', quantity: '123', averageCost: '401.25' }],
+    rows: [{
+      id: 'hk',
+      symbol: '00700.HK',
+      tag: '核心',
+      quantity: '123',
+      averageCost: '401.25',
+    }],
     cash: { amount: '1234.5', currency: 'HKD' },
   });
+  assert.equal(harness.repository.getSnapshot().holdings[0].tag, '核心');
   assert.deepEqual(harness.repository.getSnapshot().cash, {
     amount: 1_234.5,
     currency: 'HKD',

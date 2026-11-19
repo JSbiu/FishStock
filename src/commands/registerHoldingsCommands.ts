@@ -9,6 +9,7 @@ import {
   type QuickPickItem,
 } from 'vscode';
 import type { Holding } from '../domain/models';
+import type { HoldingSummaryMode } from '../domain/holdingGroups';
 import {
   ensureAtLeastOneField,
   HOLDING_SORT_LABELS,
@@ -16,7 +17,10 @@ import {
   type HoldingSortKey,
   type HoldingSortState,
 } from '../domain/holdings';
-import { readHoldingDescriptionFields } from '../config';
+import {
+  readHoldingDescriptionFields,
+  readHoldingSummaryMode,
+} from '../config';
 import { buildQuoteUrl } from '../domain/quoteUrl';
 import type { HoldingsRepository } from '../storage/holdingsRepository';
 import type { ViewOptionsStore } from '../storage/viewOptionsStore';
@@ -220,6 +224,43 @@ export function registerHoldingsCommands(
       await handle(async () => {
         await options.viewOptions.setHoldingSort(next);
         options.treeProvider.setSort(next);
+      });
+    }),
+
+    commands.registerCommand('fishStock.selectHoldingsSummaryMode', async () => {
+      const current = readHoldingSummaryMode();
+      const picked = await window.showQuickPick(
+        [
+          {
+            label: '按自选分组',
+            description: `读取 Stock / Fund 的原始分组，未关注或找不到归属时归入「默认」${
+              current === 'group' ? '（当前）' : ''
+            }`,
+            mode: 'group' as const,
+          },
+          {
+            label: '按标签',
+            description: `读取持仓管理页手动填写的标签，未填写时归入「未标注」${
+              current === 'tag' ? '（当前）' : ''
+            }`,
+            mode: 'tag' as const,
+          },
+        ] satisfies Array<{
+          label: string;
+          description: string;
+          mode: HoldingSummaryMode;
+        }>,
+        {
+          placeHolder: '选择总资产悬窗的持仓汇总方式',
+        },
+      );
+      if (!picked || picked.mode === current) {
+        return;
+      }
+      await handle(async () => {
+        await workspace.getConfiguration('fishStock.holdings')
+          .update('summaryMode', picked.mode, ConfigurationTarget.Global);
+        options.treeProvider.setSummaryMode(picked.mode);
       });
     }),
 

@@ -93,6 +93,7 @@ export function createHoldingTooltip(
       '| 指标 | 数值 |',
       '| :--- | ---: |',
       `| 持有数量 | ${holding.quantity.toLocaleString('zh-CN')} ${holding.kind === 'fund' ? '份' : '股'} |`,
+      ...(holding.tag ? [`| 标签 | ${holding.tag} |`] : []),
       `| 平均成本 | ${formatPrice(holding.averageCost)} ${metrics.currency} |`,
       `| 当前价格 | ${formatPrice(metrics.currentPrice)} ${metrics.currency} |`,
       `| 成本金额 | ${formatAmount(amount(metrics.costValue), amountUnit)} |`,

@@ -58,6 +58,17 @@ function readAverageCost(value: unknown): number {
   return value;
 }
 
+function readTag(value: unknown): string | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value !== 'string') {
+    throw new HoldingsValidationError('持仓标签必须是字符串');
+  }
+  const tag = value.trim();
+  return tag ? tag : undefined;
+}
+
 function readCash(value: unknown): CashBalance | undefined {
   if (value === undefined) {
     return undefined;
@@ -114,12 +125,14 @@ function parseHolding(
   const name = value.name === undefined
     ? undefined
     : readString(value.name, '持仓名称');
+  const tag = readTag(value.tag);
   return {
     id,
     symbol: normalized.symbol,
     market: normalized.market,
     kind,
     ...(name ? { name } : {}),
+    ...(tag ? { tag } : {}),
     quantity: readQuantity(value.quantity),
     averageCost: readAverageCost(value.averageCost),
   };

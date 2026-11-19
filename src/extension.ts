@@ -22,6 +22,7 @@ import {
   readHoldingDescriptionFieldOrder,
   readHoldingDescriptionFields,
   readHoldingHkdRate,
+  readHoldingSummaryMode,
 } from './config';
 import { BseSecurityDirectory } from './data/bseSecurityDirectory';
 import { QuoteService } from './data/quoteService';
@@ -323,6 +324,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
     readHoldingDescriptionFields(),
     readHoldingHkdRate(),
     readHoldingDescriptionFieldOrder(),
+    readHoldingSummaryMode(),
   );
   const stockTreeView = window.createTreeView('fishStock.stock', {
     treeDataProvider: stockTreeProvider,
@@ -848,6 +850,16 @@ export async function activate(context: ExtensionContext): Promise<void> {
       if (!sameOrder) {
         await config.update('treeViewFieldOrder', order, ConfigurationTarget.Global);
       }
+      holdingsTreeProvider.setFieldFlags(readHoldingDescriptionFields());
+      holdingsTreeProvider.setFieldOrder(readHoldingDescriptionFieldOrder());
+      holdingsTreeRefresh.requestRefresh();
+    },
+    summaryMode: readHoldingSummaryMode,
+    setSummaryMode: async (mode) => {
+      await workspace.getConfiguration('fishStock.holdings')
+        .update('summaryMode', mode, ConfigurationTarget.Global);
+      holdingsTreeProvider.setSummaryMode(mode);
+      holdingsTreeRefresh.requestRefresh();
     },
   });
   holdingsManagerRef.current = holdingsManager;
@@ -1072,6 +1084,13 @@ export async function activate(context: ExtensionContext): Promise<void> {
       }
       holdingsTreeProvider.setHkdRate(readHoldingHkdRate());
       holdingsManager.updateQuotes();
+    }),
+    workspace.onDidChangeConfiguration((event) => {
+      if (!event.affectsConfiguration('fishStock.holdings.summaryMode')) {
+        return;
+      }
+      holdingsTreeProvider.setSummaryMode(readHoldingSummaryMode());
+      holdingsManagerRef.current?.summaryModeChanged();
     }),
   );
 
