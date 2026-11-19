@@ -9,23 +9,34 @@ import {
 } from 'vscode';
 import type { ColorConvention } from '../config';
 import {
+  buildHoldingGroupCashDescription,
+  buildHoldingGroupDescriptionSegments,
+  DEFAULT_HOLDING_GROUP_NAME,
+  summarizeHoldingGroups,
+  type HoldingGroupAssignment,
+  type HoldingGroupBreakdown,
+  type HoldingGroupsOverview,
+} from '../domain/holdingGroups';
+import {
   buildHoldingDescriptionSegments,
   buildPortfolioSummarySegments,
   calculateHoldingMetrics,
   cashBalanceOf,
   DEFAULT_HOLDING_HKD_RATE,
+  DEFAULT_HOLDING_DESCRIPTION_FIELD_ORDER,
   DEFAULT_HOLDING_DESCRIPTION_FIELDS,
   DEFAULT_HOLDING_SORT,
   formatCashAmount,
   formatCompactMarketValue,
   formatWeightPercent,
-  holdingAmountSortPaused,
+  holdingSortPaused,
   holdingCurrency,
   holdingIconKindOf,
   holdingWeightPercent,
   holdingTreeContextValue,
   sortHoldings,
   summarizePortfolio,
+  type HoldingDescriptionField,
   type HoldingDescriptionFields,
   type HoldingIconKind,
   type HoldingSortState,
@@ -90,11 +101,48 @@ export class HoldingSummaryNode {
   public constructor(public readonly summary: PortfolioSummary) {}
 }
 
-export type HoldingsTreeNode = HoldingNode | HoldingCashNode | HoldingSummaryNode;
+/** 分组汇总是持仓列表后的可折叠区块，不改变持仓本身的扁平顺序。 */
+export class HoldingGroupParentNode {
+  public readonly kind = 'groupParent';
+
+  public constructor(
+    public readonly overview: HoldingGroupsOverview,
+    public readonly cash: CashBalance,
+  ) {}
+}
+
+export class HoldingGroupNode {
+  public readonly kind = 'group';
+
+  public constructor(
+    public readonly group: HoldingGroupBreakdown,
+    public readonly parent: HoldingGroupParentNode,
+  ) {}
+}
+
+export class HoldingGroupCashNode {
+  public readonly kind = 'groupCash';
+
+  public constructor(
+    public readonly cash: CashBalance,
+    public readonly weightPercent: number | null,
+    public readonly parent: HoldingGroupParentNode,
+  ) {}
+}
+
+export type HoldingsTreeNode =
+  | HoldingNode
+  | HoldingCashNode
+  | HoldingSummaryNode
+  | HoldingGroupParentNode
+  | HoldingGroupNode
+  | HoldingGroupCashNode;
 
 export interface HoldingsTreeProviderOptions {
   quoteOf(holding: Holding): Quote | undefined;
   providerNameOf(holding: Holding): string;
+  /** 自选分组归属；省略时全部归入默认分组。 */
+  groupOf?(holding: Holding): HoldingGroupAssignment;
 }
 
 export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> {
@@ -108,6 +156,8 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
     private sort: HoldingSortState = DEFAULT_HOLDING_SORT,
     private fieldFlags: HoldingDescriptionFields = DEFAULT_HOLDING_DESCRIPTION_FIELDS,
     private hkdRate: number | null = null,
+    private fieldOrder: readonly HoldingDescriptionField[] =
+      DEFAULT_HOLDING_DESCRIPTION_FIELD_ORDER,
   ) {}
 
   public setColorConvention(value: ColorConvention): void {
@@ -125,13 +175,31 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
     this.refresh();
   }
 
+  public setFieldOrder(order: readonly HoldingDescriptionField[]): void {
+    this.fieldOrder = order;
+    this.refresh();
+  }
+
   public setHkdRate(rate: number | null): void {
     this.hkdRate = rate;
     this.refresh();
   }
 
-  public isAmountSortPaused(sort: HoldingSortState = this.sort): boolean {
-    return holdingAmountSortPaused(this.repository.getSnapshot().holdings, sort, this.hkdRate);
+  public isSortPaused(sort: HoldingSortState = this.sort): boolean {
+    const state = this.repository.getSnapshot();
+    const summary = summarizePortfolio(
+      state.holdings,
+      cashBalanceOf(state),
+      (holding) => this.options.quoteOf(holding),
+      new Date(),
+      this.hkdRate,
+    );
+    return holdingSortPaused(
+      state.holdings,
+      sort,
+      this.hkdRate,
+      summary.totalAssets,
+    );
   }
 
   public refresh(): void {
@@ -145,6 +213,15 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
     if (element instanceof HoldingSummaryNode) {
       return this.summaryItem(element.summary);
     }
+    if (element instanceof HoldingGroupParentNode) {
+      return this.groupParentItem(element);
+    }
+    if (element instanceof HoldingGroupNode) {
+      return this.groupItem(element.group);
+    }
+    if (element instanceof HoldingGroupCashNode) {
+      return this.groupCashItem(element);
+    }
 
     const holding = element.holding;
     const metrics = calculateHoldingMetrics(holding, element.quote);
@@ -154,6 +231,7 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
     item.description = metrics
       ? buildHoldingDescriptionSegments(holding, metrics, {
           fields: this.fieldFlags,
+          fieldOrder: this.fieldOrder,
           hkdRate: this.hkdRate,
           weightPercent: element.weightPercent,
           suspended: element.quote?.suspended === true,
@@ -183,6 +261,19 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
 
   public getChildren(element?: HoldingsTreeNode): HoldingsTreeNode[] {
     if (element) {
+      if (element instanceof HoldingGroupParentNode) {
+        const nodes: HoldingsTreeNode[] = element.overview.groups.map(
+          (group) => new HoldingGroupNode(group, element),
+        );
+        if (element.cash.amount > 0) {
+          nodes.push(new HoldingGroupCashNode(
+            element.cash,
+            element.overview.cashWeightPercent,
+            element,
+          ));
+        }
+        return nodes;
+      }
       return [];
     }
     const state = this.repository.getSnapshot();
@@ -206,6 +297,7 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
       quoteOf,
       now,
       this.hkdRate,
+      summary.totalAssets,
     ).map((holding) => {
       const quote = quoteOf(holding);
       return new HoldingNode(
@@ -214,15 +306,31 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
         holdingWeightPercent(holding, quote, summary, this.hkdRate, now),
       );
     });
+    const groupOverview = summarizeHoldingGroups(
+      holdings,
+      cash,
+      quoteOf,
+      (holding) => this.options.groupOf?.(holding)
+        ?? { name: DEFAULT_HOLDING_GROUP_NAME, order: 0 },
+      summary,
+      now,
+      this.hkdRate,
+    );
     if (cash.amount > 0) {
       nodes.push(new HoldingCashNode(cash, summary));
+    }
+    if (groupOverview.shouldShow) {
+      nodes.push(new HoldingGroupParentNode(groupOverview, cash));
     }
     nodes.push(new HoldingSummaryNode(summary));
     return nodes;
   }
 
-  public getParent(): HoldingsTreeNode | undefined {
-    // 合并展示后是扁平列表，没有父节点。
+  public getParent(element: HoldingsTreeNode): HoldingsTreeNode | undefined {
+    if (element instanceof HoldingGroupNode || element instanceof HoldingGroupCashNode) {
+      return element.parent;
+    }
+    // 持仓主列表保持扁平，没有父节点。
     return undefined;
   }
 
@@ -237,13 +345,17 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
       item.description = buildPortfolioSummarySegments(summary, {
         fields: this.fieldFlags,
       }).join(' · ');
-      if (this.isAmountSortPaused()) {
-        item.description += ' · 金额排序暂用默认顺序';
+      if (this.isSortPaused()) {
+        item.description += ` · ${
+          this.sort.key === 'weight' ? '仓位排序' : '金额排序'
+        }暂用默认顺序`;
       }
       item.description += ' · 管理页查看小计';
       item.tooltip = '点击打开持仓管理页，查看 CNY、HKD 小计。未启用港币折算，混币金额与比例不合并。';
-      if (this.isAmountSortPaused()) {
-        item.tooltip += '\n已保留所选金额排序及升降序，恢复有效汇率后自动继续应用。';
+      if (this.isSortPaused()) {
+        item.tooltip += `\n已保留所选${
+          this.sort.key === 'weight' ? '仓位排序' : '金额排序'
+        }及升降序，恢复有效汇率后自动继续应用。`;
       }
       item.command = { command: 'fishStock.manageHoldings', title: '查看各币种小计' };
       return item;
@@ -267,6 +379,51 @@ export class HoldingsTreeProvider implements TreeDataProvider<HoldingsTreeNode> 
       : `按 CNY 计算总资产与仓位，1 HKD = ${summary.hkdRate} CNY${
         summary.hkdRate === DEFAULT_HOLDING_HKD_RATE ? '（默认占位值）' : ''
       }；仅计入有价格的持仓，现金不参与盈亏。`;
+    return item;
+  }
+
+  private groupParentItem(element: HoldingGroupParentNode): TreeItem {
+    const item = new TreeItem(
+      '分组汇总',
+      TreeItemCollapsibleState.Expanded,
+    );
+    item.id = 'holding-group-summary';
+    item.iconPath = new ThemeIcon('pie-chart');
+    item.contextValue = 'fishStock.holdingGroupSummary';
+    item.description = `${element.overview.groups.length} 组`;
+    item.tooltip = [
+      '按 Stock / Fund 自选中的原始分组汇总持仓。',
+      '个股读取 Stock 分组，ETF 读取 Fund 分组；同名分组合并，找不到归属时归入「默认」。',
+      '组内金额、盈亏和收益率只统计有有效价格的持仓；仓位按包含现金的总资产计算。',
+    ].join('\n');
+    return item;
+  }
+
+  private groupItem(group: HoldingGroupBreakdown): TreeItem {
+    const item = new TreeItem(group.name, TreeItemCollapsibleState.None);
+    item.id = `holding-group:${group.name}`;
+    item.iconPath = new ThemeIcon('folder');
+    item.contextValue = 'fishStock.holdingGroup';
+    item.description = buildHoldingGroupDescriptionSegments(
+      group,
+      this.fieldFlags,
+    ).join(' · ');
+    item.tooltip = group.name === DEFAULT_HOLDING_GROUP_NAME
+      ? '该组包含未在 Stock / Fund 自选对应分组中找到归属的持仓。'
+      : `来自自选分组「${group.name}」。同名 Stock 与 Fund 分组合并统计。`;
+    return item;
+  }
+
+  private groupCashItem(element: HoldingGroupCashNode): TreeItem {
+    const item = new TreeItem('现金（未分组）', TreeItemCollapsibleState.None);
+    item.id = 'holding-group-cash';
+    item.iconPath = new ThemeIcon('credit-card');
+    item.contextValue = 'fishStock.holdingGroup';
+    item.description = buildHoldingGroupCashDescription(
+      element.cash,
+      element.weightPercent,
+    );
+    item.tooltip = '现金不属于 Stock / Fund 自选分组，单独列出并计入总资产与仓位。';
     return item;
   }
 

@@ -24,6 +24,8 @@ export interface WatchlistCommandOptions {
   treeProvider: WatchlistTreeProvider;
   set: WatchlistCommandSet;
   registerCommonCommands?: boolean;
+  /** 自选分组或条目变化后，通知依赖分组归属的视图刷新。 */
+  onRepositoryChange?: () => void;
 }
 
 interface GroupPick extends QuickPickItem {
@@ -235,7 +237,10 @@ export function registerWatchlistCommands(
 ): Disposable[] {
   const { repository, search, refresh, viewOptions, treeProvider, set } = options;
   const { names, texts } = set;
-  const afterChange = async (): Promise<void> => refresh(false, false);
+  const afterChange = async (): Promise<void> => {
+    options.onRepositoryChange?.();
+    await refresh(false, false);
+  };
   const handle = async (action: () => Promise<void>): Promise<void> => {
     try {
       await action();

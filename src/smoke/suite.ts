@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import { commands, ConfigurationTarget, extensions, workspace, type StatusBarItem } from 'vscode';
-import { readHoldingHkdRate } from '../config';
+import {
+  readHoldingDescriptionFieldOrder,
+  readHoldingHkdRate,
+} from '../config';
+import {
+  DEFAULT_HOLDING_DESCRIPTION_FIELDS,
+  DEFAULT_HOLDING_DESCRIPTION_FIELD_ORDER,
+} from '../domain/holdings';
 import type { Quote } from '../domain/models';
 import { HoldingsRepository } from '../storage/holdingsRepository';
 import { HoldingsTreeProvider } from '../ui/holdingsTreeProvider';
@@ -96,6 +103,43 @@ export async function run(): Promise<void> {
     HoldingsManagerPanel.prototype.updateQuotes = updateManagerQuotes;
     await config.update('hkdToCnyRate', originalRate, ConfigurationTarget.Global);
   }
+  const originalOrder = config.inspect<string[]>('treeViewFieldOrder')?.globalValue;
+  const setFieldOrder = HoldingsTreeProvider.prototype.setFieldOrder;
+  const descriptionDisplayChanged = HoldingsManagerPanel.prototype.descriptionDisplayChanged;
+  let appliedOrder: readonly string[] | undefined;
+  let managerDisplayUpdates = 0;
+  HoldingsTreeProvider.prototype.setFieldOrder = function (order) {
+    appliedOrder = order;
+    setFieldOrder.call(this, order);
+  };
+  HoldingsManagerPanel.prototype.descriptionDisplayChanged = function () {
+    managerDisplayUpdates += 1;
+    descriptionDisplayChanged.call(this);
+  };
+  try {
+    const nextOrder = ['profit', 'quantity', 'marketValue', 'weight', 'dayProfit'];
+    const changed = new Promise<void>((resolve) => {
+      const listener = workspace.onDidChangeConfiguration((event) => {
+        if (event.affectsConfiguration('fishStock.holdings.treeViewFieldOrder')) {
+          listener.dispose();
+          resolve();
+        }
+      });
+    });
+    await config.update('treeViewFieldOrder', nextOrder, ConfigurationTarget.Global);
+    await changed;
+    assert.deepEqual(appliedOrder, nextOrder, 'Tree View 未即时收到字段顺序');
+    assert.deepEqual(readHoldingDescriptionFieldOrder(), nextOrder);
+    assert.ok(managerDisplayUpdates > 0, '持仓管理页未即时收到字段顺序');
+  } finally {
+    HoldingsTreeProvider.prototype.setFieldOrder = setFieldOrder;
+    HoldingsManagerPanel.prototype.descriptionDisplayChanged = descriptionDisplayChanged;
+    await config.update(
+      'treeViewFieldOrder',
+      originalOrder,
+      ConfigurationTarget.Global,
+    );
+  }
   await config.update('hkdToCnyRate', 0.8557, ConfigurationTarget.Global);
   await verifySavedHoldingViews();
 }
@@ -124,6 +168,9 @@ async function verifySavedHoldingViews(): Promise<void> {
     search: async () => [instrument], watchlistEntries: () => [],
     refresh: async () => {}, colorConvention: () => 'china',
     hkdRate: () => 0.9, setHkdRate: async () => {},
+    descriptionFields: () => ({ ...DEFAULT_HOLDING_DESCRIPTION_FIELDS }),
+    descriptionFieldOrder: () => [...DEFAULT_HOLDING_DESCRIPTION_FIELD_ORDER],
+    setDescriptionDisplay: async () => {},
     afterSave: async (added) => {
       assert.equal(added.length, 1);
       applied += 1;
@@ -157,6 +204,16 @@ async function verifySavedHoldingViews(): Promise<void> {
     assert.match(
       String(tree.getTreeItem(cashNode).description),
       /1,000\.00 CNY/,
+    );
+    const groupParent = nodes.find((item) => item.kind === 'groupParent');
+    assert.ok(groupParent, '保存现金后没有生成分组汇总节点');
+    const groupNodes = tree.getChildren(groupParent);
+    const defaultGroup = groupNodes.find((item) => item.kind === 'group');
+    assert.ok(defaultGroup, '分组汇总缺少默认分组');
+    assert.equal(tree.getTreeItem(defaultGroup).label, '默认');
+    assert.ok(
+      groupNodes.some((item) => item.kind === 'groupCash'),
+      '分组汇总缺少现金行',
     );
     const summaryNode = nodes.find((item) => item.kind === 'summary');
     assert.ok(summaryNode, '保存现金后没有生成总资产行');

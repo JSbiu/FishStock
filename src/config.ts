@@ -1,7 +1,9 @@
 import { workspace } from 'vscode';
 import {
+  normalizeHoldingDescriptionFieldOrder,
   normalizeHoldingDescriptionFields,
   normalizeHoldingHkdRate,
+  type HoldingDescriptionField,
   type HoldingDescriptionFields,
 } from './domain/holdings';
 
@@ -27,6 +29,12 @@ export function readHoldingDescriptionFields(): HoldingDescriptionFields {
   const value = workspace.getConfiguration('fishStock.holdings')
     .get<unknown>('treeViewFields');
   return normalizeHoldingDescriptionFields(value);
+}
+
+export function readHoldingDescriptionFieldOrder(): HoldingDescriptionField[] {
+  const value = workspace.getConfiguration('fishStock.holdings')
+    .get<unknown>('treeViewFieldOrder');
+  return normalizeHoldingDescriptionFieldOrder(value);
 }
 
 export function readConfig(): FishStockConfig {

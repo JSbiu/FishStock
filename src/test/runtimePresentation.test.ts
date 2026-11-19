@@ -348,6 +348,236 @@ test('Holdings Tree View shows cash and per-holding position weights', () => {
   assert.match(String(summaryItem.description), /仓位 66\.67%/);
 });
 
+test('Holdings Tree View applies the configured description field order', () => {
+  type HoldingsProvider = {
+    getChildren(): unknown[];
+    getTreeItem(element: unknown): FakeTreeItem;
+  };
+  const module = loadUiModule('../ui/holdingsTreeProvider', {
+    vscode: vscodeMock,
+    './quoteTooltip': quoteTooltipMock,
+    './holdingTooltip': { createHoldingTooltip: () => ({}) },
+  });
+  const Provider = module.HoldingsTreeProvider as new (
+    repository: { getSnapshot(): HoldingsState },
+    options: {
+      quoteOf(holding: Holding): Quote | undefined;
+      providerNameOf(holding: Holding): string;
+    },
+    colorConvention: ColorConvention,
+    sort: HoldingSortState,
+    fields: HoldingDescriptionFields,
+    hkdRate: number | null,
+    fieldOrder: readonly string[],
+  ) => HoldingsProvider;
+  const holding: Holding = {
+    id: 'cn',
+    symbol: '600000.SH',
+    market: 'CN',
+    kind: 'stock',
+    name: '浦发银行',
+    quantity: 100,
+    averageCost: 10,
+  };
+  const current = quote({
+    symbol: holding.symbol,
+    price: 20,
+    previousClose: 20,
+    change: 0,
+  });
+  const provider = new Provider(
+    {
+      getSnapshot: (): HoldingsState => ({ version: 1, holdings: [holding] }),
+    },
+    {
+      quoteOf: () => current,
+      providerNameOf: () => '固定样本',
+    },
+    'china',
+    { key: 'manual', desc: true },
+    {
+      quantity: true,
+      marketValue: true,
+      weight: true,
+      profit: true,
+      dayProfit: true,
+    },
+    null,
+    ['dayProfit', 'profit', 'quantity', 'marketValue', 'weight'],
+  );
+  const holdingNode = provider.getChildren().find(
+    (node) => (node as { kind?: string }).kind === 'holding',
+  );
+  assert.ok(holdingNode);
+  assert.equal(
+    provider.getTreeItem(holdingNode).description,
+    '今日— · +1,000(+100.00%) · 100 股 · 2,000 · 占比 100.00%',
+  );
+});
+
+test('Holdings Tree View shows collapsible group summaries from watchlist groups', () => {
+  type HoldingsProvider = {
+    getChildren(element?: unknown): Array<{ kind?: string }>;
+    getTreeItem(element: unknown): FakeTreeItem;
+    getParent(element: unknown): unknown;
+  };
+  const module = loadUiModule('../ui/holdingsTreeProvider', {
+    vscode: vscodeMock,
+    './quoteTooltip': quoteTooltipMock,
+    './holdingTooltip': { createHoldingTooltip: () => ({}) },
+  });
+  const Provider = module.HoldingsTreeProvider as new (
+    repository: { getSnapshot(): HoldingsState },
+    options: {
+      quoteOf(holding: Holding): Quote | undefined;
+      providerNameOf(holding: Holding): string;
+      groupOf(holding: Holding): { name: string; order: number };
+    },
+    colorConvention: ColorConvention,
+    sort: HoldingSortState,
+    fields: HoldingDescriptionFields,
+    hkdRate: number | null,
+  ) => HoldingsProvider;
+  const bank: Holding = {
+    id: 'bank',
+    symbol: '601398.SH',
+    market: 'CN',
+    kind: 'stock',
+    name: '工商银行',
+    quantity: 100,
+    averageCost: 5,
+  };
+  const tech: Holding = {
+    id: 'tech',
+    symbol: '000333.SZ',
+    market: 'CN',
+    kind: 'stock',
+    name: '美的集团',
+    quantity: 100,
+    averageCost: 10,
+  };
+  const quotes = new Map([
+    [bank.symbol, quote({ symbol: bank.symbol, price: 10 })],
+    [tech.symbol, quote({ symbol: tech.symbol, price: 20 })],
+  ]);
+  const state: HoldingsState = {
+    version: 1,
+    holdings: [bank, tech],
+    cash: { amount: 500, currency: 'CNY' },
+  };
+  const provider = new Provider(
+    { getSnapshot: () => state },
+    {
+      quoteOf: (holding) => quotes.get(holding.symbol),
+      providerNameOf: () => '固定样本',
+      groupOf: (holding) => holding.id === bank.id
+        ? { name: '银行', order: 1 }
+        : { name: '科技', order: 2 },
+    },
+    'china',
+    { key: 'manual', desc: true },
+    {
+      quantity: true,
+      marketValue: true,
+      weight: true,
+      profit: true,
+      dayProfit: true,
+    },
+    null,
+  );
+  const root = provider.getChildren();
+  const parent = root.find((node) => node.kind === 'groupParent');
+  const summary = root.find((node) => node.kind === 'summary');
+  assert.ok(parent);
+  assert.ok(summary);
+  assert.equal(provider.getTreeItem(parent).label, '分组汇总');
+  assert.equal(provider.getTreeItem(parent).description, '2 组');
+
+  const groups = provider.getChildren(parent);
+  assert.deepEqual(groups.map((node) => node.kind), ['group', 'group', 'groupCash']);
+  const bankGroup = groups[0];
+  assert.equal(provider.getTreeItem(bankGroup).label, '银行');
+  assert.match(String(provider.getTreeItem(bankGroup).description), /仓位 28\.57%/);
+  assert.equal(provider.getParent(bankGroup), parent);
+  const cashGroup = groups[2];
+  assert.equal(provider.getTreeItem(cashGroup).label, '现金（未分组）');
+  assert.match(String(provider.getTreeItem(cashGroup).description), /仓位 14\.29%/);
+});
+
+test('Holdings Tree View passes total assets into position-weight sorting', () => {
+  type HoldingsProvider = {
+    getChildren(): Array<{ kind?: string; holding?: Holding }>;
+    getTreeItem(element: unknown): FakeTreeItem;
+  };
+  const module = loadUiModule('../ui/holdingsTreeProvider', {
+    vscode: vscodeMock,
+    './quoteTooltip': quoteTooltipMock,
+    './holdingTooltip': { createHoldingTooltip: () => ({}) },
+  });
+  const Provider = module.HoldingsTreeProvider as new (
+    repository: { getSnapshot(): HoldingsState },
+    options: {
+      quoteOf(holding: Holding): Quote | undefined;
+      providerNameOf(holding: Holding): string;
+    },
+    colorConvention: ColorConvention,
+    sort: HoldingSortState,
+    fields: HoldingDescriptionFields,
+    hkdRate: number | null,
+  ) => HoldingsProvider;
+  const small: Holding = {
+    id: 'small',
+    symbol: '600000.SH',
+    market: 'CN',
+    kind: 'stock',
+    name: '小仓',
+    quantity: 100,
+    averageCost: 10,
+  };
+  const large: Holding = {
+    id: 'large',
+    symbol: '000333.SZ',
+    market: 'CN',
+    kind: 'stock',
+    name: '大仓',
+    quantity: 100,
+    averageCost: 10,
+  };
+  const quotes = new Map([
+    [small.symbol, quote({ symbol: small.symbol, price: 10 })],
+    [large.symbol, quote({ symbol: large.symbol, price: 20 })],
+  ]);
+  const provider = new Provider(
+    {
+      getSnapshot: (): HoldingsState => ({
+        version: 1,
+        holdings: [small, large],
+        cash: { amount: 1_000, currency: 'CNY' },
+      }),
+    },
+    {
+      quoteOf: (holding) => quotes.get(holding.symbol),
+      providerNameOf: () => '固定样本',
+    },
+    'china',
+    { key: 'weight', desc: true },
+    {
+      quantity: true,
+      marketValue: true,
+      weight: true,
+      profit: true,
+      dayProfit: true,
+    },
+    null,
+  );
+  assert.deepEqual(
+    provider.getChildren()
+      .filter((node) => node.kind === 'holding')
+      .map((node) => node.holding?.id),
+    ['large', 'small'],
+  );
+});
+
 test('status bar gives suspension priority in quote and holding modes', () => {
   interface StatusItem {
     text: string;

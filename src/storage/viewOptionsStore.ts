@@ -33,6 +33,7 @@ function isViewMode(value: unknown): value is ViewMode {
 function isHoldingSortKey(value: unknown): value is HoldingSortKey {
   return (
     value === 'manual' ||
+    value === 'weight' ||
     value === 'profitPercent' ||
     value === 'profitAmount' ||
     value === 'dayPercent' ||

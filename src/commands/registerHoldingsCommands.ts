@@ -41,6 +41,7 @@ const SORT_PICKS: ReadonlyArray<{
   key: HoldingSortKey;
 }> = [
   { description: '手动调整的顺序', key: 'manual' },
+  { description: '单只市值占总资产（含现金）', key: 'weight' },
   { description: '相对持仓成本', key: 'profitPercent' },
   { description: '累计盈亏金额', key: 'profitAmount' },
   { description: '相对昨收', key: 'dayPercent' },
@@ -198,8 +199,8 @@ export function registerHoldingsCommands(
           return {
             label: HOLDING_SORT_LABELS[pick.key],
             description: isCurrent ? `${base}（当前）` : base,
-            detail: options.treeProvider.isAmountSortPaused({ key: pick.key, desc: current.desc })
-              ? '未启用港币折算：暂用默认顺序；保留排序选择，恢复汇率后自动应用。'
+            detail: options.treeProvider.isSortPaused({ key: pick.key, desc: current.desc })
+              ? '缺少可比较的总资产：暂用默认顺序；保留排序选择，恢复有效汇率后自动应用。'
               : undefined,
             key: pick.key,
           };

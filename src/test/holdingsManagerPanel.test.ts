@@ -5,13 +5,22 @@ import test from 'node:test';
 import { runInNewContext } from 'node:vm';
 import { HoldingsRepository } from '../storage/holdingsRepository';
 import type { Quote } from '../domain/models';
+import {
+  DEFAULT_HOLDING_DESCRIPTION_FIELDS,
+  DEFAULT_HOLDING_DESCRIPTION_FIELD_ORDER,
+  type HoldingDescriptionField,
+  type HoldingDescriptionFields,
+} from '../domain/holdings';
 import type { HoldingsManagerOptions, HoldingsManagerPanel as ManagerPanel } from '../ui/holdingsManagerPanel';
 
 async function managerHarness(
   setRate?: HoldingsManagerOptions['setHkdRate'],
   quoteOf: HoldingsManagerOptions['quoteOf'] = () => undefined,
   refresh: HoldingsManagerOptions['refresh'] = async () => {},
-  overrides: Partial<Pick<HoldingsManagerOptions, 'search' | 'watchlistEntries'>> & {
+  overrides: Partial<Pick<
+    HoldingsManagerOptions,
+    'search' | 'watchlistEntries' | 'setDescriptionDisplay'
+  >> & {
     persist?: () => Promise<void>;
     choose?: () => Promise<string | undefined>;
   } = {},
@@ -27,6 +36,12 @@ async function managerHarness(
   await repository.load();
   const messages: Record<string, unknown>[] = [];
   const warnings: string[] = [];
+  let descriptionFields: HoldingDescriptionFields = {
+    ...DEFAULT_HOLDING_DESCRIPTION_FIELDS,
+  };
+  let descriptionFieldOrder: HoldingDescriptionField[] = [
+    ...DEFAULT_HOLDING_DESCRIPTION_FIELD_ORDER,
+  ];
   let receive: (message: unknown) => void = () => {};
   let onDispose = () => {};
   const panel = {
@@ -80,6 +95,14 @@ async function managerHarness(
     colorConvention: () => 'china',
     hkdRate: () => rate,
     setHkdRate: setRate ?? (async (value) => { rate = value; }),
+    descriptionFields: () => ({ ...descriptionFields }),
+    descriptionFieldOrder: () => [...descriptionFieldOrder],
+    setDescriptionDisplay:
+      overrides.setDescriptionDisplay
+      ?? (async (fields, order) => {
+        descriptionFields = { ...fields };
+        descriptionFieldOrder = [...order];
+      }),
   });
   manager.show();
   receive({ type: 'ready' });
@@ -90,6 +113,8 @@ async function managerHarness(
     html: () => panel.webview.html,
     close: () => { onDispose(); },
     setRate: (value: number | null) => { rate = value; },
+    descriptionFields: () => ({ ...descriptionFields }),
+    descriptionFieldOrder: () => [...descriptionFieldOrder],
     send: async (message: unknown) => {
       receive(message);
       await new Promise<void>((resolve) => setImmediate(resolve));
@@ -154,11 +179,103 @@ test('manager page exposes cash and position controls with parseable script', as
   assert.match(html, /id="cashAmount"/);
   assert.match(html, /id="cashCurrency"/);
   assert.match(html, /id="assetTotal"/);
+  assert.match(html, /id="assetNote"/);
+  assert.match(html, /id="fieldOrderList"/);
   assert.match(html, /<th>仓位<\/th>/);
   assert.match(html, /现金不参与浮动盈亏或当日盈亏/);
+  assert.match(html, /用 ↑ ↓ 调整左右顺序/);
   const script = html.match(/<script nonce="[^"]*">([\s\S]*)<\/script>/)?.[1];
   assert.ok(script);
   assert.doesNotThrow(() => new Function(script));
+});
+
+test('manager carries description field visibility and order in the page state', async () => {
+  const harness = await managerHarness();
+  await harness.send({ type: 'ready' });
+  const state = harness.messages.find((message) => message.type === 'state');
+  assert.deepEqual(state?.descriptionFields, {
+    quantity: true,
+    marketValue: true,
+    weight: true,
+    profit: true,
+    dayProfit: true,
+  });
+  assert.deepEqual(state?.descriptionFieldOrder, [
+    'quantity',
+    'marketValue',
+    'weight',
+    'profit',
+    'dayProfit',
+  ]);
+});
+
+test('manager normalizes field order and keeps at least one visible field', async () => {
+  const harness = await managerHarness();
+  await harness.send({
+    type: 'setDescriptionDisplay',
+    fields: {
+      quantity: false,
+      marketValue: false,
+      weight: false,
+      profit: false,
+      dayProfit: false,
+    },
+    order: ['profit', 'profit', 'bogus', 'quantity'],
+  });
+  const response = harness.messages.at(-1);
+  assert.equal(response?.type, 'descriptionDisplay');
+  assert.deepEqual(response?.fields, {
+    quantity: false,
+    marketValue: true,
+    weight: false,
+    profit: false,
+    dayProfit: false,
+  });
+  assert.deepEqual(response?.order, [
+    'profit',
+    'quantity',
+    'marketValue',
+    'weight',
+    'dayProfit',
+  ]);
+  assert.deepEqual(harness.descriptionFields(), response?.fields);
+  assert.deepEqual(harness.descriptionFieldOrder(), response?.order);
+});
+
+test('manager reports field display write errors with the current values', async () => {
+  const harness = await managerHarness(undefined, undefined, undefined, {
+    setDescriptionDisplay: async () => {
+      throw new Error('Display configuration failed');
+    },
+  });
+  await harness.send({
+    type: 'setDescriptionDisplay',
+    fields: {
+      quantity: true,
+      marketValue: true,
+      weight: true,
+      profit: true,
+      dayProfit: false,
+    },
+    order: ['profit', 'quantity', 'marketValue', 'weight', 'dayProfit'],
+  });
+  const response = harness.messages.at(-1);
+  assert.equal(response?.type, 'operationError');
+  assert.equal(response?.message, 'Display configuration failed');
+  assert.deepEqual(response?.descriptionFields, {
+    quantity: true,
+    marketValue: true,
+    weight: true,
+    profit: true,
+    dayProfit: true,
+  });
+  assert.deepEqual(response?.descriptionFieldOrder, [
+    'quantity',
+    'marketValue',
+    'weight',
+    'profit',
+    'dayProfit',
+  ]);
 });
 
 test('manager saves cash together with holdings in one portfolio write', async () => {

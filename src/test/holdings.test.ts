@@ -7,6 +7,7 @@ import {
   calculateHoldingMetrics,
   DEFAULT_HOLDING_HKD_RATE,
   DEFAULT_HOLDING_DESCRIPTION_FIELDS,
+  DEFAULT_HOLDING_DESCRIPTION_FIELD_ORDER,
   DEFAULT_HOLDING_SORT,
   formatCashAmount,
   formatWeightPercent,
@@ -14,11 +15,13 @@ import {
   holdingAmountSortPaused,
   holdingDayChange,
   holdingIconKindOf,
+  holdingSortPaused,
   holdingWeightPercent,
   holdingSortLabel,
   holdingTreeContextValue,
   moveHolding,
   normalizeHoldingDescriptionFields,
+  normalizeHoldingDescriptionFieldOrder,
   normalizeHoldingHkdRate,
   sortHoldings,
   summarizeHoldings,
@@ -313,6 +316,27 @@ test('normalizes partial and malformed tree View fields against defaults', () =>
   });
 });
 
+test('normalizes field order by removing duplicates and appending missing fields', () => {
+  assert.deepEqual(
+    normalizeHoldingDescriptionFieldOrder(undefined),
+    [...DEFAULT_HOLDING_DESCRIPTION_FIELD_ORDER],
+  );
+  assert.deepEqual(
+    normalizeHoldingDescriptionFieldOrder([
+      'profit',
+      'quantity',
+      'profit',
+      'bogus',
+      42,
+    ]),
+    ['profit', 'quantity', 'marketValue', 'weight', 'dayProfit'],
+  );
+  assert.deepEqual(
+    normalizeHoldingDescriptionFieldOrder('not-an-array'),
+    [...DEFAULT_HOLDING_DESCRIPTION_FIELD_ORDER],
+  );
+});
+
 test('holding tree context values hide only reordering outside manual sort', () => {
   assert.equal(holdingTreeContextValue(DEFAULT_HOLDING_SORT), 'fishStock.holding');
   assert.equal(
@@ -344,6 +368,25 @@ test('buildHoldingDescriptionSegments omits the quantity segment when disabled',
   assert.deepEqual(
     buildHoldingDescriptionSegments(holding, metrics, { fields: flags }),
     ['15.00万', '+1,000(+0.67%)', '今日+2,000(+1.35%)'],
+  );
+});
+
+test('buildHoldingDescriptionSegments applies field order without changing content', () => {
+  const metrics = calculateHoldingMetrics(holding, sameDayQuote(1_500, 'live'), NOW);
+  assert.ok(metrics);
+  assert.deepEqual(
+    buildHoldingDescriptionSegments(holding, metrics, {
+      fields: DEFAULT_HOLDING_DESCRIPTION_FIELDS,
+      fieldOrder: ['dayProfit', 'profit', 'weight', 'marketValue', 'quantity'],
+      weightPercent: 50,
+    }),
+    [
+      '今日+2,000(+1.35%)',
+      '+1,000(+0.67%)',
+      '占比 50.00%',
+      '15.00万',
+      '100 股',
+    ],
   );
 });
 
@@ -483,6 +526,43 @@ test('sortHoldings sorts by amount rather than by rate', () => {
   );
 });
 
+test('sortHoldings sorts by position weight and puts unpriced holdings last', () => {
+  const withMissing = [...sortList, sortFixture('4', 100, 10)];
+  // 市值分别为 1,200、1,300、900，总资产 3,500（含现金 100）。
+  assert.deepEqual(
+    sortHoldings(
+      withMissing,
+      { key: 'weight', desc: true },
+      sortQuoteOf,
+      NOW,
+      null,
+      3_500,
+    ).map((item) => item.id),
+    ['2', '1', '3', '4'],
+  );
+  assert.deepEqual(
+    sortHoldings(
+      withMissing,
+      { key: 'weight', desc: false },
+      sortQuoteOf,
+      NOW,
+      null,
+      3_500,
+    ).map((item) => item.id),
+    ['3', '1', '2', '4'],
+  );
+});
+
+test('position weight sorting pauses when total assets are unavailable', () => {
+  const sort = { key: 'weight', desc: true } as const;
+  assert.equal(holdingSortPaused(sortList, sort, null, null), true);
+  assert.deepEqual(
+    sortHoldings(sortList, sort, sortQuoteOf, NOW, null, null),
+    sortList,
+  );
+  assert.equal(holdingSortPaused(sortList, sort, null, 3_500), false);
+});
+
 test('sortHoldings always puts unpriced holdings last', () => {
   const withMissing = [...sortList, sortFixture('4', 100, 10)];
   assert.deepEqual(
@@ -508,6 +588,7 @@ test('sortHoldings keeps the manual order for equal values', () => {
 
 test('holdingSortLabel describes the key and the direction', () => {
   assert.equal(holdingSortLabel({ key: 'manual', desc: true }), '默认顺序');
+  assert.equal(holdingSortLabel({ key: 'weight', desc: true }), '仓位（从高到低）');
   assert.equal(holdingSortLabel({ key: 'dayAmount', desc: true }), '今日盈亏金额（从高到低）');
   assert.equal(holdingSortLabel({ key: 'dayAmount', desc: false }), '今日盈亏金额（从低到高）');
 });

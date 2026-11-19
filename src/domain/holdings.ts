@@ -330,6 +330,26 @@ export const DEFAULT_HOLDING_DESCRIPTION_FIELDS: HoldingDescriptionFields = {
   dayProfit: true,
 };
 
+export type HoldingDescriptionField = keyof HoldingDescriptionFields;
+
+export const HOLDING_DESCRIPTION_FIELD_KEYS: readonly HoldingDescriptionField[] = [
+  'quantity',
+  'marketValue',
+  'weight',
+  'profit',
+  'dayProfit',
+];
+
+export const DEFAULT_HOLDING_DESCRIPTION_FIELD_ORDER:
+  readonly HoldingDescriptionField[] = HOLDING_DESCRIPTION_FIELD_KEYS;
+
+const HOLDING_DESCRIPTION_FIELD_KEY_SET: ReadonlySet<string> =
+  new Set(HOLDING_DESCRIPTION_FIELD_KEYS);
+
+function isHoldingDescriptionField(value: unknown): value is HoldingDescriptionField {
+  return typeof value === 'string' && HOLDING_DESCRIPTION_FIELD_KEY_SET.has(value);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -355,6 +375,34 @@ export function normalizeHoldingDescriptionFields(
     profit: field('profit'),
     dayProfit: field('dayProfit'),
   });
+}
+
+/**
+ * Settings JSON 可以替换数组、重复字段或写入未知字段。读取时去重、过滤未知项，
+ * 再把缺失字段按默认顺序补齐，保证展示逻辑始终拿到完整且确定的五项顺序。
+ */
+export function normalizeHoldingDescriptionFieldOrder(
+  value: unknown,
+): HoldingDescriptionField[] {
+  const seen = new Set<HoldingDescriptionField>();
+  const order: HoldingDescriptionField[] = [];
+  const add = (field: HoldingDescriptionField): void => {
+    if (!seen.has(field)) {
+      seen.add(field);
+      order.push(field);
+    }
+  };
+  if (Array.isArray(value)) {
+    for (const field of value) {
+      if (isHoldingDescriptionField(field)) {
+        add(field);
+      }
+    }
+  }
+  for (const field of DEFAULT_HOLDING_DESCRIPTION_FIELD_ORDER) {
+    add(field);
+  }
+  return order;
 }
 
 /**
@@ -401,6 +449,8 @@ export function toDisplayAmount(
 
 export interface HoldingDescriptionOptions {
   fields: HoldingDescriptionFields;
+  /** 描述行的字段顺序；省略时使用默认顺序。 */
+  fieldOrder?: readonly HoldingDescriptionField[];
   /** 港币折算人民币的汇率；null 或省略表示不折算。 */
   hkdRate?: number | null;
   /** 单只持仓占总资产的比例；省略表示当前上下文不展示。 */
@@ -418,27 +468,37 @@ export function buildHoldingDescriptionSegments(
   const display = (value: number): number =>
     toDisplayAmount(value, metrics.currency, hkdRate);
   const segments: string[] = [];
-  if (fields.quantity) {
-    segments.push(`${holding.quantity.toLocaleString('zh-CN')} ${holding.kind === 'fund' ? '份' : '股'}`);
-  }
-  if (fields.marketValue) {
-    segments.push(formatCompactMarketValue(display(metrics.marketValue)));
-  }
-  if (fields.weight && options.weightPercent !== undefined) {
-    segments.push(`占比 ${formatWeightPercent(options.weightPercent)}`);
-  }
-  if (fields.profit) {
-    segments.push(formatProfitCell(display(metrics.profit), metrics.returnPercent));
-  }
-  if (fields.dayProfit) {
-    segments.push(
-      suspended
-        ? '停牌'
-        : formatDayCell(
-          metrics.dayProfit === null ? null : display(metrics.dayProfit),
-          metrics.dayProfitPercent,
-        ),
-    );
+  const segmentOf = (field: HoldingDescriptionField): string | null => {
+    switch (field) {
+      case 'quantity':
+        return `${holding.quantity.toLocaleString('zh-CN')} ${
+          holding.kind === 'fund' ? '份' : '股'
+        }`;
+      case 'marketValue':
+        return formatCompactMarketValue(display(metrics.marketValue));
+      case 'weight':
+        return options.weightPercent === undefined
+          ? null
+          : `占比 ${formatWeightPercent(options.weightPercent)}`;
+      case 'profit':
+        return formatProfitCell(display(metrics.profit), metrics.returnPercent);
+      case 'dayProfit':
+        return suspended
+          ? '停牌'
+          : formatDayCell(
+            metrics.dayProfit === null ? null : display(metrics.dayProfit),
+            metrics.dayProfitPercent,
+          );
+    }
+  };
+  for (const field of options.fieldOrder ?? DEFAULT_HOLDING_DESCRIPTION_FIELD_ORDER) {
+    if (!fields[field]) {
+      continue;
+    }
+    const segment = segmentOf(field);
+    if (segment !== null) {
+      segments.push(segment);
+    }
   }
   return segments;
 }
@@ -612,6 +672,8 @@ export function holdingIconKindOf(
 export type HoldingSortKey =
   /** 用户在 Tree View 里手动排的顺序；从未调整过即等于添加顺序。 */
   | 'manual'
+  /** 单只持仓市值占总资产（含现金）的比例。 */
+  | 'weight'
   /** 浮动盈亏收益率（相对成本）。 */
   | 'profitPercent'
   /** 浮动盈亏金额。 */
@@ -636,6 +698,7 @@ export function holdingTreeContextValue(sort: HoldingSortState): string {
 /** 排序维度的中文名，命令面板与诊断报告共用，避免两处各写一份。 */
 export const HOLDING_SORT_LABELS: Readonly<Record<HoldingSortKey, string>> = {
   manual: '默认顺序',
+  weight: '仓位',
   profitPercent: '浮动盈亏收益率',
   profitAmount: '浮动盈亏金额',
   dayPercent: '今日盈亏收益率',
@@ -659,9 +722,23 @@ export function holdingAmountSortPaused(
     && hasMixedHoldingCurrencies(holdings);
 }
 
+/**
+ * 金额排序依赖港币折算，仓位排序依赖包含现金的总资产。
+ * 前置条件不成立时保留用户选择，但临时按手动顺序展示。
+ */
+export function holdingSortPaused(
+  holdings: readonly Holding[],
+  sort: HoldingSortState,
+  hkdRate: number | null,
+  totalAssets: number | null = null,
+): boolean {
+  return holdingAmountSortPaused(holdings, sort, hkdRate)
+    || (sort.key === 'weight' && totalAssets === null);
+}
+
 function sortValueOf(
   metrics: HoldingMetrics,
-  key: Exclude<HoldingSortKey, 'manual'>,
+  key: Exclude<HoldingSortKey, 'manual' | 'weight'>,
 ): number | null {
   switch (key) {
     case 'profitPercent':
@@ -688,8 +765,9 @@ export function sortHoldings(
   quoteOf: (holding: Holding) => Quote | undefined,
   now: Date = new Date(),
   hkdRate: number | null = null,
+  totalAssets: number | null = null,
 ): Holding[] {
-  if (sort.key === 'manual' || holdingAmountSortPaused(holdings, sort, hkdRate)) {
+  if (sort.key === 'manual' || holdingSortPaused(holdings, sort, hkdRate, totalAssets)) {
     return [...holdings];
   }
   const key = sort.key;
@@ -700,6 +778,15 @@ export function sortHoldings(
     const metrics = calculateHoldingMetrics(holding, quoteOf(holding), now);
     if (!metrics) {
       return { holding, value: null };
+    }
+    if (key === 'weight') {
+      return {
+        holding,
+        value: totalAssets !== null && totalAssets > 0
+          ? (toDisplayAmount(metrics.marketValue, metrics.currency, hkdRate)
+            / totalAssets) * 100
+          : null,
+      };
     }
     const raw = sortValueOf(metrics, key);
     return {

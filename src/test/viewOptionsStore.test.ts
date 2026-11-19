@@ -57,6 +57,18 @@ test('persists view modes per kind and reloads them', async () => {
   });
 });
 
+test('persists position weight sorting and direction', async () => {
+  const backing = new MemoryStateStore();
+  const store = new ViewOptionsStore(backing);
+  await store.load();
+  await store.setHoldingSort({ key: 'weight', desc: false });
+
+  const reloaded = new ViewOptionsStore(backing);
+  await reloaded.load();
+  assert.equal(reloaded.getSnapshot().holdingsSort, 'weight');
+  assert.equal(reloaded.getSnapshot().holdingsSortDesc, false);
+});
+
 test('defaults the holdings sort for state stored before it existed', async () => {
   const store = new ViewOptionsStore(
     new MemoryStateStore({

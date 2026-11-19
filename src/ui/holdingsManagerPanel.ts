@@ -11,7 +11,14 @@ import {
   materializeHoldingDraft,
   type HoldingDraftInput,
 } from '../domain/holdingDraft';
-import { cashBalanceOf, holdingDayChange } from '../domain/holdings';
+import {
+  cashBalanceOf,
+  holdingDayChange,
+  normalizeHoldingDescriptionFieldOrder,
+  normalizeHoldingDescriptionFields,
+  type HoldingDescriptionField,
+  type HoldingDescriptionFields,
+} from '../domain/holdings';
 import { quoteDisplayKind } from '../domain/quotePresentation';
 import {
   applyHoldingAdjustment,
@@ -48,6 +55,12 @@ export interface HoldingsManagerOptions {
   colorConvention(): ColorConvention;
   hkdRate(): number | null;
   setHkdRate(rate: number | null): Promise<void>;
+  descriptionFields(): HoldingDescriptionFields;
+  descriptionFieldOrder(): readonly HoldingDescriptionField[];
+  setDescriptionDisplay(
+    fields: HoldingDescriptionFields,
+    order: readonly HoldingDescriptionField[],
+  ): Promise<void>;
 }
 
 interface ManagerQuoteFields {
@@ -320,6 +333,12 @@ export class HoldingsManagerPanel implements Disposable {
     this.postState();
   }
 
+  public descriptionDisplayChanged(): void {
+    if (this.panel && this.webviewReady) {
+      this.postDescriptionDisplay();
+    }
+  }
+
   public dispose(): void {
     this.disposing = true;
     this.cancelSearch();
@@ -393,11 +412,21 @@ export class HoldingsManagerPanel implements Disposable {
       saveError: this.saveError,
       colorConvention: this.options.colorConvention(),
       hkdRate: this.options.hkdRate(),
+      descriptionFields: this.options.descriptionFields(),
+      descriptionFieldOrder: this.options.descriptionFieldOrder(),
       cash: this.currentCash(),
       clearSearch,
       watchlistEntries: this.watchlistSnapshot(),
       ...(focus ? { focus } : {}),
       ...(message ? { message } : {}),
+    });
+  }
+
+  private postDescriptionDisplay(): void {
+    void this.panel?.webview.postMessage({
+      type: 'descriptionDisplay',
+      fields: this.options.descriptionFields(),
+      order: this.options.descriptionFieldOrder(),
     });
   }
 
@@ -454,6 +483,22 @@ export class HoldingsManagerPanel implements Disposable {
             type: 'operationError',
             message: messageOf(error),
             hkdRate: this.options.hkdRate(),
+          });
+        }
+        return;
+      }
+      case 'setDescriptionDisplay': {
+        const fields = normalizeHoldingDescriptionFields(message.fields);
+        const order = normalizeHoldingDescriptionFieldOrder(message.order);
+        try {
+          await this.options.setDescriptionDisplay(fields, order);
+          this.postDescriptionDisplay();
+        } catch (error: unknown) {
+          void this.panel?.webview.postMessage({
+            type: 'operationError',
+            message: messageOf(error),
+            descriptionFields: this.options.descriptionFields(),
+            descriptionFieldOrder: this.options.descriptionFieldOrder(),
           });
         }
         return;
@@ -832,6 +877,15 @@ export class HoldingsManagerPanel implements Disposable {
     .cash-field input[type="number"] { width: 112px; }
     .cash-field select { color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); border-radius: 3px; padding: 6px 8px; font: inherit; }
     .asset-note { flex: 1 1 100%; color: var(--vscode-descriptionForeground); font-size: 12px; line-height: 1.6; }
+    .display-card { display: flex; align-items: flex-start; gap: 18px 28px; padding: 14px 16px; flex-wrap: wrap; }
+    .display-copy { flex: 1 1 260px; display: flex; flex-direction: column; gap: 4px; }
+    .display-copy strong { font-weight: 600; }
+    .display-copy span { color: var(--vscode-descriptionForeground); font-size: 12px; line-height: 1.6; }
+    .field-order-list { flex: 2 1 520px; display: flex; flex-wrap: wrap; gap: 8px; }
+    .field-order-row { display: inline-flex; align-items: center; gap: 6px; padding: 5px 7px; border: 1px solid var(--vscode-panel-border); border-radius: 4px; background: var(--vscode-editor-background); }
+    .field-order-row label { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; white-space: nowrap; }
+    .field-order-actions { display: inline-flex; gap: 3px; }
+    .field-order-actions button { padding: 1px 6px; font-size: 12px; line-height: 1.4; }
     .search-card { padding: 16px; }
     .add-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
     .tab { padding: 5px 14px; font-size: 12px; }
@@ -893,7 +947,7 @@ export class HoldingsManagerPanel implements Disposable {
     .notice { min-height: 22px; padding: 0 14px 10px; color: var(--vscode-descriptionForeground); }
     .notice.error { color: var(--vscode-errorForeground); }
     footer { color: var(--vscode-descriptionForeground); line-height: 1.6; }
-    @media (max-width: 720px) { body { padding: 18px 14px 28px; } header { display: block; } .summary { margin-top: 8px; } .asset-stats { grid-template-columns: repeat(2, minmax(120px, 1fr)); } .search-row { flex-wrap: wrap; } #searchInput { flex-basis: 100%; } }
+    @media (max-width: 720px) { body { padding: 18px 14px 28px; } header { display: block; } .summary { margin-top: 8px; } .asset-stats { grid-template-columns: repeat(2, minmax(120px, 1fr)); } .field-order-list { flex-basis: 100%; } .search-row { flex-wrap: wrap; } #searchInput { flex-basis: 100%; } }
   </style>
 </head>
 <body>
@@ -920,7 +974,15 @@ export class HoldingsManagerPanel implements Disposable {
         <option value="HKD">HKD</option>
       </select>
     </div>
-    <div class="asset-note">现金是手动余额，不参与浮动盈亏或当日盈亏；总资产 = 持仓市值 + 现金，单只占比按总资产计算。</div>
+    <div id="assetNote" class="asset-note">现金是手动余额，不参与浮动盈亏或当日盈亏；总资产 = 持仓市值 + 现金，单只占比按总资产计算。</div>
+  </section>
+
+  <section class="card display-card" aria-label="Holdings Tree View 描述字段">
+    <div class="display-copy">
+      <strong>Tree View 描述行</strong>
+      <span>勾选要展示的字段，用 ↑ ↓ 调整左右顺序。这里只改变 Holdings 条目描述，不影响管理页表格或悬浮卡详情。</span>
+    </div>
+    <div id="fieldOrderList" class="field-order-list"></div>
   </section>
 
   <section class="card search-card" aria-label="添加持仓">
@@ -1007,6 +1069,7 @@ export class HoldingsManagerPanel implements Disposable {
     const assetInvested = document.getElementById('assetInvested');
     const assetCashPercent = document.getElementById('assetCashPercent');
     const assetNote = document.getElementById('assetNote');
+    const fieldOrderList = document.getElementById('fieldOrderList');
     const dirtyBadge = document.getElementById('dirtyBadge');
     const validationStatus = document.getElementById('validationStatus');
     const validationMessage = document.getElementById('validationMessage');
@@ -1054,6 +1117,23 @@ export class HoldingsManagerPanel implements Disposable {
     let hkdRate = null;
     let lastHkdRate = 0.9;
     let cash = { amount: '0', currency: 'CNY' };
+    const descriptionFieldLabels = {
+      quantity: '数量',
+      marketValue: '市值',
+      weight: '仓位',
+      profit: '浮动盈亏',
+      dayProfit: '当日盈亏'
+    };
+    const descriptionFieldKeys = ['quantity', 'marketValue', 'weight', 'profit', 'dayProfit'];
+    let descriptionFields = {
+      quantity: true,
+      marketValue: true,
+      weight: true,
+      profit: true,
+      dayProfit: true
+    };
+    let descriptionFieldOrder = descriptionFieldKeys.slice();
+    let descriptionSaving = false;
     let openAdjustSymbol = '';
     let adjustState = null;
     let adjustCanApply = false;
@@ -1329,6 +1409,106 @@ export class HoldingsManagerPanel implements Disposable {
       updateWatchlistControls();
       selectAll.checked = rows.length > 0 && selectedRows.size === rows.length;
       selectAll.indeterminate = selectedRows.size > 0 && selectedRows.size < rows.length;
+    }
+
+    function updateDescriptionState(fields, order) {
+      const nextFields = {};
+      descriptionFieldKeys.forEach(function (key) {
+        nextFields[key] = Boolean(fields && fields[key]);
+      });
+      if (!descriptionFieldKeys.some(function (key) { return nextFields[key]; })) {
+        nextFields.marketValue = true;
+      }
+      descriptionFields = nextFields;
+      const seen = new Set();
+      const nextOrder = [];
+      if (Array.isArray(order)) {
+        order.forEach(function (key) {
+          if (descriptionFieldKeys.includes(key) && !seen.has(key)) {
+            seen.add(key);
+            nextOrder.push(key);
+          }
+        });
+      }
+      descriptionFieldKeys.forEach(function (key) {
+        if (!seen.has(key)) {
+          seen.add(key);
+          nextOrder.push(key);
+        }
+      });
+      descriptionFieldOrder = nextOrder;
+    }
+
+    function commitDescriptionDisplay() {
+      if (descriptionSaving) return;
+      descriptionSaving = true;
+      renderDescriptionFields();
+      vscode.postMessage({
+        type: 'setDescriptionDisplay',
+        fields: Object.assign({}, descriptionFields),
+        order: descriptionFieldOrder.slice()
+      });
+    }
+
+    function renderDescriptionFields() {
+      fieldOrderList.replaceChildren();
+      descriptionFieldOrder.forEach(function (key, index) {
+        const row = document.createElement('div');
+        row.className = 'field-order-row';
+
+        const label = document.createElement('label');
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = Boolean(descriptionFields[key]);
+        checkbox.disabled = descriptionSaving;
+        checkbox.setAttribute('aria-label', '在 Tree View 展示' + descriptionFieldLabels[key]);
+        checkbox.addEventListener('change', function () {
+          const next = Object.assign({}, descriptionFields, { [key]: checkbox.checked });
+          if (!descriptionFieldKeys.some(function (field) { return next[field]; })) {
+            next.marketValue = true;
+          }
+          descriptionFields = next;
+          commitDescriptionDisplay();
+        });
+        label.append(checkbox, document.createTextNode(descriptionFieldLabels[key]));
+        row.appendChild(label);
+
+        const actions = document.createElement('div');
+        actions.className = 'field-order-actions';
+        const up = document.createElement('button');
+        up.type = 'button';
+        up.className = 'secondary';
+        up.textContent = '↑';
+        up.title = '向前移动';
+        up.disabled = descriptionSaving || index === 0;
+        up.setAttribute('aria-label', '将' + descriptionFieldLabels[key] + '向前移动');
+        up.addEventListener('click', function () {
+          if (descriptionSaving || index === 0) return;
+          const next = descriptionFieldOrder.slice();
+          const moved = next.splice(index, 1)[0];
+          next.splice(index - 1, 0, moved);
+          descriptionFieldOrder = next;
+          commitDescriptionDisplay();
+        });
+        const down = document.createElement('button');
+        down.type = 'button';
+        down.className = 'secondary';
+        down.textContent = '↓';
+        down.title = '向后移动';
+        down.disabled = descriptionSaving || index === descriptionFieldOrder.length - 1;
+        down.setAttribute('aria-label', '将' + descriptionFieldLabels[key] + '向后移动');
+        down.addEventListener('click', function () {
+          if (descriptionSaving || index === descriptionFieldOrder.length - 1) return;
+          const next = descriptionFieldOrder.slice();
+          const moved = next.splice(index, 1)[0];
+          next.splice(index + 1, 0, moved);
+          descriptionFieldOrder = next;
+          commitDescriptionDisplay();
+        });
+        actions.append(up, down);
+        row.appendChild(actions);
+        fieldOrderList.appendChild(row);
+      });
     }
 
     function setNotice(message, isError) {
@@ -2118,11 +2298,20 @@ export class HoldingsManagerPanel implements Disposable {
         document.body.classList.toggle('international', colorConvention === 'international');
         updateHkdRate(message.hkdRate, true);
         updateCash(message.cash, true);
+        updateDescriptionState(message.descriptionFields, message.descriptionFieldOrder);
+        descriptionSaving = false;
+        renderDescriptionFields();
         selectedRows.clear();
         renderRows(message.focus);
         renderSearchResults();
         if (activePane === 'watchlist') renderWatchlistEntries();
         setNotice(message.saveError || message.message || '', Boolean(message.saveError));
+        return;
+      }
+      if (message.type === 'descriptionDisplay') {
+        updateDescriptionState(message.fields, message.order);
+        descriptionSaving = false;
+        renderDescriptionFields();
         return;
       }
       if (message.type === 'adjustPreviewResult') {
@@ -2194,6 +2383,11 @@ export class HoldingsManagerPanel implements Disposable {
       }
       if (message.type === 'saveError' || message.type === 'operationError') {
         if ('hkdRate' in message) updateHkdRate(message.hkdRate, true);
+        if ('descriptionFields' in message) {
+          updateDescriptionState(message.descriptionFields, message.descriptionFieldOrder);
+          descriptionSaving = false;
+          renderDescriptionFields();
+        }
         setNotice(message.message || '操作失败', true);
       }
     });

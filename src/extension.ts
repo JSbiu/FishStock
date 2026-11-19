@@ -19,6 +19,7 @@ import { registerHoldingsCommands } from './commands/registerHoldingsCommands';
 import { registerWatchlistCommands } from './commands/registerWatchlistCommands';
 import {
   readConfig,
+  readHoldingDescriptionFieldOrder,
   readHoldingDescriptionFields,
   readHoldingHkdRate,
 } from './config';
@@ -47,6 +48,10 @@ import {
 } from './domain/futuresSessions';
 import { marketSessionFor, shouldAutoRefreshSymbol } from './domain/marketSessions';
 import { holdingCandidatesFromWatchlists } from './domain/holdingCandidates';
+import {
+  buildHoldingGroupCatalog,
+  holdingGroupAssignment,
+} from './domain/holdingGroups';
 import {
   holdingSortLabel,
 } from './domain/holdings';
@@ -226,6 +231,10 @@ export async function activate(context: ExtensionContext): Promise<void> {
     statusBarDisplay.load(),
   ]);
 
+  let holdingGroupCatalog = buildHoldingGroupCatalog(
+    stockRepository.getSnapshot(),
+    fundRepository.getSnapshot(),
+  );
   let config = readConfig();
   const stockProvider = new TencentDataProvider({
     bseDirectory: new BseSecurityDirectory(context.globalState),
@@ -301,6 +310,10 @@ export async function activate(context: ExtensionContext): Promise<void> {
     {
       quoteOf: holdingQuote,
       providerNameOf: holdingProviderName,
+      groupOf: (holding) => holdingGroupAssignment(
+        holding,
+        holdingGroupCatalog,
+      ),
     },
     config.colorConvention,
     {
@@ -309,6 +322,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
     },
     readHoldingDescriptionFields(),
     readHoldingHkdRate(),
+    readHoldingDescriptionFieldOrder(),
   );
   const stockTreeView = window.createTreeView('fishStock.stock', {
     treeDataProvider: stockTreeProvider,
@@ -333,6 +347,13 @@ export async function activate(context: ExtensionContext): Promise<void> {
     holdingsTreeView,
     holdingsTreeProvider,
   );
+  const refreshHoldingGroupCatalog = (): void => {
+    holdingGroupCatalog = buildHoldingGroupCatalog(
+      stockRepository.getSnapshot(),
+      fundRepository.getSnapshot(),
+    );
+    holdingsTreeRefresh.requestRefresh();
+  };
   const updateHoldingsMessage = (): void => {
     const snapshot = holdingsRepository.getSnapshot();
     holdingsTreeView.message = snapshot.holdings.length === 0
@@ -811,6 +832,23 @@ export async function activate(context: ExtensionContext): Promise<void> {
       await workspace.getConfiguration('fishStock.holdings')
         .update('hkdToCnyRate', rate, ConfigurationTarget.Global);
     },
+    descriptionFields: readHoldingDescriptionFields,
+    descriptionFieldOrder: readHoldingDescriptionFieldOrder,
+    setDescriptionDisplay: async (fields, order) => {
+      const config = workspace.getConfiguration('fishStock.holdings');
+      const currentFields = readHoldingDescriptionFields();
+      const currentOrder = readHoldingDescriptionFieldOrder();
+      const sameFields = (Object.keys(fields) as Array<keyof typeof fields>)
+        .every((key) => fields[key] === currentFields[key]);
+      const sameOrder = order.length === currentOrder.length
+        && order.every((field, index) => field === currentOrder[index]);
+      if (!sameFields) {
+        await config.update('treeViewFields', fields, ConfigurationTarget.Global);
+      }
+      if (!sameOrder) {
+        await config.update('treeViewFieldOrder', order, ConfigurationTarget.Global);
+      }
+    },
   });
   holdingsManagerRef.current = holdingsManager;
 
@@ -933,6 +971,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
       treeProvider: stockTreeProvider,
       set: buildStockCommandSet(),
       registerCommonCommands: true,
+      onRepositoryChange: refreshHoldingGroupCatalog,
     }),
     ...registerWatchlistCommands({
       repository: fundRepository,
@@ -945,6 +984,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
       viewOptions,
       treeProvider: fundTreeProvider,
       set: buildFundCommandSet(),
+      onRepositoryChange: refreshHoldingGroupCatalog,
     }),
     ...registerWatchlistCommands({
       repository: futuresRepository,
@@ -1016,10 +1056,15 @@ export async function activate(context: ExtensionContext): Promise<void> {
       sessionMonitors.futures?.refresh();
     }),
     workspace.onDidChangeConfiguration((event) => {
-      if (!event.affectsConfiguration('fishStock.holdings.treeViewFields')) {
+      if (
+        !event.affectsConfiguration('fishStock.holdings.treeViewFields')
+        && !event.affectsConfiguration('fishStock.holdings.treeViewFieldOrder')
+      ) {
         return;
       }
       holdingsTreeProvider.setFieldFlags(readHoldingDescriptionFields());
+      holdingsTreeProvider.setFieldOrder(readHoldingDescriptionFieldOrder());
+      holdingsManagerRef.current?.descriptionDisplayChanged();
     }),
     workspace.onDidChangeConfiguration((event) => {
       if (!event.affectsConfiguration('fishStock.holdings.hkdToCnyRate')) {
