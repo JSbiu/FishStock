@@ -476,3 +476,24 @@ FishStock 是面向开发者的轻量 VS Code 行情看板，另带一个可选�
 - 原生 Tree View 回归覆盖描述行顺序、按仓位排序、分组父节点、组行、现金行和自选分组归属。隔离 Extension Host 冒烟验证字段顺序配置即时同步、保存现金后出现分组汇总、默认分组和现金行。
 - 完整 `pnpm run release:check` 通过，ESLint、严格 TypeScript、单元测试、Extension Host 冒烟、版本与包内容检查和稳定通道 VSIX 打包成功，生成 `fish-stock-0.8.7.vsix`（60 个文件、约 188 KB）。Windows 删除隔离冒烟 Profile 时仍输出一次 EPERM 清理警告，但冒烟子进程退出码为 0，不覆盖测试结论。
 - 本版未安装到日常 VS Code、未上传 Marketplace；Marketplace 商店版本与真实用户升级反馈仍未核实。
+
+## 0.8.8 持仓字段顺序修复、总资产悬窗与标签汇总
+
+制定与完成日期：2026-11-19。状态：实现、296 个单元与回归测试、隔离 Extension Host 冒烟及完整发布门槛通过，交付本地 `fish-stock-0.8.8.vsix`；继续保留 `Preview`。
+
+目标：修正 0.8.7 字段顺序在实际使用中没有稳定生效的问题；把组合汇总从独立 Tree View 节点移入总资产悬窗；增加用户可手填的标签，使组合汇总不必依赖 Stock / Fund 自选分组。
+
+### 完成范围
+
+1. **字段顺序修复。** 管理页写入 `treeViewFields` 和 `treeViewFieldOrder` 后，扩展侧直接更新 Tree View 的字段开关、顺序和原生视图，不再只等待配置变更事件。管理页的 ↑ ↓ 操作仍立即写入 Global 配置。
+2. **总资产悬窗。** 删除独立的「分组汇总」Tree View 父节点和子行，只在总资产行的 Markdown 悬窗内展示汇总。每个分组或标签显示市值、仓位、浮动盈亏与收益率；现金单列为「现金（未分组）」。
+3. **手动标签。** `Holding` 增加可选 `tag`，管理页表格增加「标签」列，可留空、修改或清空。标签随持仓草稿一起保存，旧数据没有标签时按未标注处理，不提升 `fishStock.holdings.v1` 版本。
+4. **汇总口径选择。** 新增 `fishStock.holdings.summaryMode`：`group` 读取 Stock / Fund 自选分组，`tag` 读取手动标签。管理页工具栏提供「汇总」下拉框，Holdings 标题栏增加命令 `fishStock.selectHoldingsSummaryMode`。标签模式下同标签跨股票 / ETF 合并，未填写标签归入「未标注」并排在最后。
+5. **边界。** 不新增独立分组管理、行业/板块、Top N、多账户、多币种现金账户或交易流水；分组和标签都只影响总资产悬窗的展示，不改变持仓主列表顺序、行情刷新或存储键。
+
+### 验收与限制
+
+- `pnpm run check` 通过，共 296 个单元与回归测试；覆盖字段顺序归一化与管理页消息、标签草稿与存储、按标签分桶、未标注排序、按分组 / 标签的悬窗内容、缺价与混币说明，以及汇总方式命令。
+- 隔离 Extension Host 冒烟覆盖标签保存、字段顺序直接更新、汇总方式配置即时同步，以及总资产悬窗中的标签分组和现金行。
+- 完整 `pnpm run release:check` 通过，ESLint、严格 TypeScript、单元测试、Extension Host 冒烟、版本与包内容检查和稳定通道 VSIX 打包成功，生成 `fish-stock-0.8.8.vsix`（60 个文件、约 191 KB）。Windows 删除隔离冒烟 Profile 时仍输出一次 EPERM 清理警告，但冒烟子进程退出码为 0，不覆盖测试结论。
+- 本版未安装到日常 VS Code、未上传 Marketplace；Marketplace 商店版本与真实用户升级反馈仍未核实。
